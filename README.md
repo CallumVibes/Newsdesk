@@ -1,8 +1,8 @@
 # Newsdesk
 
-A clean, remote-friendly news app for the Fire TV Stick. No clutter, just news.
+A clean news app for the Fire TV Stick and for Android phones. No clutter, just news.
 
-Headlines on the left, a large preview on the right, and a full-screen reader. Everything is driven by the D-pad.
+One build, two layouts. On a TV it's headlines on the left, a large preview on the right, and a full-screen reader, all driven by the D-pad. On a phone it's a single column of headlines you tap to read. The app works out which one it is when it starts.
 
 ## Sources
 
@@ -17,7 +17,7 @@ Headlines on the left, a large preview on the right, and a full-screen reader. E
 - **Today** — an optional AI briefing, then the day's biggest stories, local news, and Bitcoin and markets.
 - **All** — everything, taking turns between sources so none of them floods the list.
 
-## Remote
+## Remote (Fire TV)
 
 | Button | Does |
 | --- | --- |
@@ -28,6 +28,19 @@ Headlines on the left, a large preview on the right, and a full-screen reader. E
 | Back | Top of list, then Today, then exit |
 
 After 3 idle minutes it shows one story at a time, dimmed and drifting to protect the screen. Any button wakes it.
+
+## Touch (phone and tablet)
+
+| Gesture | Does |
+| --- | --- |
+| Tap a tab | Switch tab |
+| Swipe left or right | Switch tab, or move between stories in the reader |
+| Tap a headline | Read the story |
+| Scroll | Normal scrolling throughout |
+| ☰ (top right) | Sources panel: what loaded, from where, and any errors |
+| Back | Top of list, then Today, then exit |
+
+The phone keeps its status bar, rotates freely and is left to sleep on its own, so there's no idle screen and nothing holds the display awake.
 
 ## Build
 
@@ -66,4 +79,4 @@ Near the top of `app/src/main/assets/index.html`:
 
 ## Requirements
 
-Fire OS 5 or newer (Android 5.1+). Built with Gradle 8.9, Java 17 and AGP 8.5.
+Fire OS 5 or newer, or an Android 5.1+ phone or tablet. One APK covers both. Built with Gradle 8.9, Java 17 and AGP 8.5.
