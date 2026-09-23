@@ -46,11 +46,16 @@ that can't be read is left out rather than guessed at, and the sources panel say
 missing. Nothing needs an API key.
 
 The debt comes from the Office for National Statistics, which publishes public sector net debt
-monthly in millions — the figure every counter site is derived from. The newest month is the
-total, and the change over the year before it sets the pace to count on at, so the rate is
-measured rather than assumed. `ONS_DEBT_URL` holds the series; change it there if the ONS moves
-it. A counter site is tried next, and `DEBT_SEED` — a real reading with the date it was taken —
-last of all, which the panel then calls an estimate.
+monthly — the figure every counter site is derived from. The newest month is the total, and the
+change over the year before it sets the pace to count on at, so the rate is measured rather than
+assumed.
+
+The same measure is published as several series in different units, and one of them is a
+percentage of GDP, which answers about 95 and looks like a perfectly good number. So the unit is
+worked out from the size of the answer rather than assumed, and `ONS_DEBT_URLS` is tried in turn
+until one lands where a national debt could plausibly be. A series that has stopped publishing is
+refused too, however plausible its last figure. A counter site is tried next, and `DEBT_SEED` — a
+real reading with the date it was taken — last of all, which the panel then calls an estimate.
 
 That seed also guards the other two: a total is rejected unless it is within half to twice what
 the seed extrapolates to, wide enough for years of drift but enough to catch a figure off by a
