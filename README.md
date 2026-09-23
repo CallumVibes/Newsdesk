@@ -8,6 +8,7 @@ One build, two layouts. On a TV it's headlines on the left, a large preview on t
 
 | Source | How it's read |
 | --- | --- |
+| Prices | Bitcoin from CoinGecko, Coinbase or blockchain.info; gold and oil from Stooq or Yahoo, converted at a rate from Frankfurter; the debt total from uknationaldebt.com. |
 | Citadel Wire | Nostr notes from `npub1q8g803ajr0lw3xngs0k6hn2q3mejf6dtgv05d06h6krqgv9uh97q5382kp`, with the site's RSS feeds as backup. Each wire is split into its individual stories. |
 | Kagi News | RSS per category: UK, World, Technology, Science and Bitcoin. UK stories are given priority. Summaries are licensed CC BY-NC. |
 | Vegan Food & Living | The site's news feed, with its WordPress API and any feed advertised on the homepage as backup. |
@@ -26,6 +27,21 @@ One build, two layouts. On a TV it's headlines on the left, a large preview on t
 
 Every tab but Today is a flat newest-first list, taking turns between its sources. Headlines
 carry a small picture, fetched only once the row is nearly on screen.
+
+## Prices
+
+Bitcoin, gold, oil and the national debt, all in pounds. On the TV they sit in a band under
+the tabs; on a phone they take the top right corner, where the clock used to be, since the
+phone shows the time in its own status bar anyway. Each price carries its move over the day.
+
+Gold and oil are quoted in dollars wherever you look, so they are converted with a live rate.
+Every figure has a chain of providers tried in turn, and gold and oil fall back to the dollar
+line the Citadel Wire already prints, so one dead endpoint doesn't empty the banner. Anything
+that can't be read is left out rather than guessed at, and the sources panel says what is
+missing. Nothing needs an API key.
+
+The debt counter reads the running total and the per-second rate off the page and carries on
+counting between refreshes. If only the total can be read it sits still, which is no bad thing.
 
 ## What reaches Breaking
 
@@ -104,6 +120,9 @@ Near the top of `app/src/main/assets/index.html`:
 | `KG_BREAKING_MIN` / `KG_BREAKING_SHARE` | How widely covered a Kagi story must be to count |
 | `URGENT_WORDS` / `SOFT_WORDS` | What makes a local headline important, or not |
 | `ROW_IMAGES` | Small picture on each headline; `false` for text only |
+| `BTC_SOURCES`, `GOLD_SOURCES`, `OIL_SOURCES` | Where prices come from, tried in order |
+| `RATE_SOURCES` | Where the dollar to pound rate comes from |
+| `MKT_STALE_MS` | How old a price may be before it stops being shown |
 | `KAGI_WANT` | Which Kagi categories to pull |
 | `KAGI_BOOST` | How much of a head start UK stories get |
 | `EVENT_WINDOW_DAYS` | How far ahead **On in town** looks before falling back to the soonest events |
