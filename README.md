@@ -74,6 +74,7 @@ Near the top of `app/src/main/assets/index.html`:
 | --- | --- |
 | `HOME_TAB` | Which tab opens first |
 | `BREAKING_HOURS` | How new a story must be to count as breaking |
+| `BREAKING_PER_SOURCE` | Most stories one source may put on **Breaking news** |
 | `KAGI_WANT` | Which Kagi categories to pull |
 | `KAGI_BOOST` | How much of a head start UK stories get |
 | `EVENT_WINDOW_DAYS` | How far ahead **On in town** looks before falling back to the soonest events |
