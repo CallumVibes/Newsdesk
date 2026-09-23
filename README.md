@@ -27,8 +27,11 @@ One build, two layouts. On a TV it's headlines on the left, a large preview on t
 - **All** — everything, taking turns between sources so none of them floods the list.
 
 The Citadel Wire files nothing under a category, so each of its stories is placed by what it
-says: money and markets to Bitcoin, technology and science to Tech, and everything else to
-UK & World. `CW_TOPICS` holds the two word lists that decide it, and is meant to be edited.
+says: **Bitcoin** means bitcoin itself, not money in general, since a wire like this one carries a
+great deal about oil, bonds and banks and none of that belongs there. Technology and science go
+to Tech, and everything else, financial or not, to UK & World. A wire that would not split is the
+whole wire, prices and all, so it goes to UK & World rather than looking like a bitcoin story.
+`CW_TOPICS` holds the two word lists that decide it, and is meant to be edited.
 
 Every tab but Today is a flat newest-first list, taking turns between its sources. Headlines
 carry a small picture, fetched only once the row is nearly on screen.
