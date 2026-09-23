@@ -114,7 +114,16 @@ It's signed with a fixed key, so each build installs over the last one.
 
 ## AI briefing (optional)
 
-Add a repository secret named `PPQ_API_KEY` with a [PPQ.ai](https://ppq.ai) key and rebuild. The app then writes a short briefing each morning from that day's stories, rewriting it at most every 3 hours and never more than 6 times a day.
+Add a repository secret named `PPQ_API_KEY` with a [PPQ.ai](https://ppq.ai) key and rebuild. The app
+then writes three briefings a day from the stories in **Today**: a **morning** edition from 05:00, an
+**afternoon** one from 12:00 and an **evening** one from 17:00. Each is written once, the first time the
+app refreshes after its hour, so nothing is written while the app is shut and a missed edition stays
+missed rather than arriving late. The last one written stays up until the next is due.
+
+Each edition is told which one it is, and is given the previous one so it carries on rather than repeats:
+the morning leads on what happened overnight, the afternoon on what has moved since, the evening draws
+the day together. `BRIEF_SLOTS` sets the hours and the angle of each. `BRIEF_MAX_PER_DAY` still caps the
+paid calls, retries included.
 
 Optionally add a repository variable `PPQ_MODEL` to pick a model. The default is `claude-sonnet-4-5`.
 
