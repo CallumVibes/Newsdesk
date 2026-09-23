@@ -12,13 +12,13 @@ One build, two layouts. On a TV it's headlines on the left, a large preview on t
 | Citadel Wire | Nostr notes from `npub1q8g803ajr0lw3xngs0k6hn2q3mejf6dtgv05d06h6krqgv9uh97q5382kp`, with the site's RSS feeds as backup. Each wire is split into its individual stories. |
 | Kagi News | RSS per category: UK, World, Technology, Science and Bitcoin. UK stories are given priority. Summaries are licensed CC BY-NC. |
 | Vegan Food & Living | The site's news feed, with its WordPress API and any feed advertised on the homepage as backup. |
-| Leominster events | What's on in town, from the `council_events` listing. Tried as the WordPress API, then the listing's feed, then the listing page itself. The listing often carries only a title and a link, so opening an event fetches its own page for the details and the date. |
+| Local events | What's on in town, from the town council's `council_events` listing. Tried as the WordPress API, then the listing's feed, then the listing page itself. The listing often carries only a title and a link, so opening an event fetches its own page for the details and the date. |
 
 ## Tabs
 
 - **Breaking** — only what matters to everyone, and only while it's recent. See below.
 - **Today** — an optional AI briefing, then the day's biggest stories, local news, vegan food and living, what's on in town, and Bitcoin and markets.
-- **Local** — Hereford Times, Your Herefordshire and what's on in town.
+- **Local** — the two local news sites and what's on in town.
 - **UK & World** — Kagi's UK and World categories.
 - **Tech** — Kagi's Technology and Science categories.
 - **Bitcoin** — the Citadel Wire alongside Kagi's Bitcoin category.
