@@ -10,11 +10,13 @@ One build, two layouts. On a TV it's headlines on the left, a large preview on t
 | --- | --- |
 | Citadel Wire | Nostr notes from `npub1q8g803ajr0lw3xngs0k6hn2q3mejf6dtgv05d06h6krqgv9uh97q5382kp`, with the site's RSS feeds as backup. Each wire is split into its individual stories. |
 | Kagi News | RSS per category: UK, World, Technology, Science and Bitcoin. UK stories are given priority. Summaries are licensed CC BY-NC. |
+| Vegan Food & Living | The site's news feed, with its WordPress API and any feed advertised on the homepage as backup. |
+| Leominster events | What's on in town, from the `council_events` listing. Tried as the WordPress API, then the listing's feed, then the listing page itself. |
 
 ## Tabs
 
 - **Breaking news** — everything from the last 3 hours, newest first. A red dot marks unseen stories.
-- **Today** — an optional AI briefing, then the day's biggest stories, local news, and Bitcoin and markets.
+- **Today** — an optional AI briefing, then the day's biggest stories, local news, vegan food and living, what's on in town, and Bitcoin and markets.
 - **All** — everything, taking turns between sources so none of them floods the list.
 
 ## Remote (Fire TV)
@@ -74,8 +76,20 @@ Near the top of `app/src/main/assets/index.html`:
 | `BREAKING_HOURS` | How new a story must be to count as breaking |
 | `KAGI_WANT` | Which Kagi categories to pull |
 | `KAGI_BOOST` | How much of a head start UK stories get |
+| `EVENT_WINDOW_DAYS` | How far ahead **On in town** looks before falling back to the soonest events |
+| `EVENTS_SHOWN` | How many events sit in Today |
 | `CW_RELAYS` | Which Nostr relays to ask |
 | `IDLE_AFTER_MS` | How long before the idle screen starts |
+
+## Events
+
+**On in town** is a diary, not a news feed, so it behaves differently from every other source:
+
+- It sorts forwards. The next thing on is at the top, and anything already over drops to the bottom.
+- It never appears under **Breaking news**, and a future date can't masquerade as a story that just broke.
+- Rows read "Tomorrow, 16:30" rather than "2h ago". An event whose date can't be read shows no time at all rather than the day it was posted.
+
+The date comes from the listing's own field where it has one, and is otherwise read out of the title or the blurb ("5 September 2026", "12th June at 4:30pm"). The AI briefing is told these are upcoming events rather than news, and is given the date.
 
 ## Requirements
 
