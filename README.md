@@ -9,7 +9,7 @@ One build, two layouts. On a TV it's headlines on the left, a large preview on t
 | Source | How it's read |
 | --- | --- |
 | Prices | Bitcoin from CoinGecko, Coinbase or blockchain.info; gold and oil from Yahoo or Stooq, converted at a rate from Frankfurter; the debt from the ONS, then a counter site. The sources panel names whichever answered, and the dollar figure gold and oil were converted from. |
-| Citadel Wire | Nostr notes from `npub1q8g803ajr0lw3xngs0k6hn2q3mejf6dtgv05d06h6krqgv9uh97q5382kp`, with the site's RSS feeds as backup. Each wire is split into its individual stories. |
+| Citadel Wire | Each wire holds several stories and is split into them, by list, by numbering, by heading, or by blank-line blocks. A wire that resists all four is kept whole as one digest, and only the newest such digest is shown. Nostr notes from `npub1q8g803ajr0lw3xngs0k6hn2q3mejf6dtgv05d06h6krqgv9uh97q5382kp`, with the site's RSS feeds as backup. Each wire is split into its individual stories. |
 | Kagi News | RSS per category: UK, World, Technology, Science and Bitcoin. UK stories are given priority. Summaries are licensed CC BY-NC. |
 | Vegan Food & Living | The site's news feed, with its WordPress API and any feed advertised on the homepage as backup. |
 | Local events | What's on in town, from the town council's `council_events` listing. Tried as the WordPress API, then the listing's feed, then the listing page itself. The listing often carries only a title and a link, so opening an event fetches its own page for the details and the date. |
@@ -19,11 +19,15 @@ One build, two layouts. On a TV it's headlines on the left, a large preview on t
 - **Breaking** — only what matters to everyone, and only while it's recent. See below.
 - **Today** — an optional AI briefing, then the day's biggest stories, local news, vegan food and living, what's on in town, and Bitcoin and markets.
 - **Local** — the two local news sites and what's on in town.
-- **UK & World** — Kagi's UK and World categories.
-- **Tech** — Kagi's Technology and Science categories.
-- **Bitcoin** — the Citadel Wire alongside Kagi's Bitcoin category.
+- **UK & World** — Kagi's UK and World categories, plus general news off the wire.
+- **Tech** — Kagi's Technology and Science categories, plus anything technical off the wire.
+- **Bitcoin** — Kagi's Bitcoin category, plus money and markets off the wire.
 - **Vegan** — Vegan Food & Living.
 - **All** — everything, taking turns between sources so none of them floods the list.
+
+The Citadel Wire files nothing under a category, so each of its stories is placed by what it
+says: money and markets to Bitcoin, technology and science to Tech, and everything else to
+UK & World. `CW_TOPICS` holds the two word lists that decide it, and is meant to be edited.
 
 Every tab but Today is a flat newest-first list, taking turns between its sources. Headlines
 carry a small picture, fetched only once the row is nearly on screen.
