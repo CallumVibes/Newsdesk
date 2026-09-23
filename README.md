@@ -11,6 +11,7 @@ One build, two layouts. On a TV it's headlines on the left, a large preview on t
 | Prices | Bitcoin from CoinGecko, Coinbase or blockchain.info; gold and oil from Yahoo or Stooq, converted at a rate from Frankfurter; the debt from the ONS, then a counter site. The sources panel names whichever answered, and the dollar figure gold and oil were converted from. |
 | Citadel Wire | Each wire holds several stories and is split into them, by list, by numbering, by heading, or by blank-line blocks. A wire that resists all four is kept whole as one digest, and only the newest such digest is shown. Nostr notes from `npub1q8g803ajr0lw3xngs0k6hn2q3mejf6dtgv05d06h6krqgv9uh97q5382kp`, with the site's RSS feeds as backup. Each wire is split into its individual stories. |
 | Kagi News | RSS per category: UK, World, Technology, Science and Bitcoin. UK stories are given priority. Summaries are licensed CC BY-NC. |
+| BBC News | A BBC topic page. Read from the schema.org listing the page publishes for search engines, which carries the headline, link, time and summary and outlives any amount of front-end rebuilding. Its links are read only if that is missing. `BB_FEEDS` takes a feed address to use in place of the page. |
 | Vegan Food & Living | The site's news feed, with its WordPress API and any feed advertised on the homepage as backup. |
 | Local events | What's on in town, from the town council's `council_events` listing. Tried as the WordPress API, then the listing's feed, then the listing page itself. The listing often carries only a title and a link, so opening an event fetches its own page for the details and the date. |
 
@@ -18,7 +19,7 @@ One build, two layouts. On a TV it's headlines on the left, a large preview on t
 
 - **Breaking** — only what matters to everyone, and only while it's recent. See below.
 - **Today** — an optional AI briefing, then the day's biggest stories, local news, vegan food and living, what's on in town, and Bitcoin and markets.
-- **Local** — the two local news sites and what's on in town.
+- **Local** — the local news sites, the BBC topic and what's on in town.
 - **UK & World** — Kagi's UK and World categories, plus general news off the wire.
 - **Tech** — Kagi's Technology and Science categories, plus anything technical off the wire.
 - **Bitcoin** — Kagi's Bitcoin category, plus money and markets off the wire.
@@ -65,9 +66,9 @@ to everyone. There are three ways in:
   and within `KG_BREAKING_SHARE` of the day's most widely covered story. The bar is relative,
   so it adjusts itself as the day's news gets bigger or smaller. If a feed arrives without its
   source list, the top `KG_BREAKING_TOP` of each category are used instead.
-- **Local papers** have no such count, so a headline is judged on what it says: it needs more
-  words from `URGENT_WORDS` than from `SOFT_WORDS`. A road closed by a crash gets in; six
-  houses for sale does not.
+- **Local sources** (`LOCAL_NEWS`) have no such count, so a headline is judged on what it says:
+  it needs more words from `URGENT_WORDS` than from `SOFT_WORDS`. A road closed by a crash gets
+  in; six houses for sale does not.
 - **The wire and Vegan Food & Living** only appear when a story is explicitly labelled breaking.
 
 If nothing clears the bar, the tab says so rather than filling up with whatever is newest.
