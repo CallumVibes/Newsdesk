@@ -12,7 +12,7 @@ One build, two layouts. On a TV it's headlines on the left, a large preview on t
 | Citadel Wire | Nostr notes from `npub1q8g803ajr0lw3xngs0k6hn2q3mejf6dtgv05d06h6krqgv9uh97q5382kp`, with the site's RSS feeds as backup. Each wire is split into its individual stories. |
 | Kagi News | RSS per category: UK, World, Technology, Science and Bitcoin. UK stories are given priority. Summaries are licensed CC BY-NC. |
 | Vegan Food & Living | The site's news feed, with its WordPress API and any feed advertised on the homepage as backup. |
-| Leominster events | What's on in town, from the `council_events` listing. Tried as the WordPress API, then the listing's feed, then the listing page itself. |
+| Leominster events | What's on in town, from the `council_events` listing. Tried as the WordPress API, then the listing's feed, then the listing page itself. The listing often carries only a title and a link, so opening an event fetches its own page for the details and the date. |
 
 ## Tabs
 
@@ -41,7 +41,11 @@ that can't be read is left out rather than guessed at, and the sources panel say
 missing. Nothing needs an API key.
 
 The debt counter reads the running total and the per-second rate off the page and carries on
-counting between refreshes. If only the total can be read it sits still, which is no bad thing.
+counting between refreshes. If only the total can be read it sits still. `DEBT_SEED` holds a
+real reading with the date it was taken, which does two jobs: it stands in when the site can't
+be read, counting up from the rate the country has been borrowing and saying in the sources
+panel that it is an estimate, and it rejects a total scraped off the wrong part of the page.
+To refresh it, read the site's own total and put it there with today's date.
 
 ## What reaches Breaking
 
