@@ -8,20 +8,63 @@ One build, two layouts. On a TV it's headlines on the left, a large preview on t
 
 | Source | How it's read |
 | --- | --- |
+| Prices | Bitcoin from CoinGecko, Coinbase or blockchain.info; gold and oil from Stooq or Yahoo, converted at a rate from Frankfurter; the debt total from uknationaldebt.com. |
 | Citadel Wire | Nostr notes from `npub1q8g803ajr0lw3xngs0k6hn2q3mejf6dtgv05d06h6krqgv9uh97q5382kp`, with the site's RSS feeds as backup. Each wire is split into its individual stories. |
 | Kagi News | RSS per category: UK, World, Technology, Science and Bitcoin. UK stories are given priority. Summaries are licensed CC BY-NC. |
+| Vegan Food & Living | The site's news feed, with its WordPress API and any feed advertised on the homepage as backup. |
+| Leominster events | What's on in town, from the `council_events` listing. Tried as the WordPress API, then the listing's feed, then the listing page itself. |
 
 ## Tabs
 
-- **Breaking news** — everything from the last 3 hours, newest first. A red dot marks unseen stories.
-- **Today** — an optional AI briefing, then the day's biggest stories, local news, and Bitcoin and markets.
+- **Breaking** — only what matters to everyone, and only while it's recent. See below.
+- **Today** — an optional AI briefing, then the day's biggest stories, local news, vegan food and living, what's on in town, and Bitcoin and markets.
+- **Local** — Hereford Times, Your Herefordshire and what's on in town.
+- **UK & World** — Kagi's UK and World categories.
+- **Tech** — Kagi's Technology and Science categories.
+- **Bitcoin** — the Citadel Wire alongside Kagi's Bitcoin category.
+- **Vegan** — Vegan Food & Living.
 - **All** — everything, taking turns between sources so none of them floods the list.
+
+Every tab but Today is a flat newest-first list, taking turns between its sources. Headlines
+carry a small picture, fetched only once the row is nearly on screen.
+
+## Prices
+
+Bitcoin, gold, oil and the national debt, all in pounds. On the TV they sit in a band under
+the tabs; on a phone they take the top right corner, where the clock used to be, since the
+phone shows the time in its own status bar anyway. Each price carries its move over the day.
+
+Gold and oil are quoted in dollars wherever you look, so they are converted with a live rate.
+Every figure has a chain of providers tried in turn, and gold and oil fall back to the dollar
+line the Citadel Wire already prints, so one dead endpoint doesn't empty the banner. Anything
+that can't be read is left out rather than guessed at, and the sources panel says what is
+missing. Nothing needs an API key.
+
+The debt counter reads the running total and the per-second rate off the page and carries on
+counting between refreshes. If only the total can be read it sits still, which is no bad thing.
+
+## What reaches Breaking
+
+Breaking is about importance, not just freshness, so a story has to be recent **and** matter
+to everyone. There are three ways in:
+
+- **Kagi** stories qualify on how many outlets are covering them — at least `KG_BREAKING_MIN`,
+  and within `KG_BREAKING_SHARE` of the day's most widely covered story. The bar is relative,
+  so it adjusts itself as the day's news gets bigger or smaller. If a feed arrives without its
+  source list, the top `KG_BREAKING_TOP` of each category are used instead.
+- **Local papers** have no such count, so a headline is judged on what it says: it needs more
+  words from `URGENT_WORDS` than from `SOFT_WORDS`. A road closed by a crash gets in; six
+  houses for sale does not.
+- **The wire and Vegan Food & Living** only appear when a story is explicitly labelled breaking.
+
+If nothing clears the bar, the tab says so rather than filling up with whatever is newest.
+Both word lists sit near the top of `index.html` and are meant to be edited.
 
 ## Remote (Fire TV)
 
 | Button | Does |
 | --- | --- |
-| ◀ ▶ | Switch tab, or move between stories in the reader |
+| ◀ ▶ | Switch tab (they wrap round, so nothing is more than four presses away), or move between stories in the reader |
 | ▲ ▼ | Move through headlines, or scroll |
 | OK | Read a story |
 | ☰ Menu | Sources panel: what loaded, from where, and any errors. OK refreshes. |
@@ -33,7 +76,7 @@ After 3 idle minutes it shows one story at a time, dimmed and drifting to protec
 
 | Gesture | Does |
 | --- | --- |
-| Tap a tab | Switch tab |
+| Tap a tab | Switch tab. The strip scrolls, and keeps the current tab in view |
 | Swipe left or right | Switch tab, or move between stories in the reader |
 | Tap a headline | Read the story |
 | Scroll | Normal scrolling throughout |
@@ -72,10 +115,30 @@ Near the top of `app/src/main/assets/index.html`:
 | --- | --- |
 | `HOME_TAB` | Which tab opens first |
 | `BREAKING_HOURS` | How new a story must be to count as breaking |
+| `BREAKING_PER_SOURCE` | Most stories one source may put on **Breaking** |
+| `BREAKING_MAX` | Most rows **Breaking** will ever show |
+| `KG_BREAKING_MIN` / `KG_BREAKING_SHARE` | How widely covered a Kagi story must be to count |
+| `URGENT_WORDS` / `SOFT_WORDS` | What makes a local headline important, or not |
+| `ROW_IMAGES` | Small picture on each headline; `false` for text only |
+| `BTC_SOURCES`, `GOLD_SOURCES`, `OIL_SOURCES` | Where prices come from, tried in order |
+| `RATE_SOURCES` | Where the dollar to pound rate comes from |
+| `MKT_STALE_MS` | How old a price may be before it stops being shown |
 | `KAGI_WANT` | Which Kagi categories to pull |
 | `KAGI_BOOST` | How much of a head start UK stories get |
+| `EVENT_WINDOW_DAYS` | How far ahead **On in town** looks before falling back to the soonest events |
+| `EVENTS_SHOWN` | How many events sit in Today |
 | `CW_RELAYS` | Which Nostr relays to ask |
 | `IDLE_AFTER_MS` | How long before the idle screen starts |
+
+## Events
+
+**On in town** is a diary, not a news feed, so it behaves differently from every other source:
+
+- It sorts forwards. The next thing on is at the top, and anything already over drops to the bottom.
+- It never appears under **Breaking news**, and a future date can't masquerade as a story that just broke.
+- Rows read "Tomorrow, 16:30" rather than "2h ago". An event whose date can't be read shows no time at all rather than the day it was posted.
+
+The date comes from the listing's own field where it has one, and is otherwise read out of the title or the blurb ("5 September 2026", "12th June at 4:30pm"). The AI briefing is told these are upcoming events rather than news, and is given the date.
 
 ## Requirements
 
