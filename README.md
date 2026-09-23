@@ -125,9 +125,10 @@ It's signed with a fixed key, so each build installs over the last one.
 
 Add a repository secret named `PPQ_API_KEY` with a [PPQ.ai](https://ppq.ai) key and rebuild. The app
 then writes three briefings a day from the stories in **Today**: a **morning** edition from 05:00, an
-**afternoon** one from 12:00 and an **evening** one from 17:00. Each is written once, the first time the
-app refreshes after its hour, so nothing is written while the app is shut and a missed edition stays
-missed rather than arriving late. The last one written stays up until the next is due.
+**afternoon** one from 12:00 and an **evening** one from 17:00. A scheduled job wakes the app up a few minutes after each hour,
+opens this same page with nothing on screen, and lets it write the briefing into the storage the app
+reads from — so the briefing is waiting when you next open it, whether or not the app was running.
+If the job cannot run, the edition is written the next time the app refreshes after its hour instead.
 
 Each edition is told which one it is, and is given the previous one so it carries on rather than repeats:
 the morning leads on what happened overnight, the afternoon on what has moved since, the evening draws
