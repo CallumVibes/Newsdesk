@@ -8,7 +8,7 @@ One build, two layouts. On a TV it's headlines on the left, a large preview on t
 
 | Source | How it's read |
 | --- | --- |
-| Prices | Bitcoin from CoinGecko, Coinbase or blockchain.info; gold and oil from Stooq or Yahoo, converted at a rate from Frankfurter; the debt total from uknationaldebt.com. |
+| Prices | Bitcoin from CoinGecko, Coinbase or blockchain.info; gold and oil from Yahoo or Stooq, converted at a rate from Frankfurter; the debt from the ONS, then a counter site. The sources panel names whichever answered, and the dollar figure gold and oil were converted from. |
 | Citadel Wire | Nostr notes from `npub1q8g803ajr0lw3xngs0k6hn2q3mejf6dtgv05d06h6krqgv9uh97q5382kp`, with the site's RSS feeds as backup. Each wire is split into its individual stories. |
 | Kagi News | RSS per category: UK, World, Technology, Science and Bitcoin. UK stories are given priority. Summaries are licensed CC BY-NC. |
 | Vegan Food & Living | The site's news feed, with its WordPress API and any feed advertised on the homepage as backup. |
@@ -40,12 +40,17 @@ line the Citadel Wire already prints, so one dead endpoint doesn't empty the ban
 that can't be read is left out rather than guessed at, and the sources panel says what is
 missing. Nothing needs an API key.
 
-The debt counter reads the running total and the per-second rate off the page and carries on
-counting between refreshes. If only the total can be read it sits still. `DEBT_SEED` holds a
-real reading with the date it was taken, which does two jobs: it stands in when the site can't
-be read, counting up from the rate the country has been borrowing and saying in the sources
-panel that it is an estimate, and it rejects a total scraped off the wrong part of the page.
-To refresh it, read the site's own total and put it there with today's date.
+The debt comes from the Office for National Statistics, which publishes public sector net debt
+monthly in millions — the figure every counter site is derived from. The newest month is the
+total, and the change over the year before it sets the pace to count on at, so the rate is
+measured rather than assumed. `ONS_DEBT_URL` holds the series; change it there if the ONS moves
+it. A counter site is tried next, and `DEBT_SEED` — a real reading with the date it was taken —
+last of all, which the panel then calls an estimate.
+
+That seed also guards the other two: a total is rejected unless it is within half to twice what
+the seed extrapolates to, wide enough for years of drift but enough to catch a figure off by a
+factor of a thousand, or the wrong ONS series. A cached total is re-checked the same way on
+load, on refresh and before each draw, so one written by an older build can't sit there.
 
 ## What reaches Breaking
 
