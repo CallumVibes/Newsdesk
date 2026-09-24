@@ -22,7 +22,7 @@ One build, two layouts. On a TV it's headlines on the left, a large preview on t
 - **Local** — the local news sites, the BBC topic and what's on in town.
 - **UK & World** — Kagi's UK and World categories, plus general news off the wire.
 - **Tech** — Kagi's Technology and Science categories, plus anything technical off the wire.
-- **Bitcoin** — Kagi's Bitcoin category, plus money and markets off the wire.
+- **Bitcoin** — Kagi's Bitcoin category, plus anything off the wire that is about bitcoin itself.
 - **Vegan** — Vegan Food & Living.
 - **All** — everything, taking turns between sources so none of them floods the list.
 
@@ -106,6 +106,25 @@ After 3 idle minutes it shows one story at a time, dimmed and drifting to protec
 | Back | Top of list, then Today, then exit |
 
 The phone keeps its status bar, rotates freely and is left to sleep on its own, so there's no idle screen and nothing holds the display awake.
+
+## Tests
+
+```sh
+tests/unpack.sh                              # the project, back out of the workflow file
+node tests/check-source.js .newsdesk-unpacked
+npm i --no-save jsdom
+node tests/logic.test.js .newsdesk-unpacked
+```
+
+`check-source.js` needs nothing installed. It reads the project as text and checks that the build
+has everything it needs, that the JavaScript parses, that the manifest still says what the app does,
+and that the facts written twice in two languages agree — the briefing hours in `BRIEF_SLOTS` and in
+`Briefings.kt`, and the `Native` bridge the page calls against the one Kotlin offers.
+
+`logic.test.js` boots the real page under jsdom with every source stubbed and checks the rules
+themselves: what reaches Breaking, where a wire story lands, event dates, the debt figure, the
+briefing editions and how a screen is built. Both run in CI before Gradle is asked for an APK, so a
+bad push fails in seconds. `tests/README.md` has the detail.
 
 ## Build
 
