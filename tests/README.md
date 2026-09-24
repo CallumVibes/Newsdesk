@@ -88,6 +88,12 @@ node tests/layout.test.js .newsdesk-unpacked
 
 Set `CHROME_PATH` if your Chromium is not at `/opt/pw-browsers/chromium-1194/…`.
 
+`check-source.js` also covers the web app: that the manifest is JSON and installable,
+that the service worker lets anything that is not ours go straight to the network
+uncached, that the page registers its worker only where one can exist, and that the
+Pages workflow writes an empty key, refuses to publish anything key-shaped, and is not
+wired to push.
+
 ## What is not here
 
 The app's behaviour on screen — focus, the D-pad, the reader, the idle screen — is

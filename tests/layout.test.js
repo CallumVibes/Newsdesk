@@ -100,6 +100,17 @@ function look() {
     text: getComputedStyle(document.querySelector('.row .ttl') ||
       document.querySelector('h1') || document.body).color,
     tabsOverflow: tabs.scrollWidth > tabs.clientWidth + 1,
+    tabsScrollable: getComputedStyle(tabs).overflowX === 'auto' ||
+      getComputedStyle(tabs).overflowX === 'scroll',
+    tabsFaded: /gradient/.test(getComputedStyle(tabs).webkitMaskImage || '') ||
+      /gradient/.test(getComputedStyle(tabs).maskImage || ''),
+    // renderTabs pulls the tab in use towards the middle, so it is never the cut one
+    tabOnCut: (() => {
+      const on = tabs.querySelector('.tab.on');
+      if (!on) return true;
+      const t = tabs.getBoundingClientRect(), o = on.getBoundingClientRect();
+      return o.left < t.left - 1 || o.right > t.right + 1;
+    })(),
     pageOverflow: doc.scrollWidth > doc.clientWidth + 1,
     headerH: Math.round(document.querySelector('header').getBoundingClientRect().height)
   };
@@ -174,12 +185,20 @@ function look() {
       t.is(seen.tvLight[k], seen.tv1080[k], 'and so does a television (' + k + ')');
     });
     t.same(seen.pixelLight.clipped, [], 'nothing is clipped in the light either');
-    t.is(seen.tvLight.tabsOverflow, false, 'and every tab is still on screen');
+    t.is(seen.tvLight.tabOnCut, false, 'and the tab in use is still whole');
+  });
+
+  suite('The tab strip carries more than fits', (t) => {
+    // Eleven tabs will not fit a television at a size a television is read at, so
+    // the strip scrolls rather than the tabs shrinking past legibility.
+    ['tv1080', 'tv720', 'pixel', 'small'].forEach((k) => {
+      t.is(seen[k].tabsScrollable, true, k + ': the strip scrolls');
+      t.is(seen[k].tabsFaded, true, k + ': and its ends are faded, so a cut tab reads as more');
+      t.is(seen[k].tabOnCut, false, k + ': with the tab in use kept whole and in view');
+    });
   });
 
   suite('Nothing else moved to make room', (t) => {
-    t.is(seen.tv1080.tabsOverflow, false, 'every tab is on screen at 1080p');
-    t.is(seen.tv720.tabsOverflow, false, 'and at 720p');
     Object.keys(seen).forEach((k) => {
       t.is(seen[k].pageOverflow, false, k + ': nothing hangs off the side of the page');
     });

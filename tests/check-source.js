@@ -28,6 +28,8 @@ suite('Everything the build needs is there', (t) => {
     'app/build.gradle.kts', 'app/newsdesk.keystore',
     'app/src/main/AndroidManifest.xml',
     PAGE, 'app/src/main/assets/config.js', 'app/src/main/assets/extract.js',
+    'app/src/main/assets/manifest.webmanifest', 'app/src/main/assets/sw.js',
+    'app/src/main/assets/icon-192.png', 'app/src/main/assets/icon-512.png',
     KT + 'MainActivity.kt', KT + 'Net.kt', KT + 'Briefings.kt',
     KT + 'Widget.kt',
     'app/src/main/res/drawable/icon.png', 'app/src/main/res/drawable/banner.png',
@@ -49,7 +51,8 @@ suite('The JavaScript parses', (t) => {
     try { new vm.Script(body, { filename: PAGE + ' block ' + (i + 1) }); } catch (e) { err = e.message; }
     t.is(err, null, 'block ' + (i + 1) + ' of the page parses');
   });
-  ['app/src/main/assets/config.js', 'app/src/main/assets/extract.js'].forEach((f) => {
+  ['app/src/main/assets/config.js', 'app/src/main/assets/extract.js',
+   'app/src/main/assets/sw.js'].forEach((f) => {
     let err = null;
     try { new vm.Script(read(f), { filename: f }); } catch (e) { err = e.message; }
     t.is(err, null, f + ' parses');
@@ -152,6 +155,63 @@ suite('Every Kotlin name is one the compiler will find', (t) => {
         + '\n      (Kotlin would only say so on the runner, twenty minutes from here)');
     });
   });
+});
+
+/*
+ * The same page is an APK and a web app. In the APK the manifest and the worker are
+ * dead weight; in a browser they are what makes it installable. Both have to be
+ * right, and neither fails loudly if it is not - a bad manifest just means no
+ * install prompt, and a worker that will not register just means no offline.
+ */
+suite('It can be installed as a web app', (t) => {
+  let man = null, err = null;
+  try { man = JSON.parse(read('app/src/main/assets/manifest.webmanifest')); }
+  catch (e) { err = e.message; }
+  t.is(err, null, 'the web manifest is JSON');
+  if (man) {
+    t.ok(man.name && man.short_name, 'it has a name to install under');
+    t.is(man.display, 'standalone', 'and opens without browser furniture');
+    t.ok(/^\.\//.test(man.start_url), 'its start url is relative, so any path can host it');
+    t.ok(/^\.\//.test(man.scope), 'and so is its scope');
+    const sizes = (man.icons || []).map((i) => i.sizes);
+    t.ok(sizes.indexOf('192x192') >= 0, 'a 192 icon, which Android wants');
+    t.ok(sizes.indexOf('512x512') >= 0, 'and a 512, which the install prompt wants');
+    t.ok((man.icons || []).some((i) => i.purpose === 'maskable'),
+      'and one it may crop to whatever shape the launcher uses');
+    (man.icons || []).forEach((i) => {
+      t.ok(has('app/src/main/assets/' + i.src.replace('./', '')), i.src + ' exists');
+    });
+  }
+
+  const page = read(PAGE);
+  t.ok(/<link rel="manifest" href="manifest\.webmanifest">/.test(page), 'the page links it');
+  t.ok(/name="theme-color"/.test(page), 'and colours the browser bar around itself');
+  // A worker registered off http throws; inside the APK the page is on file://.
+  t.ok(/\/\^https\?:\$\/\.test\(location\.protocol\)[\s\S]{0,80}serviceWorker/.test(page),
+    'and registers its worker only where one can exist, not from inside the APK');
+
+  const sw = read('app/src/main/assets/sw.js');
+  t.ok(/self\.location\.origin/.test(sw), 'the worker knows what is its own');
+  // Caching a story would show yesterday's news as today's.
+  t.ok(/url\.origin !== self\.location\.origin\) return;/.test(sw),
+    'and lets everything that is not go straight to the network, uncached');
+  t.ok(/fetch\(r\)\.then/.test(sw), 'the shell is network first, so a new build is picked up');
+  t.ok(/caches\.delete/.test(sw), 'and an old one is thrown away');
+});
+
+suite('The published copy carries no key', (t) => {
+  const yml = 'PAGES';
+  const pages = fs.readFileSync(path.join(__dirname, '..', '.github/workflows/pages.yml'), 'utf8');
+  // The APK build injects the key from a secret. This repository is public, so the
+  // published page must not: it writes its own empty config over whatever was there.
+  t.ok(/ppqKey: ""/.test(pages), 'the publish step writes an empty key over the tarball\'s');
+  t.ok(/grep -rqiE/.test(pages) && /Refusing to publish/.test(pages),
+    'and refuses to publish at all if something key-shaped got through');
+  t.not(/on:[\s\S]{0,120}push:/.test(pages),
+    'it is not on push: going public is a decision, not a side effect of committing');
+  t.ok(/workflow_dispatch/.test(pages), 'it is run by hand from the Actions tab');
+  t.ok(/GITHUB_SHA/.test(pages), 'and stamps the worker, or a republish would never take');
+  t.ok(yml === 'PAGES', 'this suite read the workflow it is about');
 });
 
 suite('The manifest says what the app actually does', (t) => {

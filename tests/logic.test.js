@@ -37,9 +37,9 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
   suite('The page itself', (t) => {
     t.same(errors, [], 'boots with no error on the console');
     t.same(nd.TABS.map((x) => x.id),
-      ['breaking', 'today', 'local', 'world', 'tech', 'coin', 'vegan', 'hist', 'all', 'saved'],
+      ['breaking', 'today', 'local', 'world', 'tech', 'coin', 'vegan', 'recipes', 'hist', 'all', 'saved'],
       'has its tabs, in the order the remote walks them');
-    t.same(nd.ORDER, ['cw', 'kg', 'ht', 'yh', 'bb', 'vf', 'lm', 'hh'], 'knows its sources');
+    t.same(nd.ORDER, ['cw', 'kg', 'ht', 'yh', 'bb', 'vf', 'lm', 'hh', 'rc'], 'knows its sources');
     nd.TABS.forEach((tab) => {
       t.ok(tab.srcs.every((s) => nd.ORDER.indexOf(s) >= 0),
         tab.id + ' draws only from sources that exist');
@@ -922,6 +922,52 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.is(all.srcs.indexOf('hh'), -1, 'and All leaves it out, being today\'s news');
     const today = nd.TABS[nd.TABS.findIndex((x) => x.id === 'today')];
     t.is(today.srcs.indexOf('hh'), -1, 'as does Today');
+  });
+
+  /* --------------------------------------------------------------- Recipes */
+  suite('What counts as a recipe', (t) => {
+    const now = Date.now();
+    const ok = (title, ago) => nd.rcKeep({ title: title, date: now - (ago || 0) });
+    t.is(ok('One-pot red lentil dal'), true, 'dinner gets in');
+    t.is(ok('Vegan chocolate cake'), true, 'so does pudding: healthy is the kitchen, not the dish');
+    // A recipe site still posts about itself, and none of that is dinner.
+    t.is(ok('Win a giveaway from our friends'), false, 'a giveaway is not a recipe');
+    t.is(ok('Our new podcast is out'), false, 'nor is a podcast');
+    t.is(ok('Black Friday gift guide'), false, 'nor a gift guide');
+    t.is(ok('Subscribe to the newsletter'), false, 'nor a plea to subscribe');
+    // A feed that stopped years ago is a kitchen that closed.
+    t.is(ok('A fine old soup', 400 * DAY), false, 'and a recipe from years back is a dead feed');
+    t.is(ok('A fine recent soup', 30 * DAY), true, 'while one from last month keeps');
+    t.is(nd.rcKeep(null), false, 'nothing is not a recipe');
+    t.is(nd.rcKeep({ title: '' }), false, 'and neither is a post with no title');
+
+    t.ok(nd.RC_KITCHENS.length >= 4, 'it pools several kitchens, not one');
+    nd.RC_KITCHENS.forEach((k) => {
+      t.ok(/^https:\/\//.test(k.url), k.name + ' is fetched over https');
+      t.ok(k.name && k.name.length > 2, 'and is named, since the row shows the kitchen');
+    });
+    const urls = nd.RC_KITCHENS.map((k) => k.url);
+    t.is(new Set(urls).size, urls.length, 'and none is listed twice');
+  });
+
+  suite('A recipe row reads as a recipe', (t) => {
+    const now = Date.now();
+    const dish = story({ src: 'rc', id: 'rc:1', title: 'One-pot red lentil dal',
+                         date: now - 2 * DAY, kitchen: 'Minimalist Baker' });
+    // A recipe from last week is as good as one from this morning, so the row says
+    // where it came from rather than how long ago it was posted.
+    t.is(nd.timeLabel(dish), 'Minimalist Baker', 'the row names the kitchen, not the hour');
+    t.is(nd.isKitchen(dish), true, 'it knows it is a recipe');
+    t.is(nd.isKitchen(story({ src: 'ht' })), false, 'and the news knows it is not');
+    t.same(nd.breakingList([Object.assign({}, dish, { date: now,
+      title: 'Fire roasted red pepper soup' })]), [],
+      'a recipe never reaches Breaking, however the words read');
+    const tab = nd.TABS[nd.TABS.findIndex((x) => x.id === 'recipes')];
+    t.same(tab.srcs, ['rc'], 'the Recipes tab draws from the kitchens alone');
+    const all = nd.TABS[nd.TABS.findIndex((x) => x.id === 'all')];
+    t.is(all.srcs.indexOf('rc'), -1, 'and All leaves them out, being today\'s news');
+    const today = nd.TABS[nd.TABS.findIndex((x) => x.id === 'today')];
+    t.is(today.srcs.indexOf('rc'), -1, 'as does Today');
   });
 
   /* ---------------------------------------------------------------- Search */
