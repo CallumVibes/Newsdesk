@@ -1,0 +1,5 @@
+# Written by tests/unpack.sh: the project, taken back out of the workflow file.
+.newsdesk-unpacked/
+# jsdom, installed on demand by the logic tests and by CI.
+node_modules/
+package-lock.json

@@ -8,22 +8,30 @@ One build, two layouts. On a TV it's headlines on the left, a large preview on t
 
 | Source | How it's read |
 | --- | --- |
-| Prices | Bitcoin from CoinGecko, Coinbase or blockchain.info; gold and oil from Stooq or Yahoo, converted at a rate from Frankfurter; the debt total from uknationaldebt.com. |
-| Citadel Wire | Nostr notes from `npub1q8g803ajr0lw3xngs0k6hn2q3mejf6dtgv05d06h6krqgv9uh97q5382kp`, with the site's RSS feeds as backup. Each wire is split into its individual stories. |
+| Prices | Bitcoin from CoinGecko, Coinbase or blockchain.info; gold and oil from Yahoo or Stooq, converted at a rate from Frankfurter; the debt from the ONS, then a counter site. The sources panel names whichever answered, and the dollar figure gold and oil were converted from. |
+| Citadel Wire | Each wire holds several stories and is split into them, by list, by numbering, by heading, or by blank-line blocks. A wire that resists all four is kept whole as one digest, and only the newest such digest is shown. Nostr notes from `npub1q8g803ajr0lw3xngs0k6hn2q3mejf6dtgv05d06h6krqgv9uh97q5382kp`, with the site's RSS feeds as backup. Each wire is split into its individual stories. |
 | Kagi News | RSS per category: UK, World, Technology, Science and Bitcoin. UK stories are given priority. Summaries are licensed CC BY-NC. |
+| BBC News | A BBC topic page. Read from the schema.org listing the page publishes for search engines, which carries the headline, link, time and summary and outlives any amount of front-end rebuilding. Its links are read only if that is missing. `BB_FEEDS` takes a feed address to use in place of the page. |
 | Vegan Food & Living | The site's news feed, with its WordPress API and any feed advertised on the homepage as backup. |
-| Leominster events | What's on in town, from the `council_events` listing. Tried as the WordPress API, then the listing's feed, then the listing page itself. |
+| Local events | What's on in town, from the town council's `council_events` listing. Tried as the WordPress API, then the listing's feed, then the listing page itself. The listing often carries only a title and a link, so opening an event fetches its own page for the details and the date. |
 
 ## Tabs
 
 - **Breaking** — only what matters to everyone, and only while it's recent. See below.
 - **Today** — an optional AI briefing, then the day's biggest stories, local news, vegan food and living, what's on in town, and Bitcoin and markets.
-- **Local** — Hereford Times, Your Herefordshire and what's on in town.
-- **UK & World** — Kagi's UK and World categories.
-- **Tech** — Kagi's Technology and Science categories.
-- **Bitcoin** — the Citadel Wire alongside Kagi's Bitcoin category.
+- **Local** — the local news sites, the BBC topic and what's on in town.
+- **UK & World** — Kagi's UK and World categories, plus general news off the wire.
+- **Tech** — Kagi's Technology and Science categories, plus anything technical off the wire.
+- **Bitcoin** — Kagi's Bitcoin category, plus anything off the wire that is about bitcoin itself.
 - **Vegan** — Vegan Food & Living.
 - **All** — everything, taking turns between sources so none of them floods the list.
+
+The Citadel Wire files nothing under a category, so each of its stories is placed by what it
+says: **Bitcoin** means bitcoin itself, not money in general, since a wire like this one carries a
+great deal about oil, bonds and banks and none of that belongs there. Technology and science go
+to Tech, and everything else, financial or not, to UK & World. A wire that would not split is the
+whole wire, prices and all, so it goes to UK & World rather than looking like a bitcoin story.
+`CW_TOPICS` holds the two word lists that decide it, and is meant to be edited.
 
 Every tab but Today is a flat newest-first list, taking turns between its sources. Headlines
 carry a small picture, fetched only once the row is nearly on screen.
@@ -40,8 +48,22 @@ line the Citadel Wire already prints, so one dead endpoint doesn't empty the ban
 that can't be read is left out rather than guessed at, and the sources panel says what is
 missing. Nothing needs an API key.
 
-The debt counter reads the running total and the per-second rate off the page and carries on
-counting between refreshes. If only the total can be read it sits still, which is no bad thing.
+The debt comes from the Office for National Statistics, which publishes public sector net debt
+monthly — the figure every counter site is derived from. The newest month is the total, and the
+change over the year before it sets the pace to count on at, so the rate is measured rather than
+assumed.
+
+The same measure is published as several series in different units, and one of them is a
+percentage of GDP, which answers about 95 and looks like a perfectly good number. So the unit is
+worked out from the size of the answer rather than assumed, and `ONS_DEBT_URLS` is tried in turn
+until one lands where a national debt could plausibly be. A series that has stopped publishing is
+refused too, however plausible its last figure. A counter site is tried next, and `DEBT_SEED` — a
+real reading with the date it was taken — last of all, which the panel then calls an estimate.
+
+That seed also guards the other two: a total is rejected unless it is within half to twice what
+the seed extrapolates to, wide enough for years of drift but enough to catch a figure off by a
+factor of a thousand, or the wrong ONS series. A cached total is re-checked the same way on
+load, on refresh and before each draw, so one written by an older build can't sit there.
 
 ## What reaches Breaking
 
@@ -52,9 +74,9 @@ to everyone. There are three ways in:
   and within `KG_BREAKING_SHARE` of the day's most widely covered story. The bar is relative,
   so it adjusts itself as the day's news gets bigger or smaller. If a feed arrives without its
   source list, the top `KG_BREAKING_TOP` of each category are used instead.
-- **Local papers** have no such count, so a headline is judged on what it says: it needs more
-  words from `URGENT_WORDS` than from `SOFT_WORDS`. A road closed by a crash gets in; six
-  houses for sale does not.
+- **Local sources** (`LOCAL_NEWS`) have no such count, so a headline is judged on what it says:
+  it needs more words from `URGENT_WORDS` than from `SOFT_WORDS`. A road closed by a crash gets
+  in; six houses for sale does not.
 - **The wire and Vegan Food & Living** only appear when a story is explicitly labelled breaking.
 
 If nothing clears the bar, the tab says so rather than filling up with whatever is newest.
@@ -85,6 +107,25 @@ After 3 idle minutes it shows one story at a time, dimmed and drifting to protec
 
 The phone keeps its status bar, rotates freely and is left to sleep on its own, so there's no idle screen and nothing holds the display awake.
 
+## Tests
+
+```sh
+tests/unpack.sh                              # the project, back out of the workflow file
+node tests/check-source.js .newsdesk-unpacked
+npm i --no-save jsdom
+node tests/logic.test.js .newsdesk-unpacked
+```
+
+`check-source.js` needs nothing installed. It reads the project as text and checks that the build
+has everything it needs, that the JavaScript parses, that the manifest still says what the app does,
+and that the facts written twice in two languages agree — the briefing hours in `BRIEF_SLOTS` and in
+`Briefings.kt`, and the `Native` bridge the page calls against the one Kotlin offers.
+
+`logic.test.js` boots the real page under jsdom with every source stubbed and checks the rules
+themselves: what reaches Breaking, where a wire story lands, event dates, the debt figure, the
+briefing editions and how a screen is built. Both run in CI before Gradle is asked for an APK, so a
+bad push fails in seconds. `tests/README.md` has the detail.
+
 ## Build
 
 The whole project is embedded in `.github/workflows/build-newsdesk.yml`, so that one file is all the repo needs. No laptop required.
@@ -101,7 +142,23 @@ It's signed with a fixed key, so each build installs over the last one.
 
 ## AI briefing (optional)
 
-Add a repository secret named `PPQ_API_KEY` with a [PPQ.ai](https://ppq.ai) key and rebuild. The app then writes a short briefing each morning from that day's stories, rewriting it at most every 3 hours and never more than 6 times a day.
+Add a repository secret named `PPQ_API_KEY` with a [PPQ.ai](https://ppq.ai) key and rebuild. The app
+then writes three briefings a day from the stories in **Today**: a **morning** edition from 05:00, an
+**afternoon** one from 12:00 and an **evening** one from 17:00. A scheduled job wakes the app up a few minutes after each hour,
+opens this same page with nothing on screen, and lets it write the briefing into the storage the app
+reads from — so the briefing is waiting when you next open it, whether or not the app was running.
+If the job cannot run, the edition is written the next time the app refreshes after its hour instead.
+
+When a briefing is written while you weren't looking, a notification carries its headline; tapping it
+opens the app. One per edition, and never for an edition already written, so a retried job stays quiet.
+Android 13 and later ask permission the first time the app opens; refusing changes nothing except that
+the briefings arrive silently. A television is watched rather than notified at, so it gets none. Turn
+them off like any other app's, under Briefings in Android's notification settings.
+
+Each edition is told which one it is, and is given the previous one so it carries on rather than repeats:
+the morning leads on what happened overnight, the afternoon on what has moved since, the evening draws
+the day together. `BRIEF_SLOTS` sets the hours and the angle of each. `BRIEF_MAX_PER_DAY` still caps the
+paid calls, retries included.
 
 Optionally add a repository variable `PPQ_MODEL` to pick a model. The default is `claude-sonnet-4-5`.
 
