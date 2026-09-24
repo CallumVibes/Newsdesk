@@ -71,18 +71,34 @@ suite('The test seam stays a door, not a hole', (t) => {
   t.ok(page.slice(at).indexOf('})();') > 0, 'and it sits inside the page\'s own closure');
 });
 
-suite('The briefing hours agree in both languages', (t) => {
-  // BRIEF_SLOTS drives the app; HOURS drives the job that wakes it. They are the
-  // same three times, written twice, in two languages that never see each other.
+suite('The briefing times agree in both languages', (t) => {
+  /* BRIEF_SLOTS drives the app; SLOTS drives the job that wakes it. They are the
+     same times, written twice, in two languages that never see each other - and
+     since one of them is half past nine, both have to be read to the minute. An
+     hour was fine enough until it wasn't. */
   const page = read(PAGE);
-  const slots = page.slice(page.indexOf('var BRIEF_SLOTS'), page.indexOf('var BRIEF_MAX_PER_DAY'));
-  const js = (slots.match(/from:\s*(\d+)/g) || []).map((m) => parseInt(m.split(':')[1], 10));
-  const ktLine = read(KT + 'Briefings.kt').match(/val HOURS = intArrayOf\(([^)]*)\)/);
-  t.ok(ktLine, 'the job declares the hours it runs at');
-  const kt = ktLine ? ktLine[1].split(',').map((x) => parseInt(x.trim(), 10)) : [];
-  t.ok(js.length === 3, 'the app has three editions a day');
-  t.same(js, kt, 'and the job wakes at exactly those hours');
-  t.ok(js.every((h, i) => i === 0 || h > js[i - 1]), 'given in order, as briefSlot assumes');
+  const block = page.slice(page.indexOf('var BRIEF_SLOTS'), page.indexOf('function slotMins'));
+  const js = block.split(/\{\s*id:/).slice(1).map((chunk) => {
+    const from = (chunk.match(/from:\s*(\d+)/) || [])[1];
+    const min = (chunk.match(/min:\s*(\d+)/) || [])[1];
+    return from == null ? NaN : parseInt(from, 10) * 60 + parseInt(min || '0', 10);
+  });
+  const ktLine = read(KT + 'Briefings.kt').match(/val SLOTS = intArrayOf\(([^)]*)\)/);
+  t.ok(ktLine, 'the job declares the times it runs at');
+  // "5 * 60", "21 * 60 + 30", or a plain number. Nothing else is allowed to appear.
+  const kt = ktLine ? ktLine[1].split(',').map((x) => {
+    const m = x.trim().match(/^(\d+)(?:\s*\*\s*60)?(?:\s*\+\s*(\d+))?$/);
+    if (!m) return NaN;
+    return /\*/.test(x) ? parseInt(m[1], 10) * 60 + parseInt(m[2] || '0', 10) : parseInt(m[1], 10);
+  }) : [];
+  t.ok(js.length >= 3, 'the app has at least the three editions it started with');
+  t.not(js.some(isNaN), 'every edition in the app says when it begins');
+  t.not(kt.some(isNaN), 'and every time the job wakes at is one this can read');
+  t.same(js, kt, 'and they are the same times, to the minute');
+  t.ok(js.every((m, i) => i === 0 || m > js[i - 1]), 'given in order, as briefSlot assumes');
+  t.ok(js.every((m) => m >= 0 && m < 24 * 60), 'and every one of them is a time of day');
+  // The last edition is the one just added; it is the only one on a half hour.
+  t.is(js[js.length - 1], 21 * 60 + 30, 'the last of the day is half past nine');
 });
 
 suite('The bridge the page calls is the bridge Kotlin offers', (t) => {

@@ -14,6 +14,15 @@ const { suite, run } = require('./lib/check');
 
 const HOUR = 3600e3, DAY = 24 * HOUR;
 
+/* The smallest feed a kitchen can answer with. */
+function rss(title) {
+  return '<?xml version="1.0"?><rss version="2.0"><channel>'
+    + '<item><title>' + title + '</title>'
+    + '<link>https://example.com/' + encodeURIComponent(title) + '</link>'
+    + '<pubDate>' + new Date(Date.now() - HOUR).toUTCString() + '</pubDate>'
+    + '<description>A paragraph about it.</description></item></channel></rss>';
+}
+
 /* A story shaped the way the loaders make them. */
 function story(o) {
   return Object.assign({
@@ -294,18 +303,45 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
 
   /* ------------------------------------------------------------ Briefings */
   suite('Which briefing is due', (t) => {
-    const at = (h) => { const d = new Date(); d.setHours(h, 0, 0, 0); return d.getTime(); };
-    t.same(nd.BRIEF_SLOTS.map((s) => s.from), [5, 12, 17],
-      'three editions a day, at the hours the background job also uses');
+    const at = (h, m) => { const d = new Date(); d.setHours(h, m || 0, 0, 0); return d.getTime(); };
+    t.same(nd.BRIEF_SLOTS.map((s) => nd.slotMins(s)), [5 * 60, 12 * 60, 17 * 60, 21 * 60 + 30],
+      'four editions a day, at the times the background job also uses');
     t.is(nd.briefSlot(at(7)).slot.id, 'morning', 'the morning edition covers the morning');
     t.is(nd.briefSlot(at(13)).slot.id, 'afternoon', 'the afternoon one the afternoon');
     t.is(nd.briefSlot(at(19)).slot.id, 'evening', 'and the evening one the evening');
-    t.is(nd.briefSlot(at(2)).slot.id, 'evening', 'the small hours still belong to last night\'s');
-    t.not(nd.briefSlot(at(2)).key === nd.briefSlot(at(19)).key,
+    t.is(nd.briefSlot(at(23)).slot.id, 'night', 'and the night one the end of it');
+    t.is(nd.briefSlot(at(2)).slot.id, 'night', 'the small hours still belong to last night\'s last');
+    t.not(nd.briefSlot(at(2)).key === nd.briefSlot(at(23)).key,
       'but under the previous day, so 2am does not count as tonight\'s');
     t.is(nd.briefSlot(at(7)).key, nd.briefSlot(at(11)).key,
       'and one edition is written once, however often the app refreshes');
-    t.ok(/morning|afternoon|evening/.test(nd.nextSlotName()), 'the app can say which is next');
+
+    /* The half hour is the whole reason the times are kept in minutes. Nine is still
+       the evening; half past nine is the last edition; a minute either side of the
+       turn lands on the right one. */
+    t.is(nd.briefSlot(at(21, 0)).slot.id, 'evening', 'nine o\'clock is still the evening');
+    t.is(nd.briefSlot(at(21, 29)).slot.id, 'evening', 'and so is a minute before half past');
+    t.is(nd.briefSlot(at(21, 30)).slot.id, 'night', 'half past nine is the night edition');
+    t.is(nd.briefSlot(at(21, 31)).slot.id, 'night', 'and a minute after it');
+    t.is(nd.briefSlot(at(4, 59)).slot.id, 'night', 'a minute before the morning is still last night');
+    t.is(nd.briefSlot(at(5, 0)).slot.id, 'morning', 'and five is the morning');
+
+    // Every edition has to be reachable, or one of them never gets written at all.
+    const ids = nd.BRIEF_SLOTS.map((s) => s.id);
+    const reached = {};
+    for (let h = 0; h < 24; h++) for (let m = 0; m < 60; m += 5) reached[nd.briefSlot(at(h, m)).slot.id] = 1;
+    t.same(Object.keys(reached).sort(), ids.slice().sort(), 'every edition has a part of the day');
+    t.ok(ids.every((id) => nd.BRIEF_SLOTS.filter((s) => s.id === id).length === 1),
+      'and no two share a name');
+
+    const next = nd.nextSlotName();
+    t.ok(ids.some((id) => next.indexOf(id) >= 0), 'the app can say which is next');
+    t.not(next === nd.briefSlot(Date.now()).slot.name.toLowerCase(),
+      'and it is the one after this, not this one');
+
+    // Two paid calls per edition, as it was when there were three of them.
+    t.is(nd.BRIEF_MAX_PER_DAY, nd.BRIEF_SLOTS.length * 2,
+      'the day\'s allowance of paid calls grew with the editions rather than being shared out');
   });
 
   suite('Reading PPQ\'s reply', (t) => {
@@ -1127,6 +1163,126 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     proto.setItem = real; proto.removeItem = realRm;
   });
 
+  /* ------------------------------------------- The county's own archive */
+  /* The archive publishes no feed, so the tab reads its listing pages - and reads
+     them by the shape of an item's address rather than by any markup, because the
+     markup is the part that gets rebuilt. These fixtures are the same three items
+     laid out four different ways; all four have to come back the same. */
+  suite("Reading the archive's listing pages", (t) => {
+    const base = 'https://herefordshirehistory.org.uk/archive';
+    const shapes = {
+      'cards with figures': `<div class="results">
+        <article class="card"><a href="/view/4313231-withington-station">
+          <figure><img src="/thumb/4313231.jpg" alt="Withington Station"></figure>
+          <h3>Withington Station</h3></a></article>
+        <article class="card"><a href="/view/7548873-broad-street-hereford-1904">
+          <img data-src="/thumb/7548873.jpg" alt=""><h3>Broad Street, Hereford, 1904</h3></a></article>
+        <article class="card"><a href="/view/551-the-old-house"><h3>The Old House</h3></a></article>
+      </div>`,
+      'a bare list': `<ul>
+        <li><a href="/view/4313231-withington-station">Withington Station</a></li>
+        <li><a href="/view/7548873-broad-street-hereford-1904">Broad Street, Hereford, 1904</a></li>
+        <li><a href="/view/551-the-old-house">The Old House</a></li></ul>`,
+      'a table': `<table><tbody>
+        <tr><td><a href="https://herefordshirehistory.org.uk/view/4313231-withington-station">Withington Station</a></td></tr>
+        <tr><td><a href="https://herefordshirehistory.org.uk/view/7548873-broad-street-hereford-1904">Broad Street, Hereford, 1904</a></td></tr>
+        <tr><td><a href="https://herefordshirehistory.org.uk/view/551-the-old-house">The Old House</a></td></tr>
+        </tbody></table>`,
+      'nothing but pictures': `<div>
+        <a href="/view/4313231-withington-station"><img src="/t/1.jpg" alt="Withington Station"></a>
+        <a href="/view/7548873-broad-street-hereford-1904"><img src="/t/2.jpg" title="Broad Street, Hereford, 1904"></a>
+        <a href="/view/551-the-old-house"><img src="/t/3.jpg" alt="The Old House"></a></div>`
+    };
+    Object.keys(shapes).forEach((k) => {
+      const got = nd.hhaLinks(shapes[k], base);
+      t.is(got.length, 3, k + ': all three items are found');
+      t.same(got.map((x) => x.title),
+        ['Withington Station', 'Broad Street, Hereford, 1904', 'The Old House'],
+        k + ': and named');
+      t.same(got.map((x) => x.ref), ['4313231', '7548873', '551'], k + ': keeping the catalogue number');
+      t.is(got[0].link, 'https://herefordshirehistory.org.uk/view/4313231-withington-station',
+        k + ': with the address made absolute');
+    });
+    const cards = nd.hhaLinks(shapes['cards with figures'], base);
+    t.is(cards[0].image, 'https://herefordshirehistory.org.uk/thumb/4313231.jpg', 'a thumbnail comes too');
+    t.is(cards[1].image, 'https://herefordshirehistory.org.uk/thumb/7548873.jpg',
+      'including one the page was waiting to load');
+    t.is(cards[2].image, '', 'and an item without a picture is not given one');
+    t.is(cards[0].kicker, 'Archive', 'every row says where it came from');
+  });
+
+  suite('Everything else on the page is not an item', (t) => {
+    const page = `<nav><a href="/">Home</a><a href="/about">About</a><a href="/links">Links</a>
+      <a href="/archive">Browse Our Collection</a><a href="/collection/transport">Transport</a>
+      <a href="/search?q=minett&sort_field=_date">Search</a>
+      <a href="mailto:herefordshirehistory@herefordshire.gov.uk">Contact</a></nav>
+      <a href="https://example.com/view/123-somewhere-else">Another site entirely</a>
+      <a href="/view/4313231-withington-station">Withington Station</a>
+      <a href="/view/4313231-withington-station">The very same thing, linked twice</a>`;
+    const got = nd.hhaLinks(page, 'https://herefordshirehistory.org.uk/archive');
+    t.is(got.length, 1, 'only the one that is an item comes back');
+    t.is(got[0].ref, '4313231', 'and it is the right one');
+    t.same(nd.hhaLinks('', 'x'), [], 'an empty page gives nothing');
+    t.same(nd.hhaLinks('<p>The archive is down for maintenance.</p>', 'x'), [],
+      'and so does a page that is not a listing at all');
+    // Plenty of sites have a /view/123-something. Only this one has this county's.
+    t.is(nd.HHA_HOST, 'herefordshirehistory.org.uk', 'the host is read off the home address');
+    t.same(nd.hhaLinks('<a href="https://evil.example/view/9-hereford-cathedral">Hereford Cathedral</a>',
+      nd.HHA_HOME), [], 'and a matching address somewhere else is not an item');
+  });
+
+  suite('An item is named, or it is not shown', (t) => {
+    // The archive names some things and shelf-marks others.
+    t.is(nd.hhaFromSlug('withington-station'), 'Withington Station', 'a slug that reads as words is a name');
+    t.is(nd.hhaFromSlug('broad-street-hereford-1904'), 'Broad Street Hereford 1904', 'numbers in it are left alone');
+    t.is(nd.hhaFromSlug('ca11003'), '', 'a shelf mark is not a name');
+    t.is(nd.hhaFromSlug('a1'), '', 'nor is a short code');
+    t.is(nd.hhaFromSlug(''), '', 'and nothing is not a name');
+    t.is(nd.hhaFromSlug('cathedral'), 'Cathedral', 'but one plain word is');
+    // Which means an item the page says nothing about is dropped rather than shown as a code.
+    const got = nd.hhaLinks('<a href="/view/7548873-ca11003"><img src="/t.jpg" alt=""></a>'
+      + '<a href="/view/551-the-old-house"><img src="/t.jpg" alt=""></a>', nd.HHA_HOME);
+    t.same(got.map((x) => x.title), ['The Old House'],
+      'an item with nothing but a shelf mark is left out rather than shown as CA11003');
+    /* A listing is free to link the bare number, and some do. The number is the item;
+       the slug is a courtesy. */
+    const bare = nd.hhaLinks('<a href="/view/7548873">Broad Street, Hereford, 1904</a>', nd.HHA_HOME);
+    t.is(bare.length, 1, 'an address with no slug at all is still an item');
+    t.is(bare[0].ref, '7548873', 'keeping its catalogue number');
+    t.is(bare[0].title, 'Broad Street, Hereford, 1904', 'named by the link, since there is no slug to ask');
+    t.is(bare[0].year, 1904, 'and dated from it');
+    t.same(nd.hhaLinks('<a href="/view/7548873"><img src="/t.jpg" alt=""></a>', nd.HHA_HOME), [],
+      'but a bare number with nothing said about it is not worth a row');
+  });
+
+  suite('A year in the title is a year on the row', (t) => {
+    t.is(nd.hhaYear('Broad Street, Hereford, 1904'), 1904, 'a catalogued year is read off the title');
+    t.is(nd.hhaYear('High Town, c.1880'), 1880, 'even hedged with a circa');
+    t.is(nd.hhaYear('Withington Station'), 0, 'a title with no year has none');
+    t.is(nd.hhaYear('Catalogue 40000 items'), 0, 'and a number that is not a year is not one');
+    t.is(nd.hhaYear(''), 0, 'nor is nothing');
+  });
+
+  suite('The day picks its own window into forty thousand things', (t) => {
+    const list = Array.from({ length: 20 }, (_, i) => ({ ref: String(i) }));
+    const day = (y, m, d) => nd.hhaSeed(new Date(y, m - 1, d));
+    const ids = (seed, n) => nd.hhaPick(list, seed, n).map((x) => x.ref);
+    t.is(nd.hhaPick(list, day(2026, 5, 1), 10).length, 10, 'ten of them reach the tab');
+    t.same(ids(day(2026, 5, 1), 10), ids(day(2026, 5, 1), 10),
+      'the same day gives the same pictures, however often the app is opened');
+    t.not(ids(day(2026, 5, 1), 10).join() === ids(day(2026, 5, 2), 10).join(),
+      'and tomorrow gives others');
+    t.not(ids(day(2026, 5, 1), 10).join() === ids(day(2027, 5, 1), 10).join(),
+      'as does the same day next year');
+    // It wraps rather than running off the end of the list.
+    t.is(new Set(nd.hhaPick(list, 19, 10).map((x) => x.ref)).size, 10,
+      'a window starting at the end wraps round to the start');
+    t.same(nd.hhaPick([{ ref: 'a' }, { ref: 'b' }], 7, 10).map((x) => x.ref), ['a', 'b'],
+      'a short list is shown whole rather than padded');
+    t.same(nd.hhaPick([], 7, 10), [], 'and an empty one stays empty');
+    t.same(nd.hhaPick(list, 7, 0), [], 'asking for none gives none');
+  });
+
   /* A refresh lands a source every few seconds after a cold start and every ten
      minutes after that, and each landing rebuilds the list. It used to rebuild it
      as the tab, throwing away results the reader was still looking at. */
@@ -1370,9 +1526,268 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     S.reader = null; S.saved = [];
   });
 
+  /* All three routes at once, through the real loader: the county archive is a third
+     source of history, not a replacement for the other two, and the tab has to end up
+     holding all of it in a sensible order. */
+  const hist = await boot({
+    settle: 1400,
+    reply(url) {
+      if (/wbsearchentities/.test(url)) {
+        // What the search actually answers: the historic county leads.
+        return { ok: true, body: JSON.stringify({ search: [
+          { id: 'Q67531905', description: 'historic county of England' },
+          { id: 'Q23129', description: 'ceremonial county and unitary authority area in England' },
+          { id: 'Q8508759', description: 'Wikimedia category' }] }) };
+      }
+      if (/query\.wikidata\.org/.test(url)) {
+        return { ok: true, body: JSON.stringify({ results: { bindings: [{
+          itemLabel: { value: 'Nell Gwyn' }, year: { value: '1650' },
+          kind: { value: 'Born' }, itemDescription: { value: 'English actress' },
+          item: { value: 'http://www.wikidata.org/entity/Q235719' } }] } }) };
+      }
+      if (/onthisday/.test(url)) {
+        return { ok: true, body: JSON.stringify({ events: [{
+          text: 'The Wye Valley railway opened in Herefordshire.', year: 1876,
+          pages: [{ extract: 'A line through the Wye Valley.',
+                    content_urls: { desktop: { page: 'https://en.wikipedia.org/wiki/Wye_Valley_Railway' } } }] }] }) };
+      }
+      if (/herefordshirehistory\.org\.uk/.test(url)) {
+        /* Each listing page offers its own three items, the way three collections
+           would, and every one of them links the Old House. Nine and one is exactly
+           HHA_KEEP, so the day's window takes the lot and these checks do not depend
+           on which day they are run. Catalogue numbers are numbers, as the archive's
+           own addresses have them. */
+        const n = /people-and-portraits/.test(url) ? 2 : /transport/.test(url) ? 3 : 1;
+        return { ok: true, body: [1, 2, 3].map((i) =>
+          `<a href="/view/${n}0${i}-a-picture-of-${n}${i}"><img src="/t/${n}${i}.jpg" alt="">`
+          + `<h3>A picture of ${n}${i}${n === 1 && i === 1 ? ', 1904' : ''}</h3></a>`).join('')
+          + '<a href="/view/999-the-old-house">The Old House, 1621</a>' };
+      }
+      return null;
+    }
+  });
+
+  suite('The county archive joins the other two', (t) => {
+    const hh = hist.nd.S.by.hh || {};
+    const items = hh.items || [];
+    t.ok(items.length > 0, 'the History tab has something in it');
+    t.ok(/Wikidata/.test(hh.method || ''), 'and says Wikidata is one of its sources');
+    t.ok(/Wikipedia/.test(hh.method || ''), 'and Wikipedia another');
+    t.ok(/county archive/.test(hh.method || ''), 'and the county archive the third');
+
+    const titles = items.map((x) => x.title);
+    t.ok(titles.indexOf('Nell Gwyn') >= 0, 'somebody Wikidata knows was born here');
+    t.ok(titles.some((x) => /Wye Valley railway/.test(x)), 'something Wikipedia has for the day');
+    t.ok(titles.some((x) => /A picture of/.test(x)), 'and pictures from the archive');
+
+    // The archive is asked for every page it knows, one after another.
+    const asked = hist.calls.fetched.filter((u) => /herefordshirehistory/.test(u));
+    t.is(asked.length, hist.nd.HHA_PAGES.length, 'every listing page is asked for');
+    t.same(asked, hist.nd.HHA_PAGES, 'the ones it was given, in order');
+
+    // The same item linked from three collections is one row, not three - and it is
+    // deduped before the day picks its ten, or the window would spend places on
+    // copies and the tab would come up short.
+    t.is(titles.filter((x) => /The Old House/.test(x)).length, 1,
+      'an item linked from more than one collection lands once');
+    t.is(titles.filter((x) => /A picture of|The Old House/.test(x)).length, hist.nd.HHA_KEEP,
+      'and the day gets a full window of different things, not copies of one');
+
+    // Dated things read in order; the archive's undated pictures follow rather than
+    // leading the tab from the year nought.
+    const years = items.map((x) => x.year || 0);
+    const dated = years.filter((y) => y);
+    t.same(dated.slice(), dated.slice().sort((a, b) => a - b), 'the dated rows read oldest first');
+    const firstBlank = years.indexOf(0);
+    t.ok(firstBlank === -1 || years.slice(firstBlank).every((y) => !y),
+      'and nothing dated comes after something undated');
+    t.is(items[0].year, 1621, 'so the oldest thing here leads');
+
+    // A row has to be readable: a year on it if there is one, and a picture where there is one.
+    const pic = items.filter((x) => /A picture of 11/.test(x.title))[0];
+    t.ok(pic, 'the catalogued picture is there');
+    t.is(pic.year, 1904, 'with the year off its title');
+    t.is(hist.nd.timeLabel(pic), '1904', 'which is what the row shows where a story shows its age');
+    const undated = items.filter((x) => /A picture of 12/.test(x.title))[0];
+    t.is(hist.nd.timeLabel(undated), '', 'and an undated picture shows nothing rather than a guess');
+  });
+
+  /* A county library's server is not a newsroom's. One listing page being down, or
+     slow enough to time out, must cost that page's items and nothing else - not the
+     other two, and not the two national routes beside them. A reply that throws is
+     how a timed-out fetch reaches the loader. */
+  const halfDown = await boot({
+    settle: 1400,
+    reply(url) {
+      if (/wbsearchentities/.test(url)) {
+        return { ok: true, body: JSON.stringify({ search: [
+          { id: 'Q23124', description: 'ceremonial county of England' }] }) };
+      }
+      if (/query\.wikidata\.org/.test(url)) {
+        return { ok: true, body: JSON.stringify({ results: { bindings: [{
+          itemLabel: { value: 'Nell Gwyn' }, year: { value: '1650' },
+          kind: { value: 'Born' }, item: { value: 'http://www.wikidata.org/entity/Q235719' } }] } }) };
+      }
+      if (/onthisday/.test(url)) return { ok: true, body: '{}' };
+      // The one that is down does not answer at all
+      if (/herefordshirehistory\.org\.uk\/archive/.test(url)) throw new Error('Timed out');
+      // The one that answers with an error answers, at least
+      if (/people-and-portraits/.test(url)) return { ok: false, status: 503, body: '' };
+      /* Two kitchens: one serving dinner, one whose feed is working perfectly and has
+         nothing on it but a giveaway. The second is the case that used to be
+         invisible - it answered, so it was not a failure, and it gave nothing, so it
+         was not a source either. */
+      if (/minimalistbaker/.test(url)) return { ok: true, body: rss('A one-pot lentil dhal') };
+      if (/deliciouslyella/.test(url)) return { ok: true, body: rss('Win a blender in our giveaway') };
+      if (/transport/.test(url)) {
+        return { ok: true, body: [1, 2, 3].map((i) =>
+          `<a href="/view/30${i}-a-transport-picture-${i}">A transport picture ${i}</a>`).join('') };
+      }
+      return null;
+    }
+  });
+
+  suite('One page of the archive being down costs only that page', (t) => {
+    const hh = halfDown.nd.S.by.hh || {};
+    const titles = (hh.items || []).map((x) => x.title);
+    t.is(titles.filter((x) => /A transport picture/.test(x)).length, 3,
+      'the page that answered still contributes every one of its items');
+    t.ok(titles.indexOf('Nell Gwyn') >= 0, 'and the national routes beside it are untouched');
+    t.ok(/county archive/.test(hh.method || ''), 'the archive is still named as a source');
+    t.not(hh.error, 'and the tab is not in error over it');
+
+    // What went wrong is recorded rather than swallowed, because the panel shows it.
+    const reqs = hh.requests || [];
+    const asked = reqs.filter((r) => /herefordshirehistory/.test(r.url));
+    t.is(asked.length, halfDown.nd.HHA_PAGES.length, 'all three pages are still accounted for');
+    t.is(asked.filter((r) => r.ok).length, 1, 'one of them worked');
+    t.is(asked.filter((r) => !r.ok).length, 2, 'and two are marked as not having');
+    const dead = asked.filter((r) => /\/archive$/.test(r.url))[0];
+    t.ok(dead && !dead.ok, 'the one that never answered is among them');
+    t.ok(dead && /Timed out/.test(dead.error || ''), 'with what went wrong beside it');
+  });
+
+  /* Wikidata has more than one Herefordshire and only one of them is any use. The
+     tab was asking the historic county what it contained - nothing records itself as
+     being in a county that has stopped existing - and had written that choice down,
+     so it answered nothing every day until somebody looked at the panel. */
+  suite('Which Herefordshire is asked', (t) => {
+    const pick = (hits) => nd.hhQidFrom(hits);
+    // The order the search really answers in
+    t.is(pick([{ id: 'Q67531905', description: 'historic county of England' },
+               { id: 'Q23129', description: 'ceremonial county and unitary authority area in England' }]),
+      'Q23129', 'the county as it is now, not the one that used to be');
+    t.is(pick([{ id: 'Q67531905', description: 'historic county of England' }]), '',
+      'and nothing at all rather than the historic one on its own');
+    ['former county', 'traditional county of England', 'ancient county',
+     'proposed county', 'abolished county'].forEach((d) => {
+      t.is(pick([{ id: 'Q1', description: d }]), '', 'nor a county described as ' + d);
+    });
+    t.is(pick([{ id: 'Q1', description: 'county of England' }]), 'Q1',
+      'a plain county will do if nothing better is offered');
+    t.is(pick([{ id: 'Q1', description: 'county of England' },
+               { id: 'Q2', description: 'unitary authority area in England' }]), 'Q2',
+      'but what it is today is taken first, whatever the order');
+    t.is(pick([{ id: 'Q8508759', description: 'Wikimedia category' },
+               { id: 'Q51402437', description: 'Wikimedia module' }]), '',
+      'a category is not a place');
+    t.is(pick([{ id: 'not-a-qid', description: 'ceremonial county' }]), '',
+      'and an id that is not one is not followed');
+    t.is(pick([]), '', 'an answer with nothing in it picks nothing');
+    t.is(pick(null), '', 'as does no answer at all');
+
+    // The two constants this went wrong on.
+    t.is(nd.HH_QID_DEFAULT, 'Q23129', 'the fallback is Herefordshire, not the West Midlands');
+    t.is(nd.HH_QID_KEY, 'nd.hhqid.v2',
+      'and the key moved on, so a phone that wrote down the wrong one forgets it');
+  });
+
+  suite('The county it actually asks about', (t) => {
+    // End to end: the search answers historic-first and the query still goes to the
+    // right county, which is the whole of what went wrong.
+    const asked = hist.calls.fetched.filter((u) => /query\.wikidata\.org/.test(u));
+    t.is(asked.length, 1, 'the county is asked once');
+    t.ok(/Q23129/.test(asked[0]), 'about the county as it is now');
+    t.not(/Q67531905/.test(asked[0]), 'and never about the one that stopped existing');
+    const line = ((hist.nd.S.by.hh || {}).requests || [])
+      .filter((r) => /wikidata/.test(r.url))[0];
+    t.ok(line && /Q23129/.test(line.url), 'and the panel names the one it asked');
+  });
+
+  /* A source with three routes behind it can lose two and still look well: the tab
+     has stories in it and the line above says where they came from. Which is how the
+     archive could answer with nothing for a week without the panel ever saying so. */
+  suite('The panel says what answered with nothing', (t) => {
+    t.is(nd.reqLine({ url: 'https://herefordshirehistory.org.uk/archive', ok: true, status: 200, got: 0 }),
+      'herefordshirehistory.org.uk/archive - answered with nothing',
+      'a page that worked and gave nothing says so');
+    t.is(nd.reqLine({ url: 'https://herefordshirehistory.org.uk/archive', ok: false, status: 404 }),
+      'herefordshirehistory.org.uk/archive - HTTP 404', 'a page that was not there says that instead');
+    t.is(nd.reqLine({ url: 'https://www.example.com/x', ok: false, status: 0, error: 'Timed out' }),
+      'example.com/x - Timed out', 'and one that never answered says what went wrong');
+    t.is(nd.reqLine('a plain string the coin source uses'), 'a plain string the coin source uses',
+      'the one source that lists every address it asks for is left as it was');
+
+    const quiet = nd.quietReqs({ requests: [
+      { url: 'a', ok: true, status: 200, got: 3 },
+      { url: 'b', ok: true, status: 200, got: 0 },
+      { url: 'c', ok: false, status: 500 },
+      { url: 'd', ok: true, status: 200 },
+      'a plain string'
+    ] });
+    t.same(quiet.map((x) => x.url), ['b', 'c'],
+      'only the ones that failed or came back empty are worth the room');
+    t.same(nd.quietReqs({}), [], 'a source that has not been asked yet lists nothing');
+    t.same(nd.quietReqs({ requests: [{ url: 'a', ok: true, got: 2 }] }), [],
+      'and one where everything worked says nothing at all');
+  });
+
+  suite('Every route of the History tab reports its tally', (t) => {
+    // Without a count, a route that answered with nothing is indistinguishable from
+    // one that was never asked - which is exactly the state this went out in.
+    const reqs = (hist.nd.S.by.hh || {}).requests || [];
+    t.ok(reqs.length >= 5, 'every route and every listing page is accounted for');
+    t.ok(reqs.every((r) => typeof r.got === 'number'), 'and every one of them counted what it got');
+    t.same(hist.nd.quietReqs(hist.nd.S.by.hh), [],
+      'on a day when all three answer, the panel has nothing to report');
+
+    // The day the archive answers with nothing, the panel names the pages that did.
+    const halfReqs = (halfDown.nd.S.by.hh || {}).requests || [];
+    const named = halfDown.nd.quietReqs(halfDown.nd.S.by.hh).map((x) => x.url);
+    t.ok(named.some((u) => /\/archive$/.test(u)), 'the page that never answered is named');
+    t.ok(named.some((u) => /people-and-portraits/.test(u)), 'so is the one that answered with an error');
+    t.not(named.some((u) => /transport/.test(u)), 'and the one that worked is not');
+    t.ok(halfReqs.some((r) => /onthisday/.test(r.url) && r.got === 0),
+      'a national route that simply had a quiet day is counted too');
+
+    // And it has to reach the panel, not just the state behind it.
+    halfDown.window.nd.key('menu');
+    const panel = halfDown.window.document.getElementById('sheetBody').textContent;
+    t.ok(/Nothing came from:/.test(panel), 'the panel says so in as many words');
+    t.ok(/herefordshirehistory\.org\.uk\/archive - Timed out/.test(panel),
+      'naming the page and what happened to it');
+    t.ok(/people-and-portraits - HTTP 503/.test(panel), 'and the one that answered with an error');
+    t.not(/transport - /.test(panel), 'while the page that worked is not listed as a problem');
+
+    /* A kitchen whose feed works and has nothing on it but a giveaway answered, so it
+       was not a failure, and gave nothing, so it was not a source. It used to be
+       invisible in both directions. */
+    const rc = halfDown.nd.S.by.rc || {};
+    t.ok(/1 of 6 kitchens/.test(rc.method || ''), 'one kitchen served dinner');
+    const rcQuiet = halfDown.nd.quietReqs(rc).map((x) => halfDown.nd.reqLine(x));
+    t.ok(rcQuiet.some((l) => /deliciouslyella\.com\/feed\/ - answered with nothing/.test(l)),
+      'and the one with nothing but a giveaway on it says so');
+    t.not(rcQuiet.some((l) => /minimalistbaker/.test(l)), 'while the one that worked does not');
+    t.ok(/deliciouslyella\.com\/feed\/ - answered with nothing/.test(panel),
+      'which reaches the panel as well as the state behind it');
+    halfDown.window.nd.key('menu');
+  });
+
   return run('Newsdesk logic').then(() => {
     close();                       // stop the page's clock, or node never gets to exit
     phone.close();
+    hist.close();
+    halfDown.close();
   });
 }).catch((e) => {
   console.error(e && e.stack || e);
