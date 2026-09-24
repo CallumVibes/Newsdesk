@@ -32,7 +32,7 @@ function monthsAgo(n) {
   return d.getFullYear() + ' ' + MON[d.getMonth()];
 }
 
-boot({ settle: 500 }).then(({ nd, window, errors, close, calls }) => {
+boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
 
   suite('The page itself', (t) => {
     t.same(errors, [], 'boots with no error on the console');
@@ -398,6 +398,110 @@ boot({ settle: 500 }).then(({ nd, window, errors, close, calls }) => {
     calls.widget.length = 0;
   });
 
+  /* --------------------------------------------------------------- Weather */
+  suite('Reading the weather', (t) => {
+    const at = (c) => { const w = nd.wmoIcon(c); return w && w.icon; };
+    t.is(at(0), 'clear', 'a clear sky');
+    t.is(at(1), 'part', 'mainly clear is partly cloudy, near enough to draw');
+    t.is(at(2), 'part', 'and so is partly cloudy');
+    t.is(at(3), 'cloud', 'overcast is a cloud');
+    t.is(at(48), 'fog', 'fog');
+    t.is(at(53), 'drizzle', 'drizzle');
+    t.is(at(65), 'rain', 'heavy rain');
+    t.is(at(66), 'rain', 'and freezing rain is still rain to look at');
+    t.is(at(75), 'snow', 'snow');
+    t.is(at(82), 'showers', 'violent showers are showers');
+    t.is(at(86), 'snow', 'but snow showers are snow');
+    t.is(at(99), 'thunder', 'thunderstorm with hail');
+    t.is(nd.wmoIcon(4), null, 'a code we do not know draws nothing rather than a guess');
+    t.is(nd.wmoIcon(NaN), null, 'and neither does no code at all');
+    // Every icon the table names has to be one we can actually draw.
+    nd.WMO.forEach((w) => t.ok(nd.WX_PATHS[w.icon], w.label + ' has an icon drawn for it'));
+    t.ok(nd.WX_PATHS.moon && nd.WX_PATHS.moonpart, 'and there is a night version of the two that need one');
+  });
+
+  suite('met.no names its symbols, and the names overlap', (t) => {
+    const at = (sym) => { const w = nd.metnoIcon(sym); return w && w.icon; };
+    // Each of these contains an earlier rule's word, which is why the order matters.
+    t.is(at('lightrainshowersandthunder_day'), 'thunder', 'thunder wins over rain and showers');
+    t.is(at('rainshowers_day'), 'showers', 'showers win over rain');
+    t.is(at('partlycloudy_night'), 'part', 'partly cloudy is not cloudy');
+    t.is(at('lightsleetshowers_day'), 'snow', 'sleet is drawn as snow');
+    t.is(at('cloudy'), 'cloud', 'cloudy on its own is a cloud');
+    t.is(at('fair_day'), 'part', 'fair is a sun behind a cloud');
+    t.is(at('clearsky_day'), 'clear', 'and a clear sky is a clear sky');
+    t.is(at('fog'), 'fog', 'fog');
+    t.is(at(''), null, 'a symbol we cannot place draws nothing');
+    t.is(at('something_new_they_added'), null, 'and so does one they invent after this was written');
+  });
+
+  suite('The two providers agree on what they hand back', (t) => {
+    const om = nd.parseOpenMeteo(JSON.stringify({
+      current: { temperature_2m: 13.6, weather_code: 3, is_day: 1 }
+    }));
+    t.ok(om, 'Open-Meteo is read');
+    t.is(om.t, 13.6, 'with the temperature');
+    t.is(om.icon, 'cloud', 'and the condition');
+    t.is(om.day, true, 'and whether it is daylight');
+    t.is(nd.parseOpenMeteo(JSON.stringify({
+      current: { temperature_2m: 5, weather_code: 0, is_day: 0 } })).day, false,
+      'which it says plainly when it is not');
+    t.is(nd.parseOpenMeteo('{"current":{"temperature_2m":"x","weather_code":0}}'), null,
+      'a reading with no temperature is no use');
+    t.is(nd.parseOpenMeteo('{}'), null, 'and neither is an answer with nothing in it');
+    t.is(nd.parseOpenMeteo('<html>error</html>'), null, 'or one that is not JSON at all');
+
+    const mn = nd.parseMetNo(JSON.stringify({ properties: { timeseries: [{ data: {
+      instant: { details: { air_temperature: 8.2 } },
+      next_1_hours: { summary: { symbol_code: 'lightrain_night' } }
+    } }] } }));
+    t.ok(mn, 'met.no is read the same way');
+    t.is(mn.t, 8.2, 'same temperature field');
+    t.is(mn.icon, 'rain', 'same icon names');
+    t.is(mn.day, false, 'and it says night in the symbol rather than a field of its own');
+    t.is(nd.parseMetNo(JSON.stringify({ properties: { timeseries: [{ data: {
+      instant: { details: { air_temperature: 8.2 } } } }] } })), null,
+      'with no symbol there is nothing to draw, so the chain moves on');
+    t.is(nd.parseMetNo('{}'), null, 'and a shape we did not expect is not forced');
+  });
+
+  suite('Showing the weather', (t) => {
+    const now = Date.now();
+    t.is(nd.wxShape({ icon: 'clear', day: false }), 'moon', 'at night a clear sky is a moon');
+    t.is(nd.wxShape({ icon: 'part', day: false }), 'moonpart', 'and so is a sun behind a cloud');
+    t.is(nd.wxShape({ icon: 'rain', day: false }), 'rain', 'but rain at night is still rain');
+    t.is(nd.wxShape({ icon: 'clear', day: true }), 'clear', 'and by day a sun is a sun');
+
+    t.is(nd.wxTemp({ t: 13.6 }), '14\u00B0', 'the temperature is rounded to a whole degree');
+    t.is(nd.wxTemp({ t: -0.4 }), '0\u00B0', 'and never reads as minus nothing');
+    t.is(nd.wxTemp({ t: -2.6 }), '-3\u00B0', 'a frost still reads as one');
+
+    t.is(nd.wxFresh({ t: 10, icon: 'clear', at: now }), true, 'a reading just taken is shown');
+    t.is(nd.wxFresh({ t: 10, icon: 'clear', at: now - 4 * HOUR }), false,
+      'one from four hours ago is not: a sun left over from this morning is a lie by teatime');
+    t.is(nd.wxFresh({ t: 10, icon: 'clear', at: now - HOUR }), true, 'an hour is fine');
+    t.is(nd.wxFresh({ icon: 'clear', at: now }), false, 'a reading with no temperature is not shown');
+    t.is(nd.wxFresh({ t: 10, at: now }), false, 'nor one with no condition');
+    t.is(nd.wxFresh(null), false, 'nor nothing at all');
+  });
+
+  suite('Where the chip goes on a television', (t) => {
+    const S = nd.S, doc = window.document;
+    S.mkt = { at: Date.now(), wx: { t: 14, icon: 'clear', label: 'Clear', c: '#E8C35A',
+                                    day: true, at: Date.now(), from: 'open-meteo' } };
+    nd.renderMkt();
+    const inBand = doc.querySelector('#mkt .wx');
+    t.ok(inBand, 'on a TV the weather leads the band of prices');
+    t.ok(/14/.test(inBand.textContent), 'carrying the temperature');
+    t.ok(inBand.querySelector('svg'), 'and an icon drawn rather than typed');
+    t.is(doc.getElementById('wx').children.length, 0,
+      'and the phone\'s slot under the name stays empty');
+    S.mkt.wx.at = Date.now() - 5 * HOUR;
+    nd.renderMkt();
+    t.not(doc.querySelector('#mkt .wx'), 'a stale reading is dropped rather than shown');
+    S.mkt = {};
+  });
+
   /* ------------------------------------------------------------- The wire */
   suite('Splitting the wire', (t) => {
     t.is(nd.isWireHeader('BLOCK 968306'), true, 'a block height is the wire\'s own header');
@@ -522,8 +626,26 @@ boot({ settle: 500 }).then(({ nd, window, errors, close, calls }) => {
     t.ok(window.document.querySelectorAll('#list .row').length >= 1, 'and it reaches the screen');
   });
 
+  // The chip has two homes and the phone one is the one that went wrong, so the page
+  // is booted a second time as a phone rather than trusted to behave.
+  const phone = await boot({ settle: 500, device: 'touch' });
+  suite('Where the chip goes on a phone', (t) => {
+    const doc = phone.window.document;
+    phone.nd.S.mkt = { at: Date.now(), wx: { t: 9, icon: 'rain', label: 'Rain', c: '#7FB5E8',
+                                             day: true, at: Date.now(), from: 'open-meteo' } };
+    phone.nd.renderMkt();
+    const under = doc.querySelector('#wx .wx');
+    t.ok(under, 'on a phone the weather sits under the name');
+    t.ok(/9/.test(under.textContent), 'with the temperature');
+    t.ok(under.querySelector('svg'), 'and its icon');
+    // Four prices fill the phone's two-by-two block exactly. A fifth pushed it to
+    // three rows and clipped the others, which is why the chip lives elsewhere.
+    t.not(doc.querySelector('#mkt .wx'), 'and never in the price band, which has no room for it');
+  });
+
   return run('Newsdesk logic').then(() => {
     close();                       // stop the page's clock, or node never gets to exit
+    phone.close();
   });
 }).catch((e) => {
   console.error(e && e.stack || e);

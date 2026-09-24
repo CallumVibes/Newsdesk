@@ -8,6 +8,7 @@ One build, two layouts. On a TV it's headlines on the left, a large preview on t
 
 | Source | How it's read |
 | --- | --- |
+| Weather | Open-Meteo, then met.no. Both are free and need no key. Each answers in its own language — a WMO number, or a symbol name — and both are put through a table into one of eleven drawn icons. |
 | Prices | Bitcoin from CoinGecko, Coinbase or blockchain.info; gold and oil from Yahoo or Stooq, converted at a rate from Frankfurter; the debt from the ONS, then a counter site. The sources panel names whichever answered, and the dollar figure gold and oil were converted from. |
 | Citadel Wire | Each wire holds several stories and is split into them, by list, by numbering, by heading, or by blank-line blocks. A wire that resists all four is kept whole as one digest, and only the newest such digest is shown. Nostr notes from `npub1q8g803ajr0lw3xngs0k6hn2q3mejf6dtgv05d06h6krqgv9uh97q5382kp`, with the site's RSS feeds as backup. Each wire is split into its individual stories. |
 | Kagi News | RSS per category: UK, World, Technology, Science and Bitcoin. UK stories are given priority. Summaries are licensed CC BY-NC. |
@@ -35,6 +36,21 @@ whole wire, prices and all, so it goes to UK & World rather than looking like a 
 
 Every tab but Today is a flat newest-first list, taking turns between its sources. Headlines
 carry a small picture, fetched only once the row is nearly on screen.
+
+## Weather
+
+A small icon and the temperature, alongside the prices. On a TV it leads the band under the
+tabs; on a phone that band is exactly two cells wide and a fifth figure would push it to three
+rows and clip the others, so there the weather takes the empty room under the name instead.
+
+The icons are drawn rather than typed. An emoji sun is at the mercy of whatever font the device
+ships — a Fire TV stick and a modern phone have different sets — and a missing one shows as an
+empty box. These are SVG, so they are the same everywhere, scale with the text and take their
+colour from the condition: a warm sun, a blue shower, an amber thunderstorm. At night a clear
+sky is a moon.
+
+A reading more than three hours old is dropped rather than shown, because stale weather is wrong
+in a way a stale gold price is not. `WX_AT` sets the coordinates and `WX_STALE_MS` that limit.
 
 ## Prices
 
@@ -196,6 +212,8 @@ Near the top of `app/src/main/assets/index.html`:
 | `BTC_SOURCES`, `GOLD_SOURCES`, `OIL_SOURCES` | Where prices come from, tried in order |
 | `RATE_SOURCES` | Where the dollar to pound rate comes from |
 | `MKT_STALE_MS` | How old a price may be before it stops being shown |
+| `WX_AT` | Where the weather is for |
+| `WX_STALE_MS` | How old a forecast may be before it stops being shown |
 | `KAGI_WANT` | Which Kagi categories to pull |
 | `KAGI_BOOST` | How much of a head start UK stories get |
 | `EVENT_WINDOW_DAYS` | How far ahead **On in town** looks before falling back to the soonest events |
