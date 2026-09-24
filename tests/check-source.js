@@ -199,21 +199,6 @@ suite('It can be installed as a web app', (t) => {
   t.ok(/caches\.delete/.test(sw), 'and an old one is thrown away');
 });
 
-suite('The published copy carries no key', (t) => {
-  const yml = 'PAGES';
-  const pages = fs.readFileSync(path.join(__dirname, '..', '.github/workflows/pages.yml'), 'utf8');
-  // The APK build injects the key from a secret. This repository is public, so the
-  // published page must not: it writes its own empty config over whatever was there.
-  t.ok(/ppqKey: ""/.test(pages), 'the publish step writes an empty key over the tarball\'s');
-  t.ok(/grep -rqiE/.test(pages) && /Refusing to publish/.test(pages),
-    'and refuses to publish at all if something key-shaped got through');
-  t.not(/on:[\s\S]{0,120}push:/.test(pages),
-    'it is not on push: going public is a decision, not a side effect of committing');
-  t.ok(/workflow_dispatch/.test(pages), 'it is run by hand from the Actions tab');
-  t.ok(/GITHUB_SHA/.test(pages), 'and stamps the worker, or a republish would never take');
-  t.ok(yml === 'PAGES', 'this suite read the workflow it is about');
-});
-
 suite('The manifest says what the app actually does', (t) => {
   const m = read('app/src/main/AndroidManifest.xml');
   ['INTERNET', 'RECEIVE_BOOT_COMPLETED', 'POST_NOTIFICATIONS'].forEach((p) => {

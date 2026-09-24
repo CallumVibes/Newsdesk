@@ -232,27 +232,26 @@ bad push fails in seconds. `tests/README.md` has the detail.
 ## As a web app
 
 The same `index.html` the APK carries is also a progressive web app: a manifest, an icon and a
-service worker that keeps the shell so it opens without a network. Add it to a home screen and it
-runs without browser furniture. The news itself is never cached by the worker — the page already
-keeps its last fetch and shows that while it refreshes, so a train tunnel gets yesterday's
-headlines rather than a browser error page.
+service worker that keeps the shell so it opens without a network. Nothing hosts it — there is no
+publish workflow, deliberately — so this is capability rather than a deployment. Serve
+`app/src/main/assets/` over https from anywhere and it installs to a home screen and runs without
+browser furniture.
 
-One difference that matters. In the app, Kotlin does the fetching, so CORS never applies. In a
-browser it applies to everything and not one of these sources allows it, so the web version reads
-every address through a public CORS proxy — `WEB_PROXIES`, tried in turn. That means in a browser
-every address the app reads passes through a third party. The ☰ panel says so when it is running
-that way. The installed app uses none of them.
+Two things to know before you do.
 
-### Publishing it
+The service worker never caches a story, only the app's own files. The news is the one thing that
+must not come out of a cupboard, and the page already keeps its last fetch and shows that while it
+refreshes.
 
-`.github/workflows/pages.yml` publishes it to GitHub Pages. It is **not** run on push — this
-repository is public, and a published page is easier to come across than a file in a repository,
-so going live is a decision. Run it by hand from the **Actions** tab, and again whenever you want
-the page to catch up.
+And CORS. In the app, Kotlin does the fetching, so it never applies. In a browser it applies to
+everything and not one of these sources allows it, so the web version reads every address through
+a public CORS proxy — `WEB_PROXIES`, tried in turn — which means a third party sees every address
+the app reads. The ☰ panel says so when it is running that way. The installed app uses none of
+them, and none of this code runs inside the APK at all: a service worker cannot register from a
+`file://` page, and `WEB_PROXIES` is only reached when there is no native bridge.
 
-The published copy never carries the PPQ key: the workflow writes an empty `config.js` over
-whatever the tarball had, then greps the output for anything key-shaped and refuses to publish if
-it finds any. So the web version has no AI briefing. Everything else works.
+Anything you do host must not carry the PPQ key. `config.js` is where it lands at build time;
+overwrite it with an empty one before serving the folder.
 
 ## Build
 
