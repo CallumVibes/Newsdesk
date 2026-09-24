@@ -358,7 +358,10 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
 
   /* ------------------------------------------------------------- The theme */
   suite('One accent, not nine', (t) => {
-    t.is(nd.ACCENT, '#F7931A', 'the accent is the orange');
+    // A reference rather than a colour, because there are two of them: orange on
+    // black, and a darker orange on white. Handed to a style property it resolves
+    // to whichever is in force, so nothing that draws has to ask which.
+    t.is(nd.ACCENT, 'var(--accent)', 'the accent is a reference, not a fixed colour');
     // Every source and every tab used to carry a colour of its own. The theme asked
     // for is white and orange, so there is one accent and everything takes it.
     Object.keys(nd.SRC).forEach((k) => {
@@ -368,8 +371,8 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
 
     const style = window.getComputedStyle(window.document.documentElement);
     const v = (n) => style.getPropertyValue(n).trim().toUpperCase();
-    t.is(v('--text'), '#FFFFFF', 'the text is white');
-    t.is(v('--accent'), '#F7931A', 'the accent is on the palette too');
+    t.is(v('--text'), '#FFFFFF', 'the text is white in the dark');
+    t.is(v('--accent'), '#F7931A', 'the accent is on the palette');
     t.is(v('--c'), '#F7931A', 'and is what anything uncoloured falls back to');
     // The greys were teal-tinted, which competed with an orange. They are neutral now.
     ['--bg', '--bg2', '--bg3', '--line', '--soft', '--muted', '--dim'].forEach((n) => {
@@ -380,6 +383,61 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
       t.ok(Math.max(r, g, b) - Math.min(r, g, b) <= 6,
         n + ' is a neutral grey rather than a tinted one (' + hex + ')');
     });
+  });
+
+  suite('Light and dark', (t) => {
+    const doc = window.document, root = doc.documentElement;
+    const lum = (hex) => {
+      const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+        .map((x) => (x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4)));
+      return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+    };
+    const ratio = (a, b) => {
+      const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+      return (hi + 0.05) / (lo + 0.05);
+    };
+    const v = (n) => window.getComputedStyle(root).getPropertyValue(n).trim().toUpperCase();
+
+    calls.themed.length = 0;
+    nd.setTheme('dark');
+    t.is(nd.theme(), 'dark', 'it starts dark');
+    t.not(/\blight\b/.test(root.className), 'with no light class on the page');
+    t.ok(root.className.indexOf(nd.S.mode === 'x' ? '' : 'tv') >= 0,
+      'and whatever the device put there is left alone');
+
+    nd.setTheme('light');
+    t.is(nd.theme(), 'light', 'it turns over');
+    t.ok(/\blight\b/.test(root.className), 'by one class on the page');
+    t.ok(root.className.indexOf('tv') >= 0, 'still leaving the device class alone');
+    t.ok(lum(v('--bg')) > 0.8, 'the background goes light');
+    t.ok(lum(v('--text')) < 0.1, 'and the text goes dark');
+    // #F7931A on white is too faint to read, so the light accent is a darker orange.
+    t.ok(ratio(v('--accent'), v('--bg')) >= 4.5,
+      'the light accent can be read on the light background (' + v('--accent') + ')');
+    t.ok(ratio(v('--up'), v('--bg')) >= 4.5, 'and so can a rise');
+    t.ok(ratio(v('--dn'), v('--bg')) >= 4.5, 'and a fall');
+
+    nd.flipTheme();
+    t.is(nd.theme(), 'dark', 'flipping turns it back');
+    t.ok(ratio(v('--accent'), v('--bg')) >= 4.5, 'and the dark accent reads on black too');
+    t.ok(ratio(v('--text'), v('--bg')) >= 4.5, 'as does the text');
+
+    // Kotlin paints the window before this page runs, so it has to be told.
+    t.same(calls.themed, ['dark', 'light', 'dark'], 'Kotlin is told each time it changes');
+    let kept = '';
+    try { kept = JSON.parse(window.localStorage.getItem('nd.theme.v1')) || ''; } catch (e) {
+      kept = window.localStorage.getItem('nd.theme.v1');
+    }
+    t.is(kept, 'dark', 'and it is remembered for next time');
+
+    // The panel is where you change it, on either device.
+    const flip = nd.SHEET_ACTS[nd.SHEET_ACTS.length - 1];
+    t.is(typeof flip.label, 'function', 'the label changes with the state');
+    t.is(flip.label(), 'Light theme', 'and offers where it will take you, not where you are');
+    nd.setTheme('light');
+    t.is(flip.label(), 'Dark theme', 'both ways round');
+    nd.setTheme('dark');
+    calls.themed.length = 0;
   });
 
   /* ----------------------------------------------------- Briefing history */

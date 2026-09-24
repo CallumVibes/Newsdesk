@@ -44,7 +44,10 @@ function market(btc) {
 /* Every source fails, because this is about the furniture rather than the news. */
 const STUB = `
   window.ND_TV = __TV__;
-  try { localStorage.setItem('nd.mkt.v1', __MKT__); } catch (e) {}
+  try {
+    localStorage.setItem('nd.mkt.v1', __MKT__);
+    localStorage.setItem('nd.theme.v1', __THEME__);
+  } catch (e) {}
   window.Native = {
     device: () => (__TV__ ? 'tv' : 'touch'), version: () => 'layout test',
     keepAwake() {}, exit() {}, briefDone() {}, briefSave() {},
@@ -61,7 +64,8 @@ async function open(browser, opts) {
   });
   await page.addInitScript(STUB
     .replace(/__TV__/g, String(!!opts.tv))
-    .replace('__MKT__', JSON.stringify(JSON.stringify(market(opts.btc || 63355)))));
+    .replace('__MKT__', JSON.stringify(JSON.stringify(market(opts.btc || 63355))))
+    .replace('__THEME__', JSON.stringify(opts.theme || 'dark')));
   await page.goto('file://' + path.join(DIR, 'app/src/main/assets/index.html'));
   await page.waitForTimeout(900);
   return page;
@@ -91,6 +95,10 @@ function look() {
     percentShown: !!box.querySelector('.pc') &&
       getComputedStyle(box.querySelector('.pc')).display !== 'none',
     arrows: box.querySelectorAll('.ar').length,
+    light: /\blight\b/.test(document.documentElement.className),
+    bg: getComputedStyle(document.body).backgroundColor,
+    text: getComputedStyle(document.querySelector('.row .ttl') ||
+      document.querySelector('h1') || document.body).color,
     tabsOverflow: tabs.scrollWidth > tabs.clientWidth + 1,
     pageOverflow: doc.scrollWidth > doc.clientWidth + 1,
     headerH: Math.round(document.querySelector('header').getBoundingClientRect().height)
@@ -115,7 +123,9 @@ function look() {
     { name: 'pixel', w: 412, h: 915 },
     { name: 'small', w: 360, h: 780 },
     { name: 'pixelBig', w: 412, h: 915, btc: 123456 },
-    { name: 'smallBig', w: 360, h: 780, btc: 123456 }
+    { name: 'smallBig', w: 360, h: 780, btc: 123456 },
+    { name: 'pixelLight', w: 412, h: 915, theme: 'light' },
+    { name: 'tvLight', w: 1920, h: 1080, tv: true, theme: 'light' }
   ]) {
     const page = await open(browser, c);
     seen[c.name] = await page.evaluate(look);
@@ -148,6 +158,23 @@ function look() {
     // The one that is coming: a six-figure price is wider than a five-figure one.
     t.is(seen.pixelBig.rows, 1, 'a six-figure bitcoin price still holds the line');
     t.is(seen.smallBig.rows, 1, 'even on the narrowest phone');
+  });
+
+  suite('Light turns the page over, and nothing else', (t) => {
+    const rgb = (s) => (s.match(/\d+/g) || []).map(Number);
+    const lum = (c) => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+    t.is(seen.pixel.light, false, 'dark is dark');
+    t.ok(lum(rgb(seen.pixel.bg)) < 40, 'with a near-black page');
+    t.is(seen.pixelLight.light, true, 'and light is light');
+    t.ok(lum(rgb(seen.pixelLight.bg)) > 215, 'with a white one');
+    t.ok(lum(rgb(seen.tvLight.bg)) > 215, 'on a television too');
+    // The layout must not care which way the page is lit.
+    ['rows', 'items', 'tight'].forEach((k) => {
+      t.is(seen.pixelLight[k], seen.pixel[k], 'a phone lays out the same either way (' + k + ')');
+      t.is(seen.tvLight[k], seen.tv1080[k], 'and so does a television (' + k + ')');
+    });
+    t.same(seen.pixelLight.clipped, [], 'nothing is clipped in the light either');
+    t.is(seen.tvLight.tabsOverflow, false, 'and every tab is still on screen');
   });
 
   suite('Nothing else moved to make room', (t) => {

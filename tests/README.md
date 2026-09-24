@@ -42,6 +42,13 @@ story lands, event dates, the UK debt figure, the briefing editions, and how a
 screen is built. Nothing reaches the network and nothing depends on today's date —
 fixtures are built relative to now, so these still pass in a year.
 
+The harness loads the page from `https://newsdesk.test/`, not `file://`: jsdom treats a
+file origin as opaque and hands it no `localStorage`, and the app keeps its cache, its
+seen list, its briefings, its saved stories and its theme there. Every one of those
+writes is wrapped in try/catch, so under a file origin they all silently did nothing
+and none of that code was ever exercised. A real WebView loading from assets has
+working storage, so the harness has it too.
+
 ## The seam
 
 `index.html` ends with:

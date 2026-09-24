@@ -308,13 +308,25 @@ The date comes from the listing's own field where it has one, and is otherwise r
 
 ## Theme
 
-White on near-black, with one accent: Bitcoin orange, `#F7931A`. Every source and every tab used
-to carry a colour of its own; they all take the accent now, and the greys are neutral rather than
-the teal-tinted ones they replace, so nothing competes with it. `ACCENT` near the top of
-`index.html` is the single place it is set.
+Two of them: white on near-black, and near-black on white. Change it under ☰ — on a phone the
+third button along the foot, on the TV press ▶ to **Light theme** / **Dark theme** and OK. It is
+remembered, and the button says where it will take you rather than where you are.
 
-Two colours are not part of the theme and stay as they are: green and red on a price's move. That
-is the one place in the app where colour is the only thing carrying the meaning.
+One accent either way: Bitcoin orange. On white that orange is too faint to read as text, so the
+light theme uses a darker one (`#B45309` against `#F7931A`) that clears 4.5:1 on its background —
+the tests check that, both ways up, for the accent and for a price's rise and fall.
+
+Every colour in the page comes from a custom property, so turning the app over is one class on
+`<html>` and nothing is redrawn. `ACCENT` is a reference rather than a colour for the same reason:
+handed to a style property it resolves to whichever theme is in force, so nothing that draws has
+to ask. Every source and every tab used to carry a colour of its own; they all take the accent now.
+
+Which way it is lit is settled in the head of the page, before the first paint, and Kotlin is told
+so the window behind the WebView and the home screen widget are painted the same way — otherwise
+each start would flash the other colour before the page caught up.
+
+Green and red on a price's move are not part of the theme, only tuned for it. That is the one
+place in the app where colour is the only thing carrying the meaning.
 
 ## Requirements
 
