@@ -205,7 +205,7 @@ After 3 idle minutes it shows one story at a time, dimmed and drifting to protec
 | Tap a headline | Read the story |
 | Scroll | Normal scrolling throughout |
 | ⌕ (top right) | Search everything loaded and saved |
-| ☰ (top right) | Sources panel: what loaded, from where, and any errors |
+| ☰ (top right) | Sources panel: what loaded, from where, and any errors. **Refresh all** and the light/dark toggle are along its foot |
 | Back | Top of list, then Today, then exit |
 
 The phone keeps its status bar, rotates freely and is left to sleep on its own, so there's no idle screen and nothing holds the display awake.
@@ -350,9 +350,10 @@ The date comes from the listing's own field where it has one, and is otherwise r
 
 ## Theme
 
-Two of them: white on near-black, and near-black on white. Change it under ☰ — on a phone the
-third button along the foot, on the TV press ▶ to **Light theme** / **Dark theme** and OK. It is
-remembered, and the button says where it will take you rather than where you are.
+Two of them: white on near-black, and near-black on white. Change it under ☰ — on a phone it is
+the button next to **Refresh all** along the foot; on the TV press ▶ to **Light theme** /
+**Dark theme** and OK. It is remembered, and the button says where it will take you rather than
+where you are.
 
 One accent either way: Bitcoin orange. On white that orange is too faint to read as text, so the
 light theme uses a darker one (`#B45309` against `#F7931A`) that clears 4.5:1 on its background —

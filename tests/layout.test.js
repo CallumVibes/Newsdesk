@@ -57,6 +57,35 @@ const STUB = `
     post(id) { setTimeout(() => window.__nativeResolve(id, false, 599, ''), 1); }
   };`;
 
+/* What the sources panel actually offers, once it is open. Nothing had ever opened
+   it in a test, which is how a rule meant to hide the remote's key hints came to hide
+   every action beside them - on a phone that left the theme unreachable and no way to
+   refresh by hand, and both looked perfectly fine in the source. */
+function sheet() {
+  var foot = document.querySelector('.sheet-foot');
+  var acts = document.getElementById('shActs');
+  var wrap = document.getElementById('sheetWrap');
+  function vis(n) {
+    var s = getComputedStyle(n), r = n.getBoundingClientRect();
+    return s.display !== 'none' && s.visibility !== 'hidden' && r.width > 0 && r.height > 0;
+  }
+  var fr = foot.getBoundingClientRect(), wr = wrap.getBoundingClientRect();
+  return {
+    footVisible: vis(foot),
+    actsVisible: vis(acts),
+    labels: [].slice.call(acts.children).filter(vis).map(function (c) { return c.textContent.trim(); }),
+    hidden: [].slice.call(acts.children).filter(function (c) { return !vis(c); })
+      .map(function (c) { return c.textContent.trim(); }),
+    // A foot taller than the room reserved for it sits on top of the list behind it
+    overlapsList: fr.top < wr.bottom - 1,
+    footRows: (function () {
+      var tops = [].slice.call(acts.children).filter(vis)
+        .map(function (c) { return Math.round(c.getBoundingClientRect().top); });
+      return new Set(tops).size || 1;
+    })()
+  };
+}
+
 async function open(browser, opts) {
   const page = await browser.newPage({
     viewport: { width: opts.w, height: opts.h },
@@ -140,6 +169,9 @@ function look() {
   ]) {
     const page = await open(browser, c);
     seen[c.name] = await page.evaluate(look);
+    await page.evaluate(() => window.nd.key('menu'));
+    await page.waitForTimeout(250);
+    seen[c.name].sheet = await page.evaluate(sheet);
     await page.close();
   }
   await browser.close();
@@ -196,6 +228,25 @@ function look() {
       t.is(seen[k].tabsFaded, true, k + ': and its ends are faded, so a cut tab reads as more');
       t.is(seen[k].tabOnCut, false, k + ': with the tab in use kept whole and in view');
     });
+  });
+
+  suite('Everything the panel offers can be reached', (t) => {
+    // The theme has no other route on either device, so if it is not here it is nowhere.
+    ['tv1080', 'tv720', 'pixel', 'small'].forEach((k) => {
+      const p = seen[k].sheet;
+      t.is(p.footVisible, true, k + ': the panel has a foot');
+      t.is(p.actsVisible, true, k + ': with its actions on it');
+      t.same(p.hidden, [], k + ': and none of them hidden');
+      t.ok(p.labels.some((l) => /theme/i.test(l)), k + ': the theme can be changed from here');
+      t.ok(p.labels.some((l) => /refresh/i.test(l)), k + ': and everything refreshed by hand');
+      t.is(p.overlapsList, false, k + ': and the foot does not sit on top of the list');
+    });
+    // A phone has a magnifier in the header already; the remote has nothing.
+    t.ok(seen.tv1080.sheet.labels.some((l) => /search/i.test(l)),
+      'the remote can start a search from the panel');
+    t.not(seen.pixel.sheet.labels.some((l) => /search/i.test(l)),
+      'a phone is not offered it twice');
+    t.is(seen.pixel.sheet.footRows, 1, 'and its buttons sit on one row');
   });
 
   suite('Nothing else moved to make room', (t) => {
