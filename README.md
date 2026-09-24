@@ -14,6 +14,7 @@ One build, two layouts. On a TV it's headlines on the left, a large preview on t
 | Kagi News | RSS per category: UK, World, Technology, Science and Bitcoin. UK stories are given priority. Summaries are licensed CC BY-NC. |
 | BBC News | A BBC topic page. Read from the schema.org listing the page publishes for search engines, which carries the headline, link, time and summary and outlives any amount of front-end rebuilding. Its links are read only if that is missing. `BB_FEEDS` takes a feed address to use in place of the page. |
 | Vegan Food & Living | The site's news feed, with its WordPress API and any feed advertised on the homepage as backup. |
+| On this day here | Wikidata for anyone born or died here on today's date, then Wikipedia's national "on this day" sifted for local place names. Checked before it is shown: a year has to be a year and a name has to be a name. |
 | Local events | What's on in town, from the town council's `council_events` listing. Tried as the WordPress API, then the listing's feed, then the listing page itself. The listing often carries only a title and a link, so opening an event fetches its own page for the details and the date. |
 
 ## Tabs
@@ -26,6 +27,7 @@ One build, two layouts. On a TV it's headlines on the left, a large preview on t
 - **Bitcoin** — Kagi's Bitcoin category, plus anything off the wire that is about bitcoin itself.
 - **Vegan** — Vegan Food & Living.
 - **All** — everything, taking turns between sources so none of them floods the list.
+- **History** — who was born or died here on today's date, and what happened here, oldest first.
 - **Saved** — stories you kept. Only on the strip once there is something in it.
 
 The Citadel Wire files nothing under a category, so each of its stories is placed by what it
@@ -98,6 +100,30 @@ to everyone. There are three ways in:
 
 If nothing clears the bar, the tab says so rather than filling up with whatever is newest.
 Both word lists sit near the top of `index.html` and are meant to be edited.
+
+## On this day, here
+
+The **History** tab is today's date, locally. Two ways at it, because neither works alone.
+
+**Wikidata** knows where people were born and died and where things happened, so it can be asked
+for anyone whose birthday or anniversary falls today and whose place sits anywhere inside the
+county. That fills the tab most days. The query asks for the places first and the people second —
+asking the other way round makes the service walk every birthday there has ever been. The county's
+own id is looked up rather than assumed, and remembered once found; `HH_QID_DEFAULT` is the
+fallback if the lookup fails.
+
+**Wikipedia's own "on this day"** is the other, but it is a national list, so a line is kept only
+where it — or the page it points at — actually names somewhere local. Most days that is nothing,
+which is why it is second rather than first.
+
+Whatever comes back is checked before it is shown: a year has to be a year, a name has to be a
+name, and a thing with no English name is dropped rather than displayed as a Q-number. A query
+answering in a shape the app did not expect empties the tab rather than filling it with nonsense.
+
+Rows show the year rather than how long ago anything was fetched, and history never reaches
+Breaking whatever words are in it. It is kept out of **Today** and **All**, where a row from 1743
+among the morning's headlines would read as a mistake, but it is fetched, cached and searched like
+any other source.
 
 ## Search
 

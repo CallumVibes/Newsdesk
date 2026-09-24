@@ -37,9 +37,9 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
   suite('The page itself', (t) => {
     t.same(errors, [], 'boots with no error on the console');
     t.same(nd.TABS.map((x) => x.id),
-      ['breaking', 'today', 'local', 'world', 'tech', 'coin', 'vegan', 'all', 'saved'],
+      ['breaking', 'today', 'local', 'world', 'tech', 'coin', 'vegan', 'hist', 'all', 'saved'],
       'has its tabs, in the order the remote walks them');
-    t.same(nd.ORDER, ['cw', 'kg', 'ht', 'yh', 'bb', 'vf', 'lm'], 'knows its seven sources');
+    t.same(nd.ORDER, ['cw', 'kg', 'ht', 'yh', 'bb', 'vf', 'lm', 'hh'], 'knows its sources');
     nd.TABS.forEach((tab) => {
       t.ok(tab.srcs.every((s) => nd.ORDER.indexOf(s) >= 0),
         tab.id + ' draws only from sources that exist');
@@ -720,6 +720,94 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.same(nd.readerActions(brief).map((a) => a.id), ['save'],
       'a briefing has no page to fetch, so it is only ever saved');
     S.reader = null; S.saved = [];
+  });
+
+  /* -------------------------------------------------------- On this day here */
+  suite('Reading what Wikidata sends back', (t) => {
+    const row = (o) => {
+      const b = {};
+      Object.keys(o).forEach((k) => { b[k] = { value: o[k] }; });
+      return b;
+    };
+    const body = (rows) => JSON.stringify({ results: { bindings: rows.map(row) } });
+
+    const got = nd.parseHhSparql(body([
+      { itemLabel: 'David Garrick', itemDescription: 'english actor and playwright',
+        year: '1717', kind: 'Born', article: 'https://en.wikipedia.org/wiki/David_Garrick' },
+      { itemLabel: 'Nell Gwyn', itemDescription: 'english actress', year: '1650', kind: 'Died' }
+    ]));
+    t.is(got.length, 2, 'both rows are read');
+    t.is(got[0].title, 'David Garrick', 'the name');
+    t.is(got[0].year, 1717, 'the year, as a number');
+    t.is(got[0].kicker, 'Born', 'and whether they were born or died here');
+    t.is(got[0].summary, 'English actor and playwright',
+      'the description gets its capital letter, since it is a sentence on the row');
+    t.is(got[0].link, 'https://en.wikipedia.org/wiki/David_Garrick', 'and a page to open');
+
+    // A thing with no English name comes back as its own id, which is no use to read.
+    t.is(nd.parseHhSparql(body([{ itemLabel: 'Q12345', year: '1800', kind: 'Born' }])).length, 0,
+      'a row with no English name is dropped rather than shown as a Q-number');
+    t.is(nd.parseHhSparql(body([{ itemLabel: 'Someone', year: 'not a year', kind: 'Born' }])).length, 0,
+      'and so is one whose year is not a year');
+    t.is(nd.parseHhSparql(body([{ itemLabel: 'Someone', year: '20260', kind: 'Born' }])).length, 0,
+      'or is a year nobody was born in');
+    t.same(nd.parseHhSparql('<html>service unavailable</html>'), [],
+      'an answer that is not the data empties the tab rather than filling it with nonsense');
+    t.same(nd.parseHhSparql(JSON.stringify({ results: { bindings: [] } })), [],
+      'and so does an answer with nothing in it');
+    // The same person can come back twice, once for each place inside the county.
+    t.is(nd.parseHhSparql(body([
+      { itemLabel: 'Twice Over', year: '1900', kind: 'Born' },
+      { itemLabel: 'Twice Over', year: '1900', kind: 'Born' }
+    ])).length, 1, 'a row that repeats is shown once');
+  });
+
+  suite('Sifting Wikipedia\'s national list', (t) => {
+    const day = (o) => JSON.stringify(o);
+    const local = nd.parseHhDay(day({
+      births: [{ text: 'John Masefield, English poet, born in Ledbury', year: 1878,
+                 pages: [{ extract: 'A poet.', content_urls: { desktop: { page: 'https://x/1' } } }] }],
+      events: [{ text: 'A battle somewhere else entirely', year: 1485, pages: [{ extract: 'Elsewhere.' }] }]
+    }));
+    t.is(local.length, 1, 'only the line that names somewhere here is kept');
+    t.is(local[0].year, 1878, 'with its year');
+    t.is(local[0].kicker, 'Born', 'and which list it came from');
+    t.is(local[0].link, 'https://x/1', 'and its page');
+
+    // The line itself may not name the place; the page it points at often does.
+    t.is(nd.parseHhDay(day({ events: [{ text: 'A cathedral was consecrated', year: 1079,
+      pages: [{ extract: 'Hereford Cathedral, in the county town.' }] }] })).length, 1,
+      'a line is kept when the page it points at names the place');
+    t.is(nd.parseHhDay(day({ events: [{ text: 'Something national', year: 1900, pages: [] }] })).length, 0,
+      'and dropped when neither does');
+    t.same(nd.parseHhDay('not json'), [], 'a broken answer is no entries, not an error');
+    t.is(nd.HH_PLACES.test('a street in Hereford'), true, 'the county town counts');
+    t.is(nd.HH_PLACES.test('Leominster'), true, 'and the market towns');
+    t.is(nd.HH_PLACES.test('Herefordshire'), true, 'and the county itself');
+    t.is(nd.HH_PLACES.test('Hertfordshire'), false,
+      'but not the other county whose name is one letter away');
+  });
+
+  suite('History rows read as history', (t) => {
+    const items = nd.hhItems([{ title: 'David Garrick', year: 1717, kicker: 'Born',
+                                summary: 'An actor.', link: 'https://x/g' }]);
+    t.is(items.length, 1, 'a row becomes a story');
+    t.is(items[0].src, 'hh', 'filed under the history source');
+    t.is(items[0].year, 1717, 'carrying its year');
+    t.is(nd.timeLabel(items[0]), '1717',
+      'which is what the row shows, rather than how long ago it was fetched');
+    t.is(nd.isHistory(items[0]), true, 'it knows it is history');
+    t.is(nd.isHistory(story({ src: 'ht' })), false, 'and the news knows it is not');
+    // Centuries old and never breaking, whatever words are in it.
+    t.same(nd.breakingList([Object.assign(items[0], { date: Date.now(),
+      title: 'Fire destroys the market hall' })]), [],
+      'history never reaches Breaking, however urgent the words in it');
+    const hist = nd.TABS[nd.TABS.findIndex((x) => x.id === 'hist')];
+    t.same(hist.srcs, ['hh'], 'the History tab draws from it alone');
+    const all = nd.TABS[nd.TABS.findIndex((x) => x.id === 'all')];
+    t.is(all.srcs.indexOf('hh'), -1, 'and All leaves it out, being today\'s news');
+    const today = nd.TABS[nd.TABS.findIndex((x) => x.id === 'today')];
+    t.is(today.srcs.indexOf('hh'), -1, 'as does Today');
   });
 
   /* ---------------------------------------------------------------- Search */
