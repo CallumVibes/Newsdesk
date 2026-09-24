@@ -334,8 +334,7 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
       oil: { gbp: 63.42, chg: 0.0 }, debt: { gbp: 2.94e12, rate: 0, at: Date.now() }
     };
     const p = nd.briefPrices();
-    t.ok(/Bitcoin £74,211, or 1,348 sats to the pound, up 1\.2% today/.test(p),
-      'the briefing gets bitcoin both ways, since a sentence reads better with pounds');
+    t.ok(/Bitcoin £74,211, up 1\.2% today/.test(p), 'bitcoin, in pounds, with its move');
     t.ok(/gold £2,110 an ounce, down 0\.4% today/.test(p), 'gold by the ounce');
     t.ok(/oil £63\.42 a barrel/.test(p), 'oil by the barrel, keeping its pence');
     t.ok(/UK national debt £2\.940tn/.test(p), 'and the debt in trillions');
@@ -486,35 +485,6 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
 
     S.brief = was;
     calls.widget.length = 0;
-  });
-
-  /* ------------------------------------------------------- Sats to the pound */
-  suite('Counting in sats', (t) => {
-    t.is(nd.sats(63355), '1,578', 'a pound buys this many sats at that price');
-    t.is(nd.sats(100000), '1,000', 'and a round thousand at a round hundred thousand');
-    t.near(nd.satsPerPound(50000), 2000, 0.001, 'which is a hundred million over the price');
-    t.is(nd.sats(0), '0', 'with no price there is nothing to count');
-    t.is(nd.sats(-5), '0', 'and a nonsense price counts as none rather than throwing');
-
-    // The figure moves the other way to the price, so the arrow beside it must too.
-    // Bitcoin up means fewer sats for your pound, and that is a fall, not a rise.
-    t.near(nd.satsChg(1.6), -1.575, 0.01, 'bitcoin up 1.6% is 1.575% fewer sats');
-    t.near(nd.satsChg(-1.6), 1.626, 0.01, 'and bitcoin down is more sats');
-    t.is(nd.satsChg(0), 0, 'flat is flat');
-    t.ok(nd.satsChg(5) < 0, 'the sign always turns over');
-    t.ok(nd.satsChg(-5) > 0, 'both ways');
-    t.is(nd.satsChg(null), null, 'no move claimed when none is known');
-    t.is(nd.satsChg(-100), null, 'and a price that went to nothing is not divided by');
-
-    const S = nd.S, doc = window.document;
-    S.mkt = { at: Date.now(), btc: { gbp: 63355, chg: -1.6, at: Date.now(), from: 'x' } };
-    nd.renderMkt();
-    const row = doc.querySelector('#mkt .mk');
-    t.ok(/Sats\/£/.test(row.textContent), 'the band says what it is counting');
-    t.ok(/1,578/.test(row.textContent), 'and how many');
-    t.not(/63,355/.test(row.textContent), 'the price of a whole coin is no longer the headline');
-    t.ok(row.querySelector('.up'), 'bitcoin down means more sats, which the arrow shows as a rise');
-    S.mkt = {};
   });
 
   /* --------------------------------------------------------------- Weather */

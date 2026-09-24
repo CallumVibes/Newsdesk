@@ -55,14 +55,8 @@ in a way a stale gold price is not. `WX_AT` sets the coordinates and `WX_STALE_M
 
 ## Prices
 
-Sats to the pound, gold, oil and the national debt, in a band under the tabs — the same place on
-a phone as on the TV. Each figure carries its move over the day.
-
-Bitcoin is counted the way anyone holding it counts: not what a whole coin costs, but how many
-satoshis a pound buys. That moves inversely to the price, so its arrow is inverted with it —
-bitcoin up a per cent is a per cent fewer sats for your pound, and that is a fall. Every arrow in
-the band describes the figure it sits beside. The ☰ panel gives both, and so does the briefing,
-where a sentence reads better with a pound price in it.
+Bitcoin, gold, oil and the national debt, all in pounds, in a band under the tabs — the same
+place on a phone as on the TV. Each price carries its move over the day.
 
 They used to sit in the phone's top right corner, in the room the clock gave up. That corner
 fitted four figures and no more: a fifth had nowhere to go, and a five-figure bitcoin price
