@@ -101,6 +101,59 @@ suite('The bridge the page calls is the bridge Kotlin offers', (t) => {
   });
 });
 
+/*
+ * Kotlin only tells you about an unresolved name when it compiles, which happens on
+ * a runner twenty minutes and one push away. Two of them have got that far now - a
+ * bridge method missing from one side, and android.content.Intent used in a file
+ * that had never needed to import it. This is the cheap half of a compiler: every
+ * capitalised name used as a constructor or a qualifier has to be imported, declared
+ * here, or something the language hands you for nothing.
+ */
+const KOTLIN_FREE = new Set([
+  // kotlin.* and java.lang.*, in scope without an import
+  'String', 'Int', 'Long', 'Short', 'Byte', 'Float', 'Double', 'Boolean', 'Char', 'Unit',
+  'Any', 'Nothing', 'Array', 'IntArray', 'LongArray', 'ByteArray', 'CharArray', 'BooleanArray',
+  'List', 'MutableList', 'Map', 'MutableMap', 'Set', 'MutableSet', 'ArrayList', 'HashMap',
+  'LinkedHashMap', 'HashSet', 'LinkedHashSet', 'Pair', 'Triple', 'Regex', 'Result',
+  'Exception', 'RuntimeException', 'IllegalArgumentException', 'IllegalStateException',
+  'Throwable', 'Error', 'Thread', 'Runnable', 'Math', 'System', 'Class', 'Comparable',
+  'Volatile', 'Suppress', 'JvmStatic', 'JvmField', 'JvmOverloads', 'Deprecated', 'Override',
+  'StringBuilder', 'CharSequence', 'Number', 'Iterable', 'Sequence', 'Lazy', 'Comparator',
+  'Regex', 'RegexOption', 'Charsets', 'Byte', 'UByte', 'Function0', 'Function1'
+]);
+
+suite('Every Kotlin name is one the compiler will find', (t) => {
+  const files = ['MainActivity.kt', 'Net.kt', 'Briefings.kt', 'Widget.kt'];
+  // Anything declared anywhere in the package is reachable from anywhere else in it.
+  const inPackage = new Set(['R']);
+  const bodies = {};
+  files.forEach((f) => {
+    const src = read(KT + f);
+    bodies[f] = src;
+    (src.match(/^\s*(?:private |internal |public |abstract |open |sealed |inner |data )*(?:class|object|interface|enum class) ([A-Z][A-Za-z0-9]*)/gm) || [])
+      .forEach((m) => inPackage.add(m.trim().split(/\s+/).pop()));
+  });
+  t.ok(inPackage.has('MainActivity') && inPackage.has('BriefStore'),
+    'the package\'s own classes are found');
+
+  files.forEach((f) => {
+    const src = bodies[f].replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+    const imported = new Set((src.match(/^import [\w.]+$/gm) || [])
+      .map((line) => line.trim().split('.').pop()));
+    // Foo( as a constructor, Foo. as a qualifier, : Foo as a type or supertype
+    const used = new Set();
+    (src.match(/(?:^|[^\w.])([A-Z][A-Za-z0-9]*)\s*[.(]/g) || [])
+      .forEach((m) => used.add(m.replace(/[^A-Za-z0-9]/g, '').replace(/^[a-z0-9]+/, '')));
+    (src.match(/:\s*([A-Z][A-Za-z0-9]*)/g) || [])
+      .forEach((m) => used.add(m.replace(/[:\s]/g, '')));
+    used.forEach((name) => {
+      if (!name || KOTLIN_FREE.has(name) || imported.has(name) || inPackage.has(name)) return;
+      t.fail(f + ' uses ' + name + ', which is neither imported nor declared in the package'
+        + '\n      (Kotlin would only say so on the runner, twenty minutes from here)');
+    });
+  });
+});
+
 suite('The manifest says what the app actually does', (t) => {
   const m = read('app/src/main/AndroidManifest.xml');
   ['INTERNET', 'RECEIVE_BOOT_COMPLETED', 'POST_NOTIFICATIONS'].forEach((p) => {
