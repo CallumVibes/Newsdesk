@@ -55,8 +55,14 @@ in a way a stale gold price is not. `WX_AT` sets the coordinates and `WX_STALE_M
 
 ## Prices
 
-Bitcoin, gold, oil and the national debt, all in pounds, in a band under the tabs — the same
-place on a phone as on the TV. Each price carries its move over the day.
+Sats to the pound, gold, oil and the national debt, in a band under the tabs — the same place on
+a phone as on the TV. Each figure carries its move over the day.
+
+Bitcoin is counted the way anyone holding it counts: not what a whole coin costs, but how many
+satoshis a pound buys. That moves inversely to the price, so its arrow is inverted with it —
+bitcoin up a per cent is a per cent fewer sats for your pound, and that is a fall. Every arrow in
+the band describes the figure it sits beside. The ☰ panel gives both, and so does the briefing,
+where a sentence reads better with a pound price in it.
 
 They used to sit in the phone's top right corner, in the room the clock gave up. That corner
 fitted four figures and no more: a fifth had nowhere to go, and a five-figure bitcoin price
@@ -296,6 +302,16 @@ Near the top of `app/src/main/assets/index.html`:
 - Rows read "Tomorrow, 16:30" rather than "2h ago". An event whose date can't be read shows no time at all rather than the day it was posted.
 
 The date comes from the listing's own field where it has one, and is otherwise read out of the title or the blurb ("5 September 2026", "12th June at 4:30pm"). The AI briefing is told these are upcoming events rather than news, and is given the date.
+
+## Theme
+
+White on near-black, with one accent: Bitcoin orange, `#F7931A`. Every source and every tab used
+to carry a colour of its own; they all take the accent now, and the greys are neutral rather than
+the teal-tinted ones they replace, so nothing competes with it. `ACCENT` near the top of
+`index.html` is the single place it is set.
+
+Two colours are not part of the theme and stay as they are: green and red on a price's move. That
+is the one place in the app where colour is the only thing carrying the meaning.
 
 ## Requirements
 

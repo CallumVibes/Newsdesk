@@ -334,7 +334,8 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
       oil: { gbp: 63.42, chg: 0.0 }, debt: { gbp: 2.94e12, rate: 0, at: Date.now() }
     };
     const p = nd.briefPrices();
-    t.ok(/Bitcoin £74,211, up 1\.2% today/.test(p), 'bitcoin, in pounds, with its move');
+    t.ok(/Bitcoin £74,211, or 1,348 sats to the pound, up 1\.2% today/.test(p),
+      'the briefing gets bitcoin both ways, since a sentence reads better with pounds');
     t.ok(/gold £2,110 an ounce, down 0\.4% today/.test(p), 'gold by the ounce');
     t.ok(/oil £63\.42 a barrel/.test(p), 'oil by the barrel, keeping its pence');
     t.ok(/UK national debt £2\.940tn/.test(p), 'and the debt in trillions');
@@ -354,6 +355,32 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
       'and an event carries when it is on, so the briefing does not report it as news');
     S.mkt = {};
     t.is(nd.briefPrices(), '', 'with no prices read, nothing is claimed');
+  });
+
+  /* ------------------------------------------------------------- The theme */
+  suite('One accent, not nine', (t) => {
+    t.is(nd.ACCENT, '#F7931A', 'the accent is the orange');
+    // Every source and every tab used to carry a colour of its own. The theme asked
+    // for is white and orange, so there is one accent and everything takes it.
+    Object.keys(nd.SRC).forEach((k) => {
+      t.is(nd.SRC[k].color, nd.ACCENT, nd.SRC[k].name + ' takes the accent');
+    });
+    nd.TABS.forEach((tab) => t.is(tab.color, nd.ACCENT, 'the ' + tab.name + ' tab takes the accent'));
+
+    const style = window.getComputedStyle(window.document.documentElement);
+    const v = (n) => style.getPropertyValue(n).trim().toUpperCase();
+    t.is(v('--text'), '#FFFFFF', 'the text is white');
+    t.is(v('--accent'), '#F7931A', 'the accent is on the palette too');
+    t.is(v('--c'), '#F7931A', 'and is what anything uncoloured falls back to');
+    // The greys were teal-tinted, which competed with an orange. They are neutral now.
+    ['--bg', '--bg2', '--bg3', '--line', '--soft', '--muted', '--dim'].forEach((n) => {
+      const hex = v(n);
+      const r = parseInt(hex.slice(1, 3), 16);
+      const g = parseInt(hex.slice(3, 5), 16);
+      const b = parseInt(hex.slice(5, 7), 16);
+      t.ok(Math.max(r, g, b) - Math.min(r, g, b) <= 6,
+        n + ' is a neutral grey rather than a tinted one (' + hex + ')');
+    });
   });
 
   /* ----------------------------------------------------- Briefing history */
@@ -459,6 +486,35 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
 
     S.brief = was;
     calls.widget.length = 0;
+  });
+
+  /* ------------------------------------------------------- Sats to the pound */
+  suite('Counting in sats', (t) => {
+    t.is(nd.sats(63355), '1,578', 'a pound buys this many sats at that price');
+    t.is(nd.sats(100000), '1,000', 'and a round thousand at a round hundred thousand');
+    t.near(nd.satsPerPound(50000), 2000, 0.001, 'which is a hundred million over the price');
+    t.is(nd.sats(0), '0', 'with no price there is nothing to count');
+    t.is(nd.sats(-5), '0', 'and a nonsense price counts as none rather than throwing');
+
+    // The figure moves the other way to the price, so the arrow beside it must too.
+    // Bitcoin up means fewer sats for your pound, and that is a fall, not a rise.
+    t.near(nd.satsChg(1.6), -1.575, 0.01, 'bitcoin up 1.6% is 1.575% fewer sats');
+    t.near(nd.satsChg(-1.6), 1.626, 0.01, 'and bitcoin down is more sats');
+    t.is(nd.satsChg(0), 0, 'flat is flat');
+    t.ok(nd.satsChg(5) < 0, 'the sign always turns over');
+    t.ok(nd.satsChg(-5) > 0, 'both ways');
+    t.is(nd.satsChg(null), null, 'no move claimed when none is known');
+    t.is(nd.satsChg(-100), null, 'and a price that went to nothing is not divided by');
+
+    const S = nd.S, doc = window.document;
+    S.mkt = { at: Date.now(), btc: { gbp: 63355, chg: -1.6, at: Date.now(), from: 'x' } };
+    nd.renderMkt();
+    const row = doc.querySelector('#mkt .mk');
+    t.ok(/Sats\/£/.test(row.textContent), 'the band says what it is counting');
+    t.ok(/1,578/.test(row.textContent), 'and how many');
+    t.not(/63,355/.test(row.textContent), 'the price of a whole coin is no longer the headline');
+    t.ok(row.querySelector('.up'), 'bitcoin down means more sats, which the arrow shows as a rise');
+    S.mkt = {};
   });
 
   /* --------------------------------------------------------------- Weather */
