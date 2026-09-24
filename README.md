@@ -299,8 +299,9 @@ node tests/logic.test.js .newsdesk-unpacked
 
 `check-source.js` needs nothing installed. It reads the project as text and checks that the build
 has everything it needs, that the JavaScript parses, that the manifest still says what the app does,
-and that the facts written twice in two languages agree — the briefing hours in `BRIEF_SLOTS` and in
-`Briefings.kt`, and the `Native` bridge the page calls against the one Kotlin offers.
+and that the facts written twice in two languages agree — the briefing times in `BRIEF_SLOTS` and in
+`Briefings.kt`, read to the minute, and the `Native` bridge the page calls against the one Kotlin
+offers.
 
 `logic.test.js` boots the real page under jsdom with every source stubbed and checks the rules
 themselves: what reaches Breaking, where a wire story lands, event dates, the debt figure, the
@@ -348,11 +349,18 @@ It's signed with a fixed key, so each build installs over the last one.
 ## AI briefing (optional)
 
 Add a repository secret named `PPQ_API_KEY` with a [PPQ.ai](https://ppq.ai) key and rebuild. The app
-then writes three briefings a day from the stories in **Today**: a **morning** edition from 05:00, an
-**afternoon** one from 12:00 and an **evening** one from 17:00. A scheduled job wakes the app up a few minutes after each hour,
+then writes four briefings a day from the stories in **Today**: a **morning** edition from 05:00, an
+**afternoon** one from 12:00, an **evening** one from 17:00 and a **night** one from 21:30 — the last
+thing before bed, written to settle the day rather than open it up. A scheduled job wakes the app up
+a few minutes after each of those times,
 opens this same page with nothing on screen, and lets it write the briefing into the storage the app
 reads from — so the briefing is waiting when you next open it, whether or not the app was running.
-If the job cannot run, the edition is written the next time the app refreshes after its hour instead.
+If the job cannot run, the edition is written the next time the app refreshes after its time instead.
+
+The times are kept as minutes since midnight in both languages, not hours — the last edition is on a
+half hour, and an hour was fine enough until it wasn't. `BRIEF_MAX_PER_DAY` went from six to eight
+alongside it, so each edition keeps its two paid calls (one rewrite or one failure each) rather than
+four editions sharing the three's allowance.
 
 When a briefing is written while you weren't looking, a notification carries its headline; tapping it
 opens the app. One per edition, and never for an edition already written, so a retried job stays quiet.

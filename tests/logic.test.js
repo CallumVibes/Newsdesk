@@ -303,18 +303,45 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
 
   /* ------------------------------------------------------------ Briefings */
   suite('Which briefing is due', (t) => {
-    const at = (h) => { const d = new Date(); d.setHours(h, 0, 0, 0); return d.getTime(); };
-    t.same(nd.BRIEF_SLOTS.map((s) => s.from), [5, 12, 17],
-      'three editions a day, at the hours the background job also uses');
+    const at = (h, m) => { const d = new Date(); d.setHours(h, m || 0, 0, 0); return d.getTime(); };
+    t.same(nd.BRIEF_SLOTS.map((s) => nd.slotMins(s)), [5 * 60, 12 * 60, 17 * 60, 21 * 60 + 30],
+      'four editions a day, at the times the background job also uses');
     t.is(nd.briefSlot(at(7)).slot.id, 'morning', 'the morning edition covers the morning');
     t.is(nd.briefSlot(at(13)).slot.id, 'afternoon', 'the afternoon one the afternoon');
     t.is(nd.briefSlot(at(19)).slot.id, 'evening', 'and the evening one the evening');
-    t.is(nd.briefSlot(at(2)).slot.id, 'evening', 'the small hours still belong to last night\'s');
-    t.not(nd.briefSlot(at(2)).key === nd.briefSlot(at(19)).key,
+    t.is(nd.briefSlot(at(23)).slot.id, 'night', 'and the night one the end of it');
+    t.is(nd.briefSlot(at(2)).slot.id, 'night', 'the small hours still belong to last night\'s last');
+    t.not(nd.briefSlot(at(2)).key === nd.briefSlot(at(23)).key,
       'but under the previous day, so 2am does not count as tonight\'s');
     t.is(nd.briefSlot(at(7)).key, nd.briefSlot(at(11)).key,
       'and one edition is written once, however often the app refreshes');
-    t.ok(/morning|afternoon|evening/.test(nd.nextSlotName()), 'the app can say which is next');
+
+    /* The half hour is the whole reason the times are kept in minutes. Nine is still
+       the evening; half past nine is the last edition; a minute either side of the
+       turn lands on the right one. */
+    t.is(nd.briefSlot(at(21, 0)).slot.id, 'evening', 'nine o\'clock is still the evening');
+    t.is(nd.briefSlot(at(21, 29)).slot.id, 'evening', 'and so is a minute before half past');
+    t.is(nd.briefSlot(at(21, 30)).slot.id, 'night', 'half past nine is the night edition');
+    t.is(nd.briefSlot(at(21, 31)).slot.id, 'night', 'and a minute after it');
+    t.is(nd.briefSlot(at(4, 59)).slot.id, 'night', 'a minute before the morning is still last night');
+    t.is(nd.briefSlot(at(5, 0)).slot.id, 'morning', 'and five is the morning');
+
+    // Every edition has to be reachable, or one of them never gets written at all.
+    const ids = nd.BRIEF_SLOTS.map((s) => s.id);
+    const reached = {};
+    for (let h = 0; h < 24; h++) for (let m = 0; m < 60; m += 5) reached[nd.briefSlot(at(h, m)).slot.id] = 1;
+    t.same(Object.keys(reached).sort(), ids.slice().sort(), 'every edition has a part of the day');
+    t.ok(ids.every((id) => nd.BRIEF_SLOTS.filter((s) => s.id === id).length === 1),
+      'and no two share a name');
+
+    const next = nd.nextSlotName();
+    t.ok(ids.some((id) => next.indexOf(id) >= 0), 'the app can say which is next');
+    t.not(next === nd.briefSlot(Date.now()).slot.name.toLowerCase(),
+      'and it is the one after this, not this one');
+
+    // Two paid calls per edition, as it was when there were three of them.
+    t.is(nd.BRIEF_MAX_PER_DAY, nd.BRIEF_SLOTS.length * 2,
+      'the day\'s allowance of paid calls grew with the editions rather than being shared out');
   });
 
   suite('Reading PPQ\'s reply', (t) => {
