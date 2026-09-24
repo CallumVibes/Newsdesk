@@ -1097,6 +1097,57 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.ok(S.view.length >= 0, 'putting the tab back as it was');
   });
 
+  /* A refresh lands a source every few seconds after a cold start and every ten
+     minutes after that, and each landing rebuilds the list. It used to rebuild it
+     as the tab, throwing away results the reader was still looking at. */
+  suite('A refresh does not take the search away', (t) => {
+    const S = nd.S, now = Date.now();
+    const empty = { cw: { items: [] }, kg: { items: [] }, yh: { items: [] },
+                    bb: { items: [] }, vf: { items: [] }, lm: { items: [] } };
+    S.by = Object.assign({}, empty, { ht: { items: [
+      story({ src: 'ht', id: 'a', title: 'Road closed after a crash', date: now }) ] } });
+    nd.openSearch();
+    nd.runSearch('road');
+    t.same(S.view.map((x) => x.id), ['a'], 'a search finds the one story');
+
+    // A source lands. Nothing in it matches, so the results should not move.
+    S.by.ht.items.push(story({ src: 'ht', id: 'b', title: 'Council approves new homes', date: now }));
+    nd.rebuild();
+    t.is(S.mode, 'search', 'the box is still open after a source lands');
+    t.same(S.view.map((x) => x.id), ['a'], 'and still holds the results, not the tab');
+
+    // One that does match joins them, because the pool is bigger than it was.
+    S.by.ht.items.push(story({ src: 'ht', id: 'c', title: 'Another road shut', date: now - 60e3 }));
+    nd.rebuild();
+    t.same(S.view.map((x) => x.id).sort(), ['a', 'c'], 'a story that matches joins the results');
+
+    // The row being read stays under the cursor rather than jumping to the top.
+    S.idx = S.view.map((x) => x.id).indexOf('c');
+    const was = S.view[S.idx].id;
+    S.by.ht.items.push(story({ src: 'ht', id: 'd', title: 'Road works begin', date: now }));
+    nd.rebuild();
+    t.is(S.view[S.idx] && S.view[S.idx].id, was, 'and the row being read stays put');
+    nd.closeSearch();
+    S.by = empty;
+  });
+
+  /* WebView.pauseTimers is application-wide. Using it would have frozen the
+     background job's page mid-briefing, and the job's resumeTimers would have set
+     this page refreshing behind the reader's back. Each page stops its own. */
+  suite('A page off screen stops its own timers', (t) => {
+    const page = window.nd;
+    t.ok(nd.timers() > 0, 'a page on screen is running timers');
+    page.paused();
+    t.is(nd.timers(), 0, 'going off screen stops every one of them');
+    page.paused();
+    t.is(nd.timers(), 0, 'and being told twice leaves none behind');
+    page.resumed();
+    const n = nd.timers();
+    t.ok(n > 0, 'coming back starts them again');
+    page.resumed();
+    t.is(nd.timers(), n, 'and coming back twice does not start a second set');
+  });
+
   /* ------------------------------------------------------ All of it at once */
   suite('Building a screen', (t) => {
     const S = nd.S, now = Date.now();

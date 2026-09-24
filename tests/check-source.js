@@ -295,6 +295,29 @@ suite('The build stays the build we can reason about', (t) => {
     'and signs with the fixed key, so each build installs over the last');
 });
 
+/* WebView.pauseTimers and resumeTimers are documented as application-wide: they
+   reach every WebView in the process, not the one they are called on. The app used
+   them for its own page, which meant the reader backgrounding the app froze the
+   briefing job's page mid-run, and the job waking up set the app refreshing behind
+   the reader's back. Each page now stops its own timers in JavaScript. */
+suite('No page freezes another page', (t) => {
+  // Comments stripped first: both files say in prose why they no longer call it.
+  const code = (s) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ');
+  const kt = ['MainActivity.kt', 'Briefings.kt', 'Widget.kt']
+    .filter((f) => has(KT + f)).map((f) => ({ f, src: code(read(KT + f)) }));
+  t.ok(kt.length >= 2, 'the Kotlin is where it was');
+  kt.forEach(({ f, src }) => {
+    t.not(/\b(pause|resume)Timers\s*\(/.test(src), f + ' leaves every page\'s timers alone');
+  });
+  const page = read(PAGE);
+  t.ok(/function stopTimers\s*\(/.test(page) && /function startTimers\s*\(/.test(page),
+    'and the page stops and starts its own instead');
+  t.ok(/paused:\s*function[\s\S]{0,120}stopTimers\(\)/.test(page),
+    'going off screen stops them');
+  t.ok(/resumed:\s*function[\s\S]{0,160}startTimers\(\)/.test(page),
+    'and coming back starts them again');
+});
+
 suite('No key is committed', (t) => {
   const cfg = read('app/src/main/assets/config.js');
   t.ok(/ppqKey:\s*""/.test(cfg), 'config.js ships with an empty key, filled in from the secret');
