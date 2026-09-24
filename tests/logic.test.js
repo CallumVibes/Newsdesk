@@ -357,6 +357,70 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.is(nd.briefPrices(), '', 'with no prices read, nothing is claimed');
   });
 
+  /* ----------------------------------------------------- Briefing history */
+  suite('Keeping the day\'s briefings', (t) => {
+    const S = nd.S, now = Date.now();
+    const ed = (slot, ago, head) => ({
+      headline: head, paragraphs: ['A paragraph.'], at: now - ago,
+      slotName: slot, slotKey: 'k:' + slot + ':' + Math.floor((now - ago) / DAY)
+    });
+    S.briefs = [];
+    nd.rememberBrief(ed('Morning briefing', 6 * HOUR, 'First'));
+    nd.rememberBrief(ed('Afternoon briefing', 2 * HOUR, 'Second'));
+    t.is(S.briefs.length, 2, 'each edition is kept');
+    t.same(S.briefs.map((b) => b.headline), ['Second', 'First'], 'newest first');
+
+    // The Refresh button rewrites the edition that is current. That is the same
+    // edition, not a fourth one.
+    const again = ed('Afternoon briefing', 2 * HOUR, 'Second, rewritten');
+    nd.rememberBrief(again);
+    t.is(S.briefs.length, 2, 'rewriting an edition replaces it rather than adding one');
+    t.is(S.briefs[0].headline, 'Second, rewritten', 'and the rewrite is the one kept');
+
+    nd.rememberBrief({ headline: 'Empty', paragraphs: [], at: now, slotKey: 'x' });
+    t.is(S.briefs.length, 2, 'a briefing with nothing in it is not kept at all');
+
+    // Four days, no more: the tab is for catching up, not an archive.
+    S.briefs = [];
+    for (let i = 0; i < 20; i++) nd.rememberBrief(ed('E' + i, i * HOUR, 'H' + i));
+    t.is(S.briefs.length, nd.BRIEF_KEEP, 'no more than the cap are held');
+    t.is(S.briefs[0].headline, 'H0', 'and they are the newest');
+    t.same(nd.trimBriefs([{ at: now - 9 * DAY, paragraphs: ['x'] }]), [],
+      'anything older than a few days is dropped');
+    t.same(nd.trimBriefs(null), [], 'and nothing at all is not an error');
+  });
+
+  suite('Reading an earlier briefing', (t) => {
+    const S = nd.S, now = Date.now();
+    const ed = (slot, ago, head) => ({
+      headline: head, paragraphs: ['One.', 'Two.'], at: now - ago,
+      slotName: slot, slotKey: slot + ago, model: 'claude-sonnet-5'
+    });
+    S.briefs = [ed('Afternoon briefing', HOUR, 'This afternoon'),
+                ed('Morning briefing', 7 * HOUR, 'This morning')];
+    S.brief = S.briefs[0];
+    const items = nd.briefItems();
+    t.is(items.length, 2, 'both of today\'s editions can be opened');
+    t.is(items[0].title, 'This afternoon', 'newest first');
+    t.is(items[0].kicker, 'Afternoon briefing', 'each says which edition it is');
+    t.is(items[1].kicker, 'Morning briefing', 'so two in a row do not read as the same thing twice');
+    t.not(items[0].id === items[1].id, 'and they are separate stories, not one');
+    t.is(items[0].src, 'ai', 'filed under the briefing source');
+
+    // Today's section should carry both, under one heading.
+    const today = nd.buildToday(nd.getAll());
+    t.is(today.sections[0].title, 'Briefings', 'Today leads with them');
+    t.is(today.items[0].title, 'This afternoon', 'the latest at the top');
+    t.is(today.items[1].title, 'This morning', 'this morning still there at teatime');
+
+    // Yesterday's is held, but Today is today.
+    S.briefs = [ed('Evening briefing', 30 * HOUR, 'Last night')];
+    S.brief = S.briefs[0];
+    t.is(nd.briefItems().length, 0,
+      'once the last edition is more than a day old, Today stops offering it');
+    S.briefs = []; S.brief = null;
+  });
+
   /* --------------------------------------------------- The home screen widget */
   suite('What the widget is handed', (t) => {
     const S = nd.S;

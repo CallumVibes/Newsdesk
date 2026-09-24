@@ -171,6 +171,12 @@ Android 13 and later ask permission the first time the app opens; refusing chang
 the briefings arrive silently. A television is watched rather than notified at, so it gets none. Turn
 them off like any other app's, under Briefings in Android's notification settings.
 
+Every edition is kept for four days, newest first, so this morning's is still there at teatime.
+Today's sit together under **Briefings** in the Today tab, each labelled with the edition it is;
+the ☰ panel lists everything held, including the previous few days'. An edition rewritten — by the
+Refresh button, or by a retry after a failure — replaces its own entry rather than making a second.
+`BRIEF_KEEP` and `BRIEF_KEEP_DAYS` set how much is held.
+
 Each edition is told which one it is, and is given the previous one so it carries on rather than repeats:
 the morning leads on what happened overnight, the afternoon on what has moved since, the evening draws
 the day together. `BRIEF_SLOTS` sets the hours and the angle of each. `BRIEF_MAX_PER_DAY` still caps the
