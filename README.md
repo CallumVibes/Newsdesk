@@ -130,6 +130,12 @@ opens this same page with nothing on screen, and lets it write the briefing into
 reads from — so the briefing is waiting when you next open it, whether or not the app was running.
 If the job cannot run, the edition is written the next time the app refreshes after its hour instead.
 
+When a briefing is written while you weren't looking, a notification carries its headline; tapping it
+opens the app. One per edition, and never for an edition already written, so a retried job stays quiet.
+Android 13 and later ask permission the first time the app opens; refusing changes nothing except that
+the briefings arrive silently. A television is watched rather than notified at, so it gets none. Turn
+them off like any other app's, under Briefings in Android's notification settings.
+
 Each edition is told which one it is, and is given the previous one so it carries on rather than repeats:
 the morning leads on what happened overnight, the afternoon on what has moved since, the evening draws
 the day together. `BRIEF_SLOTS` sets the hours and the angle of each. `BRIEF_MAX_PER_DAY` still caps the
