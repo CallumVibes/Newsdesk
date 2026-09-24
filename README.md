@@ -42,9 +42,7 @@ carry a small picture, fetched only once the row is nearly on screen.
 
 ## Weather
 
-A small icon and the temperature, alongside the prices. On a TV it leads the band under the
-tabs; on a phone that band is exactly two cells wide and a fifth figure would push it to three
-rows and clip the others, so there the weather takes the empty room under the name instead.
+A small icon and the temperature, leading the band of prices under the tabs, on both devices.
 
 The icons are drawn rather than typed. An emoji sun is at the mercy of whatever font the device
 ships — a Fire TV stick and a modern phone have different sets — and a missing one shows as an
@@ -57,9 +55,13 @@ in a way a stale gold price is not. `WX_AT` sets the coordinates and `WX_STALE_M
 
 ## Prices
 
-Bitcoin, gold, oil and the national debt, all in pounds. On the TV they sit in a band under
-the tabs; on a phone they take the top right corner, where the clock used to be, since the
-phone shows the time in its own status bar anyway. Each price carries its move over the day.
+Bitcoin, gold, oil and the national debt, all in pounds, in a band under the tabs — the same
+place on a phone as on the TV. Each price carries its move over the day.
+
+They used to sit in the phone's top right corner, in the room the clock gave up. That corner
+fitted four figures and no more: a fifth had nowhere to go, and a five-figure bitcoin price
+carrying its change was wider than half of it and lost its label off the left edge. Across the
+whole width they take the room they need and wrap when they run out.
 
 Gold and oil are quoted in dollars wherever you look, so they are converted with a live rate.
 Every figure has a chain of providers tried in turn, and gold and oil fall back to the dollar

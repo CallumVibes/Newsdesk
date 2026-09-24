@@ -548,7 +548,7 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.is(nd.wxFresh(null), false, 'nor nothing at all');
   });
 
-  suite('Where the chip goes on a television', (t) => {
+  suite('The price band on a television', (t) => {
     const S = nd.S, doc = window.document;
     S.mkt = { at: Date.now(), wx: { t: 14, icon: 'clear', label: 'Clear', c: '#E8C35A',
                                     day: true, at: Date.now(), from: 'open-meteo' } };
@@ -557,8 +557,7 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.ok(inBand, 'on a TV the weather leads the band of prices');
     t.ok(/14/.test(inBand.textContent), 'carrying the temperature');
     t.ok(inBand.querySelector('svg'), 'and an icon drawn rather than typed');
-    t.is(doc.getElementById('wx').children.length, 0,
-      'and the phone\'s slot under the name stays empty');
+    t.is(inBand.parentNode.id, 'mkt', 'in the band itself, ahead of the prices');
     S.mkt.wx.at = Date.now() - 5 * HOUR;
     nd.renderMkt();
     t.not(doc.querySelector('#mkt .wx'), 'a stale reading is dropped rather than shown');
@@ -904,18 +903,24 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
   // The chip has two homes and the phone one is the one that went wrong, so the page
   // is booted a second time as a phone rather than trusted to behave.
   const phone = await boot({ settle: 500, device: 'touch' });
-  suite('Where the chip goes on a phone', (t) => {
+  suite('The price band on a phone', (t) => {
     const doc = phone.window.document;
     phone.nd.S.mkt = { at: Date.now(), wx: { t: 9, icon: 'rain', label: 'Rain', c: '#7FB5E8',
                                              day: true, at: Date.now(), from: 'open-meteo' } };
     phone.nd.renderMkt();
-    const under = doc.querySelector('#wx .wx');
-    t.ok(under, 'on a phone the weather sits under the name');
-    t.ok(/9/.test(under.textContent), 'with the temperature');
-    t.ok(under.querySelector('svg'), 'and its icon');
-    // Four prices fill the phone's two-by-two block exactly. A fifth pushed it to
-    // three rows and clipped the others, which is why the chip lives elsewhere.
-    t.not(doc.querySelector('#mkt .wx'), 'and never in the price band, which has no room for it');
+    const chip = doc.querySelector('#mkt .wx');
+    t.ok(chip, 'the weather leads the band on a phone, the same as on a television');
+    t.ok(/9/.test(chip.textContent), 'with the temperature');
+    t.ok(chip.querySelector('svg'), 'and its icon');
+    t.not(doc.getElementById('wx'), 'and the slot it used to need under the name is gone');
+    // It was in the header, two across and two down. Now it is where the TV has it.
+    const mkt = doc.getElementById('mkt');
+    t.not(mkt.closest('header'), 'the band is no longer inside the header');
+    t.is(mkt.parentNode.id, 'app', 'it is a band of its own between the header and the list');
+    const kids = [...mkt.parentNode.children].map((n) => n.id || n.tagName.toLowerCase());
+    t.ok(kids.indexOf('mkt') < kids.indexOf('searchBar'),
+      'above the search box, so opening search does not push the prices into the results');
+    t.ok(kids.indexOf('mkt') < kids.indexOf('main'), 'and above the headlines');
   });
 
   suite('What you can do with a story, on a phone', (t) => {
