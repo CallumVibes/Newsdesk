@@ -29,8 +29,13 @@ suite('Everything the build needs is there', (t) => {
     'app/src/main/AndroidManifest.xml',
     PAGE, 'app/src/main/assets/config.js', 'app/src/main/assets/extract.js',
     KT + 'MainActivity.kt', KT + 'Net.kt', KT + 'Briefings.kt',
+    KT + 'Widget.kt',
     'app/src/main/res/drawable/icon.png', 'app/src/main/res/drawable/banner.png',
-    'app/src/main/res/drawable/notify.png'
+    'app/src/main/res/drawable/notify.png', 'app/src/main/res/drawable/widget_bg.xml',
+    'app/src/main/res/drawable-v31/widget_bg.xml', 'app/src/main/res/values/strings.xml',
+    'app/src/main/res/xml/briefing_widget.xml',
+    'app/src/main/res/layout/widget_briefing.xml', 'app/src/main/res/layout/widget_paragraph.xml',
+    'app/src/main/res/layout/widget_preview.xml'
   ].forEach((f) => t.ok(has(f), f + ' is in the tarball'));
 });
 
@@ -96,6 +101,59 @@ suite('The bridge the page calls is the bridge Kotlin offers', (t) => {
   });
 });
 
+/*
+ * Kotlin only tells you about an unresolved name when it compiles, which happens on
+ * a runner twenty minutes and one push away. Two of them have got that far now - a
+ * bridge method missing from one side, and android.content.Intent used in a file
+ * that had never needed to import it. This is the cheap half of a compiler: every
+ * capitalised name used as a constructor or a qualifier has to be imported, declared
+ * here, or something the language hands you for nothing.
+ */
+const KOTLIN_FREE = new Set([
+  // kotlin.* and java.lang.*, in scope without an import
+  'String', 'Int', 'Long', 'Short', 'Byte', 'Float', 'Double', 'Boolean', 'Char', 'Unit',
+  'Any', 'Nothing', 'Array', 'IntArray', 'LongArray', 'ByteArray', 'CharArray', 'BooleanArray',
+  'List', 'MutableList', 'Map', 'MutableMap', 'Set', 'MutableSet', 'ArrayList', 'HashMap',
+  'LinkedHashMap', 'HashSet', 'LinkedHashSet', 'Pair', 'Triple', 'Regex', 'Result',
+  'Exception', 'RuntimeException', 'IllegalArgumentException', 'IllegalStateException',
+  'Throwable', 'Error', 'Thread', 'Runnable', 'Math', 'System', 'Class', 'Comparable',
+  'Volatile', 'Suppress', 'JvmStatic', 'JvmField', 'JvmOverloads', 'Deprecated', 'Override',
+  'StringBuilder', 'CharSequence', 'Number', 'Iterable', 'Sequence', 'Lazy', 'Comparator',
+  'Regex', 'RegexOption', 'Charsets', 'Byte', 'UByte', 'Function0', 'Function1'
+]);
+
+suite('Every Kotlin name is one the compiler will find', (t) => {
+  const files = ['MainActivity.kt', 'Net.kt', 'Briefings.kt', 'Widget.kt'];
+  // Anything declared anywhere in the package is reachable from anywhere else in it.
+  const inPackage = new Set(['R']);
+  const bodies = {};
+  files.forEach((f) => {
+    const src = read(KT + f);
+    bodies[f] = src;
+    (src.match(/^\s*(?:private |internal |public |abstract |open |sealed |inner |data )*(?:class|object|interface|enum class) ([A-Z][A-Za-z0-9]*)/gm) || [])
+      .forEach((m) => inPackage.add(m.trim().split(/\s+/).pop()));
+  });
+  t.ok(inPackage.has('MainActivity') && inPackage.has('BriefStore'),
+    'the package\'s own classes are found');
+
+  files.forEach((f) => {
+    const src = bodies[f].replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+    const imported = new Set((src.match(/^import [\w.]+$/gm) || [])
+      .map((line) => line.trim().split('.').pop()));
+    // Foo( as a constructor, Foo. as a qualifier, : Foo as a type or supertype
+    const used = new Set();
+    (src.match(/(?:^|[^\w.])([A-Z][A-Za-z0-9]*)\s*[.(]/g) || [])
+      .forEach((m) => used.add(m.replace(/[^A-Za-z0-9]/g, '').replace(/^[a-z0-9]+/, '')));
+    (src.match(/:\s*([A-Z][A-Za-z0-9]*)/g) || [])
+      .forEach((m) => used.add(m.replace(/[:\s]/g, '')));
+    used.forEach((name) => {
+      if (!name || KOTLIN_FREE.has(name) || imported.has(name) || inPackage.has(name)) return;
+      t.fail(f + ' uses ' + name + ', which is neither imported nor declared in the package'
+        + '\n      (Kotlin would only say so on the runner, twenty minutes from here)');
+    });
+  });
+});
+
 suite('The manifest says what the app actually does', (t) => {
   const m = read('app/src/main/AndroidManifest.xml');
   ['INTERNET', 'RECEIVE_BOOT_COMPLETED', 'POST_NOTIFICATIONS'].forEach((p) => {
@@ -110,6 +168,72 @@ suite('The manifest says what the app actually does', (t) => {
     'and is not locked to landscape, which is what broke it on a phone');
   t.ok(/leanback"\s+android:required="false"/.test(m), 'leanback is optional, so phones can install it');
   t.ok(/touchscreen"\s+android:required="false"/.test(m), 'and so is a touchscreen, so TVs can');
+});
+
+/*
+ * A widget is inflated by the launcher, in the launcher's process, out of a
+ * RemoteViews. Put a view in there that RemoteViews cannot send across and nothing
+ * complains until the widget is placed on a home screen, where it shows "Problem
+ * loading widget" and says no more about it. So the layouts are checked here.
+ */
+const REMOTE_VIEWS_OK = [
+  // Containers RemoteViews can inflate
+  'FrameLayout', 'LinearLayout', 'RelativeLayout', 'GridLayout',
+  // Widgets it can inflate
+  'AnalogClock', 'Button', 'Chronometer', 'ImageButton', 'ImageView', 'ProgressBar',
+  'TextView', 'TextClock', 'ViewFlipper', 'ListView', 'GridView', 'StackView',
+  'AdapterViewFlipper', 'ViewStub'
+];
+const WIDGET_LAYOUTS = ['widget_briefing', 'widget_paragraph', 'widget_preview'];
+
+suite('The widget layouts are ones a launcher can draw', (t) => {
+  WIDGET_LAYOUTS.forEach((name) => {
+    const xml = read('app/src/main/res/layout/' + name + '.xml').replace(/<!--[\s\S]*?-->/g, '');
+    const tags = Array.from(new Set((xml.match(/<([A-Z][A-Za-z0-9.]*)/g) || []).map((m) => m.slice(1))));
+    t.ok(tags.length > 0, name + ' has views in it at all');
+    tags.forEach((tag) => {
+      t.ok(REMOTE_VIEWS_OK.indexOf(tag) >= 0,
+        name + ' uses <' + tag + '>, which RemoteViews can send to a launcher');
+    });
+  });
+});
+
+suite('The widget is wired up end to end', (t) => {
+  const m = read('app/src/main/AndroidManifest.xml');
+  t.ok(/<receiver[\s\S]{0,400}\.BriefingWidget[\s\S]{0,400}APPWIDGET_UPDATE/.test(m),
+    'the provider is declared and listens for the launcher\'s update');
+  t.ok(/android\.appwidget\.provider"[\s\S]{0,120}@xml\/briefing_widget/.test(m),
+    'and points at its own description');
+  t.ok(/<receiver[\s\S]{0,200}\.BriefingWidget[\s\S]{0,200}android:exported="true"/.test(m),
+    'exported, since the launcher is another app');
+  t.ok(/<service[\s\S]{0,200}\.BriefingWidgetService[\s\S]{0,200}BIND_REMOTEVIEWS/.test(m),
+    'and the adapter service may only be bound by the system');
+
+  const info = read('app/src/main/res/xml/briefing_widget.xml');
+  ['initialLayout', 'previewLayout'].forEach((k) => {
+    const at = info.match(new RegExp('android:' + k + '="@layout/([a-z_]+)"'));
+    t.ok(at, k + ' is set');
+    if (at) t.ok(has('app/src/main/res/layout/' + at[1] + '.xml'), k + ' names a layout that exists');
+  });
+  // Zero on purpose: the page pushes an update when it saves, so polling would only
+  // cost battery to find nothing had changed. Changing it should be a decision.
+  t.ok(/android:updatePeriodMillis="0"/.test(info), 'and the system is not asked to poll');
+
+  // R.id.x compiles whatever layout it came from, so a renamed id fails silently.
+  const kt = read(KT + 'Widget.kt');
+  const ids = Array.from(new Set((kt.match(/R\.id\.([a-z_]+)/g) || []).map((x) => x.slice(5))));
+  const declared = new Set();
+  WIDGET_LAYOUTS.forEach((name) => {
+    (read('app/src/main/res/layout/' + name + '.xml').match(/@\+id\/([a-z_]+)/g) || [])
+      .forEach((x) => declared.add(x.slice(5)));
+  });
+  t.ok(ids.length >= 4, 'the widget addresses views by id');
+  ids.forEach((id) => t.ok(declared.has(id), 'R.id.' + id + ' is a view in one of the widget layouts'));
+
+  // The empty view has to be a sibling of the list, or it is never shown.
+  const page = read('app/src/main/res/layout/widget_briefing.xml');
+  t.ok(/@\+id\/widget_list/.test(page) && /@\+id\/widget_empty/.test(page),
+    'and the list and its empty view share a layout, as setEmptyView needs');
 });
 
 suite('The build stays the build we can reason about', (t) => {

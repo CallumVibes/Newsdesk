@@ -32,15 +32,14 @@ function monthsAgo(n) {
   return d.getFullYear() + ' ' + MON[d.getMonth()];
 }
 
-boot({ settle: 500 }).then(({ nd, window, errors, close }) => {
+boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
 
   suite('The page itself', (t) => {
     t.same(errors, [], 'boots with no error on the console');
-    t.ok(nd.TABS.length === 8, 'has its eight tabs');
     t.same(nd.TABS.map((x) => x.id),
-      ['breaking', 'today', 'local', 'world', 'tech', 'coin', 'vegan', 'all'],
-      'in the order the remote walks them');
-    t.same(nd.ORDER, ['cw', 'kg', 'ht', 'yh', 'bb', 'vf', 'lm'], 'knows its seven sources');
+      ['breaking', 'today', 'local', 'world', 'tech', 'coin', 'vegan', 'hist', 'all', 'saved'],
+      'has its tabs, in the order the remote walks them');
+    t.same(nd.ORDER, ['cw', 'kg', 'ht', 'yh', 'bb', 'vf', 'lm', 'hh'], 'knows its sources');
     nd.TABS.forEach((tab) => {
       t.ok(tab.srcs.every((s) => nd.ORDER.indexOf(s) >= 0),
         tab.id + ' draws only from sources that exist');
@@ -335,7 +334,8 @@ boot({ settle: 500 }).then(({ nd, window, errors, close }) => {
       oil: { gbp: 63.42, chg: 0.0 }, debt: { gbp: 2.94e12, rate: 0, at: Date.now() }
     };
     const p = nd.briefPrices();
-    t.ok(/Bitcoin £74,211, up 1\.2% today/.test(p), 'bitcoin, in pounds, with its move');
+    t.ok(/Bitcoin £74,211, or 1,348 sats to the pound, up 1\.2% today/.test(p),
+      'the briefing gets bitcoin both ways, since a sentence reads better with pounds');
     t.ok(/gold £2,110 an ounce, down 0\.4% today/.test(p), 'gold by the ounce');
     t.ok(/oil £63\.42 a barrel/.test(p), 'oil by the barrel, keeping its pence');
     t.ok(/UK national debt £2\.940tn/.test(p), 'and the debt in trillions');
@@ -355,6 +355,269 @@ boot({ settle: 500 }).then(({ nd, window, errors, close }) => {
       'and an event carries when it is on, so the briefing does not report it as news');
     S.mkt = {};
     t.is(nd.briefPrices(), '', 'with no prices read, nothing is claimed');
+  });
+
+  /* ------------------------------------------------------------- The theme */
+  suite('One accent, not nine', (t) => {
+    t.is(nd.ACCENT, '#F7931A', 'the accent is the orange');
+    // Every source and every tab used to carry a colour of its own. The theme asked
+    // for is white and orange, so there is one accent and everything takes it.
+    Object.keys(nd.SRC).forEach((k) => {
+      t.is(nd.SRC[k].color, nd.ACCENT, nd.SRC[k].name + ' takes the accent');
+    });
+    nd.TABS.forEach((tab) => t.is(tab.color, nd.ACCENT, 'the ' + tab.name + ' tab takes the accent'));
+
+    const style = window.getComputedStyle(window.document.documentElement);
+    const v = (n) => style.getPropertyValue(n).trim().toUpperCase();
+    t.is(v('--text'), '#FFFFFF', 'the text is white');
+    t.is(v('--accent'), '#F7931A', 'the accent is on the palette too');
+    t.is(v('--c'), '#F7931A', 'and is what anything uncoloured falls back to');
+    // The greys were teal-tinted, which competed with an orange. They are neutral now.
+    ['--bg', '--bg2', '--bg3', '--line', '--soft', '--muted', '--dim'].forEach((n) => {
+      const hex = v(n);
+      const r = parseInt(hex.slice(1, 3), 16);
+      const g = parseInt(hex.slice(3, 5), 16);
+      const b = parseInt(hex.slice(5, 7), 16);
+      t.ok(Math.max(r, g, b) - Math.min(r, g, b) <= 6,
+        n + ' is a neutral grey rather than a tinted one (' + hex + ')');
+    });
+  });
+
+  /* ----------------------------------------------------- Briefing history */
+  suite('Keeping the day\'s briefings', (t) => {
+    const S = nd.S, now = Date.now();
+    const ed = (slot, ago, head) => ({
+      headline: head, paragraphs: ['A paragraph.'], at: now - ago,
+      slotName: slot, slotKey: 'k:' + slot + ':' + Math.floor((now - ago) / DAY)
+    });
+    S.briefs = [];
+    nd.rememberBrief(ed('Morning briefing', 6 * HOUR, 'First'));
+    nd.rememberBrief(ed('Afternoon briefing', 2 * HOUR, 'Second'));
+    t.is(S.briefs.length, 2, 'each edition is kept');
+    t.same(S.briefs.map((b) => b.headline), ['Second', 'First'], 'newest first');
+
+    // The Refresh button rewrites the edition that is current. That is the same
+    // edition, not a fourth one.
+    const again = ed('Afternoon briefing', 2 * HOUR, 'Second, rewritten');
+    nd.rememberBrief(again);
+    t.is(S.briefs.length, 2, 'rewriting an edition replaces it rather than adding one');
+    t.is(S.briefs[0].headline, 'Second, rewritten', 'and the rewrite is the one kept');
+
+    nd.rememberBrief({ headline: 'Empty', paragraphs: [], at: now, slotKey: 'x' });
+    t.is(S.briefs.length, 2, 'a briefing with nothing in it is not kept at all');
+
+    // Four days, no more: the tab is for catching up, not an archive.
+    S.briefs = [];
+    for (let i = 0; i < 20; i++) nd.rememberBrief(ed('E' + i, i * HOUR, 'H' + i));
+    t.is(S.briefs.length, nd.BRIEF_KEEP, 'no more than the cap are held');
+    t.is(S.briefs[0].headline, 'H0', 'and they are the newest');
+    t.same(nd.trimBriefs([{ at: now - 9 * DAY, paragraphs: ['x'] }]), [],
+      'anything older than a few days is dropped');
+    t.same(nd.trimBriefs(null), [], 'and nothing at all is not an error');
+  });
+
+  suite('Reading an earlier briefing', (t) => {
+    const S = nd.S, now = Date.now();
+    const ed = (slot, ago, head) => ({
+      headline: head, paragraphs: ['One.', 'Two.'], at: now - ago,
+      slotName: slot, slotKey: slot + ago, model: 'claude-sonnet-5'
+    });
+    S.briefs = [ed('Afternoon briefing', HOUR, 'This afternoon'),
+                ed('Morning briefing', 7 * HOUR, 'This morning')];
+    S.brief = S.briefs[0];
+    const items = nd.briefItems();
+    t.is(items.length, 2, 'both of today\'s editions can be opened');
+    t.is(items[0].title, 'This afternoon', 'newest first');
+    t.is(items[0].kicker, 'Afternoon briefing', 'each says which edition it is');
+    t.is(items[1].kicker, 'Morning briefing', 'so two in a row do not read as the same thing twice');
+    t.not(items[0].id === items[1].id, 'and they are separate stories, not one');
+    t.is(items[0].src, 'ai', 'filed under the briefing source');
+
+    // Today's section should carry both, under one heading.
+    const today = nd.buildToday(nd.getAll());
+    t.is(today.sections[0].title, 'Briefings', 'Today leads with them');
+    t.is(today.items[0].title, 'This afternoon', 'the latest at the top');
+    t.is(today.items[1].title, 'This morning', 'this morning still there at teatime');
+
+    // Yesterday's is held, but Today is today.
+    S.briefs = [ed('Evening briefing', 30 * HOUR, 'Last night')];
+    S.brief = S.briefs[0];
+    t.is(nd.briefItems().length, 0,
+      'once the last edition is more than a day old, Today stops offering it');
+    S.briefs = []; S.brief = null;
+  });
+
+  /* --------------------------------------------------- The home screen widget */
+  suite('What the widget is handed', (t) => {
+    const S = nd.S;
+    calls.widget.length = 0;
+    const was = S.brief;
+
+    S.brief = { error: 'PPQ said no', count: 1 };
+    nd.widgetBrief();
+    t.is(calls.widget.length, 0, 'a failed briefing is not sent to the home screen');
+    S.brief = { headline: 'H', paragraphs: [], at: Date.now() };
+    nd.widgetBrief();
+    t.is(calls.widget.length, 0, 'and neither is an empty one');
+
+    const at = Date.now();
+    S.brief = {
+      headline: 'A quiet start, with rain on the way',
+      paragraphs: ['First paragraph.', 'Second paragraph.', 'Third paragraph.'],
+      at: at, slotName: 'Morning briefing', slotKey: 'x'
+    };
+    // saveBrief is the one place a briefing is written, in the app and in the job
+    // alike, so the widget is fed from there rather than from either caller.
+    nd.saveBrief();
+    t.is(calls.widget.length, 1, 'saving a briefing hands it to the widget');
+    const w = calls.widget[0];
+    t.is(w.edition, 'Morning briefing', 'the edition comes through as its own line');
+    t.is(w.headline, 'A quiet start, with rain on the way', 'and the headline');
+    t.same(w.paragraphs, ['First paragraph.', 'Second paragraph.', 'Third paragraph.'],
+      'and every paragraph, since the widget scrolls them');
+    t.is(w.at, at, 'with the time it was written, for the header');
+    t.same(Object.keys(w).sort(), ['at', 'edition', 'headline', 'paragraphs'],
+      'and nothing else: the widget is sent what it draws, not the whole state');
+
+    S.brief = { headline: 'No edition', paragraphs: ['One.'], at: at };
+    nd.widgetBrief();
+    t.is(calls.widget[calls.widget.length - 1].edition, 'Briefing',
+      'a briefing from before the editions existed still has something to call itself');
+
+    S.brief = was;
+    calls.widget.length = 0;
+  });
+
+  /* ------------------------------------------------------- Sats to the pound */
+  suite('Counting in sats', (t) => {
+    t.is(nd.sats(63355), '1,578', 'a pound buys this many sats at that price');
+    t.is(nd.sats(100000), '1,000', 'and a round thousand at a round hundred thousand');
+    t.near(nd.satsPerPound(50000), 2000, 0.001, 'which is a hundred million over the price');
+    t.is(nd.sats(0), '0', 'with no price there is nothing to count');
+    t.is(nd.sats(-5), '0', 'and a nonsense price counts as none rather than throwing');
+
+    // The figure moves the other way to the price, so the arrow beside it must too.
+    // Bitcoin up means fewer sats for your pound, and that is a fall, not a rise.
+    t.near(nd.satsChg(1.6), -1.575, 0.01, 'bitcoin up 1.6% is 1.575% fewer sats');
+    t.near(nd.satsChg(-1.6), 1.626, 0.01, 'and bitcoin down is more sats');
+    t.is(nd.satsChg(0), 0, 'flat is flat');
+    t.ok(nd.satsChg(5) < 0, 'the sign always turns over');
+    t.ok(nd.satsChg(-5) > 0, 'both ways');
+    t.is(nd.satsChg(null), null, 'no move claimed when none is known');
+    t.is(nd.satsChg(-100), null, 'and a price that went to nothing is not divided by');
+
+    const S = nd.S, doc = window.document;
+    S.mkt = { at: Date.now(), btc: { gbp: 63355, chg: -1.6, at: Date.now(), from: 'x' } };
+    nd.renderMkt();
+    const row = doc.querySelector('#mkt .mk');
+    t.ok(/Sats\/£/.test(row.textContent), 'the band says what it is counting');
+    t.ok(/1,578/.test(row.textContent), 'and how many');
+    t.not(/63,355/.test(row.textContent), 'the price of a whole coin is no longer the headline');
+    t.ok(row.querySelector('.up'), 'bitcoin down means more sats, which the arrow shows as a rise');
+    S.mkt = {};
+  });
+
+  /* --------------------------------------------------------------- Weather */
+  suite('Reading the weather', (t) => {
+    const at = (c) => { const w = nd.wmoIcon(c); return w && w.icon; };
+    t.is(at(0), 'clear', 'a clear sky');
+    t.is(at(1), 'part', 'mainly clear is partly cloudy, near enough to draw');
+    t.is(at(2), 'part', 'and so is partly cloudy');
+    t.is(at(3), 'cloud', 'overcast is a cloud');
+    t.is(at(48), 'fog', 'fog');
+    t.is(at(53), 'drizzle', 'drizzle');
+    t.is(at(65), 'rain', 'heavy rain');
+    t.is(at(66), 'rain', 'and freezing rain is still rain to look at');
+    t.is(at(75), 'snow', 'snow');
+    t.is(at(82), 'showers', 'violent showers are showers');
+    t.is(at(86), 'snow', 'but snow showers are snow');
+    t.is(at(99), 'thunder', 'thunderstorm with hail');
+    t.is(nd.wmoIcon(4), null, 'a code we do not know draws nothing rather than a guess');
+    t.is(nd.wmoIcon(NaN), null, 'and neither does no code at all');
+    // Every icon the table names has to be one we can actually draw.
+    nd.WMO.forEach((w) => t.ok(nd.WX_PATHS[w.icon], w.label + ' has an icon drawn for it'));
+    t.ok(nd.WX_PATHS.moon && nd.WX_PATHS.moonpart, 'and there is a night version of the two that need one');
+  });
+
+  suite('met.no names its symbols, and the names overlap', (t) => {
+    const at = (sym) => { const w = nd.metnoIcon(sym); return w && w.icon; };
+    // Each of these contains an earlier rule's word, which is why the order matters.
+    t.is(at('lightrainshowersandthunder_day'), 'thunder', 'thunder wins over rain and showers');
+    t.is(at('rainshowers_day'), 'showers', 'showers win over rain');
+    t.is(at('partlycloudy_night'), 'part', 'partly cloudy is not cloudy');
+    t.is(at('lightsleetshowers_day'), 'snow', 'sleet is drawn as snow');
+    t.is(at('cloudy'), 'cloud', 'cloudy on its own is a cloud');
+    t.is(at('fair_day'), 'part', 'fair is a sun behind a cloud');
+    t.is(at('clearsky_day'), 'clear', 'and a clear sky is a clear sky');
+    t.is(at('fog'), 'fog', 'fog');
+    t.is(at(''), null, 'a symbol we cannot place draws nothing');
+    t.is(at('something_new_they_added'), null, 'and so does one they invent after this was written');
+  });
+
+  suite('The two providers agree on what they hand back', (t) => {
+    const om = nd.parseOpenMeteo(JSON.stringify({
+      current: { temperature_2m: 13.6, weather_code: 3, is_day: 1 }
+    }));
+    t.ok(om, 'Open-Meteo is read');
+    t.is(om.t, 13.6, 'with the temperature');
+    t.is(om.icon, 'cloud', 'and the condition');
+    t.is(om.day, true, 'and whether it is daylight');
+    t.is(nd.parseOpenMeteo(JSON.stringify({
+      current: { temperature_2m: 5, weather_code: 0, is_day: 0 } })).day, false,
+      'which it says plainly when it is not');
+    t.is(nd.parseOpenMeteo('{"current":{"temperature_2m":"x","weather_code":0}}'), null,
+      'a reading with no temperature is no use');
+    t.is(nd.parseOpenMeteo('{}'), null, 'and neither is an answer with nothing in it');
+    t.is(nd.parseOpenMeteo('<html>error</html>'), null, 'or one that is not JSON at all');
+
+    const mn = nd.parseMetNo(JSON.stringify({ properties: { timeseries: [{ data: {
+      instant: { details: { air_temperature: 8.2 } },
+      next_1_hours: { summary: { symbol_code: 'lightrain_night' } }
+    } }] } }));
+    t.ok(mn, 'met.no is read the same way');
+    t.is(mn.t, 8.2, 'same temperature field');
+    t.is(mn.icon, 'rain', 'same icon names');
+    t.is(mn.day, false, 'and it says night in the symbol rather than a field of its own');
+    t.is(nd.parseMetNo(JSON.stringify({ properties: { timeseries: [{ data: {
+      instant: { details: { air_temperature: 8.2 } } } }] } })), null,
+      'with no symbol there is nothing to draw, so the chain moves on');
+    t.is(nd.parseMetNo('{}'), null, 'and a shape we did not expect is not forced');
+  });
+
+  suite('Showing the weather', (t) => {
+    const now = Date.now();
+    t.is(nd.wxShape({ icon: 'clear', day: false }), 'moon', 'at night a clear sky is a moon');
+    t.is(nd.wxShape({ icon: 'part', day: false }), 'moonpart', 'and so is a sun behind a cloud');
+    t.is(nd.wxShape({ icon: 'rain', day: false }), 'rain', 'but rain at night is still rain');
+    t.is(nd.wxShape({ icon: 'clear', day: true }), 'clear', 'and by day a sun is a sun');
+
+    t.is(nd.wxTemp({ t: 13.6 }), '14\u00B0', 'the temperature is rounded to a whole degree');
+    t.is(nd.wxTemp({ t: -0.4 }), '0\u00B0', 'and never reads as minus nothing');
+    t.is(nd.wxTemp({ t: -2.6 }), '-3\u00B0', 'a frost still reads as one');
+
+    t.is(nd.wxFresh({ t: 10, icon: 'clear', at: now }), true, 'a reading just taken is shown');
+    t.is(nd.wxFresh({ t: 10, icon: 'clear', at: now - 4 * HOUR }), false,
+      'one from four hours ago is not: a sun left over from this morning is a lie by teatime');
+    t.is(nd.wxFresh({ t: 10, icon: 'clear', at: now - HOUR }), true, 'an hour is fine');
+    t.is(nd.wxFresh({ icon: 'clear', at: now }), false, 'a reading with no temperature is not shown');
+    t.is(nd.wxFresh({ t: 10, at: now }), false, 'nor one with no condition');
+    t.is(nd.wxFresh(null), false, 'nor nothing at all');
+  });
+
+  suite('The price band on a television', (t) => {
+    const S = nd.S, doc = window.document;
+    S.mkt = { at: Date.now(), wx: { t: 14, icon: 'clear', label: 'Clear', c: '#E8C35A',
+                                    day: true, at: Date.now(), from: 'open-meteo' } };
+    nd.renderMkt();
+    const inBand = doc.querySelector('#mkt .wx');
+    t.ok(inBand, 'on a TV the weather leads the band of prices');
+    t.ok(/14/.test(inBand.textContent), 'carrying the temperature');
+    t.ok(inBand.querySelector('svg'), 'and an icon drawn rather than typed');
+    t.is(inBand.parentNode.id, 'mkt', 'in the band itself, ahead of the prices');
+    S.mkt.wx.at = Date.now() - 5 * HOUR;
+    nd.renderMkt();
+    t.not(doc.querySelector('#mkt .wx'), 'a stale reading is dropped rather than shown');
+    S.mkt = {};
   });
 
   /* ------------------------------------------------------------- The wire */
@@ -446,6 +709,218 @@ boot({ settle: 500 }).then(({ nd, window, errors, close }) => {
     t.is(nd.mk('ht', { title: 'No date here' }, 0).date, 0, 'an unreadable date reads as none');
   });
 
+  /* ------------------------------------------------ Saving, sharing, calendar */
+  suite('Saving a story', (t) => {
+    const S = nd.S;
+    S.saved = [];
+    const it = story({ src: 'ht', id: 'ht:9', title: 'Road closed after crash' });
+    t.is(nd.isSaved(it), false, 'nothing is saved to begin with');
+    t.is(nd.toggleSave(it), true, 'saving says so');
+    t.is(nd.isSaved(it), true, 'and it is saved');
+    t.is(S.saved.length, 1, 'once');
+    // The one button says Save or Saved, so pressing it again is letting go.
+    t.is(nd.toggleSave(it), false, 'pressing it again lets the story go');
+    t.is(S.saved.length, 0, 'and it leaves the list');
+    nd.toggleSave(it);
+    t.is(S.saved.length, 1, 'saved once more');
+    // The live item is rebuilt and thrown away on every refresh. A saved story that
+    // changed under you would not be the one you saved.
+    t.not(S.saved[0] === it, 'what is kept is a copy, not the item itself');
+    t.is(S.saved[0].title, it.title, 'with the same words');
+    t.ok(S.saved[0].savedAt > 0, 'and when it was saved');
+    it.title = 'Rewritten by a refresh';
+    t.is(S.saved[0].title, 'Road closed after crash', 'so a later refresh cannot rewrite it');
+    t.is(nd.toggleSave(it), false, 'letting go says so');
+    t.is(nd.isSaved(it), false, 'and it is gone');
+    t.is(S.saved.length, 0, 'from the list too');
+    S.saved = [];
+  });
+
+  suite('The Saved tab', (t) => {
+    const S = nd.S;
+    const saved = nd.TABS.findIndex((x) => x.id === 'saved');
+    S.saved = [];
+    t.is(nd.tabShown(nd.TABS[saved]), false, 'is not on the strip while nothing is saved');
+    t.is(nd.tabShown(nd.TABS[0]), true, 'unlike every other tab');
+    // The remote must not stop on a tab that is not there.
+    S.tab = nd.TABS.findIndex((x) => x.id === 'all');
+    nd.switchTab(1);
+    t.is(nd.TABS[S.tab].id, 'breaking', 'so the remote walks past it, round to the first');
+    nd.toggleSave(story({ src: 'ht', id: 'ht:9', title: 'Road closed', date: Date.now() }));
+    t.is(nd.tabShown(nd.TABS[saved]), true, 'once something is saved it appears');
+    S.tab = nd.TABS.findIndex((x) => x.id === 'all');
+    nd.switchTab(1);
+    t.is(nd.TABS[S.tab].id, 'saved', 'and the remote stops on it');
+    t.same(S.view.map((x) => x.id), ['ht:9'], 'showing what was saved');
+    S.saved = []; S.tab = 1;
+  });
+
+  suite('What you can do with a story', (t) => {
+    const S = nd.S;
+    S.saved = [];
+    const ev = story({ src: 'lm', id: 'lm:1', title: 'Christmas Fayre',
+                       when: Date.now() + DAY, link: 'https://example.com/e' });
+    const news = story({ src: 'ht', id: 'ht:2', title: 'Road closed',
+                         link: 'https://example.com/a' });
+    const ids = (it) => { S.reader = { item: it, full: false, loading: false, y: 0, act: -1, acts: [] };
+                          return nd.readerActions(it).map((a) => a.id); };
+    // This boot is a television: it has nothing to share to and no calendar.
+    t.same(ids(news), ['full', 'save'], 'a TV is offered the full story and saving, and no more');
+    t.same(ids(ev), ['full', 'save'], 'an event too');
+    S.reader = { item: news, full: true, loading: false, y: 0, act: -1, acts: [] };
+    t.same(nd.readerActions(news).map((a) => a.id), ['save'],
+      'and the full story drops off the strip once it has been loaded');
+    const brief = { src: 'ai', id: 'brief:1', title: 'H', link: '', summary: 'x' };
+    S.reader = { item: brief, full: true, loading: false, y: 0, act: -1, acts: [] };
+    t.same(nd.readerActions(brief).map((a) => a.id), ['save'],
+      'a briefing has no page to fetch, so it is only ever saved');
+    S.reader = null; S.saved = [];
+  });
+
+  /* -------------------------------------------------------- On this day here */
+  suite('Reading what Wikidata sends back', (t) => {
+    const row = (o) => {
+      const b = {};
+      Object.keys(o).forEach((k) => { b[k] = { value: o[k] }; });
+      return b;
+    };
+    const body = (rows) => JSON.stringify({ results: { bindings: rows.map(row) } });
+
+    const got = nd.parseHhSparql(body([
+      { itemLabel: 'David Garrick', itemDescription: 'english actor and playwright',
+        year: '1717', kind: 'Born', article: 'https://en.wikipedia.org/wiki/David_Garrick' },
+      { itemLabel: 'Nell Gwyn', itemDescription: 'english actress', year: '1650', kind: 'Died' }
+    ]));
+    t.is(got.length, 2, 'both rows are read');
+    t.is(got[0].title, 'David Garrick', 'the name');
+    t.is(got[0].year, 1717, 'the year, as a number');
+    t.is(got[0].kicker, 'Born', 'and whether they were born or died here');
+    t.is(got[0].summary, 'English actor and playwright',
+      'the description gets its capital letter, since it is a sentence on the row');
+    t.is(got[0].link, 'https://en.wikipedia.org/wiki/David_Garrick', 'and a page to open');
+
+    // A thing with no English name comes back as its own id, which is no use to read.
+    t.is(nd.parseHhSparql(body([{ itemLabel: 'Q12345', year: '1800', kind: 'Born' }])).length, 0,
+      'a row with no English name is dropped rather than shown as a Q-number');
+    t.is(nd.parseHhSparql(body([{ itemLabel: 'Someone', year: 'not a year', kind: 'Born' }])).length, 0,
+      'and so is one whose year is not a year');
+    t.is(nd.parseHhSparql(body([{ itemLabel: 'Someone', year: '20260', kind: 'Born' }])).length, 0,
+      'or is a year nobody was born in');
+    t.same(nd.parseHhSparql('<html>service unavailable</html>'), [],
+      'an answer that is not the data empties the tab rather than filling it with nonsense');
+    t.same(nd.parseHhSparql(JSON.stringify({ results: { bindings: [] } })), [],
+      'and so does an answer with nothing in it');
+    // The same person can come back twice, once for each place inside the county.
+    t.is(nd.parseHhSparql(body([
+      { itemLabel: 'Twice Over', year: '1900', kind: 'Born' },
+      { itemLabel: 'Twice Over', year: '1900', kind: 'Born' }
+    ])).length, 1, 'a row that repeats is shown once');
+  });
+
+  suite('Sifting Wikipedia\'s national list', (t) => {
+    const day = (o) => JSON.stringify(o);
+    const local = nd.parseHhDay(day({
+      births: [{ text: 'John Masefield, English poet, born in Ledbury', year: 1878,
+                 pages: [{ extract: 'A poet.', content_urls: { desktop: { page: 'https://x/1' } } }] }],
+      events: [{ text: 'A battle somewhere else entirely', year: 1485, pages: [{ extract: 'Elsewhere.' }] }]
+    }));
+    t.is(local.length, 1, 'only the line that names somewhere here is kept');
+    t.is(local[0].year, 1878, 'with its year');
+    t.is(local[0].kicker, 'Born', 'and which list it came from');
+    t.is(local[0].link, 'https://x/1', 'and its page');
+
+    // The line itself may not name the place; the page it points at often does.
+    t.is(nd.parseHhDay(day({ events: [{ text: 'A cathedral was consecrated', year: 1079,
+      pages: [{ extract: 'Hereford Cathedral, in the county town.' }] }] })).length, 1,
+      'a line is kept when the page it points at names the place');
+    t.is(nd.parseHhDay(day({ events: [{ text: 'Something national', year: 1900, pages: [] }] })).length, 0,
+      'and dropped when neither does');
+    t.same(nd.parseHhDay('not json'), [], 'a broken answer is no entries, not an error');
+    t.is(nd.HH_PLACES.test('a street in Hereford'), true, 'the county town counts');
+    t.is(nd.HH_PLACES.test('Leominster'), true, 'and the market towns');
+    t.is(nd.HH_PLACES.test('Herefordshire'), true, 'and the county itself');
+    t.is(nd.HH_PLACES.test('Hertfordshire'), false,
+      'but not the other county whose name is one letter away');
+  });
+
+  suite('History rows read as history', (t) => {
+    const items = nd.hhItems([{ title: 'David Garrick', year: 1717, kicker: 'Born',
+                                summary: 'An actor.', link: 'https://x/g' }]);
+    t.is(items.length, 1, 'a row becomes a story');
+    t.is(items[0].src, 'hh', 'filed under the history source');
+    t.is(items[0].year, 1717, 'carrying its year');
+    t.is(nd.timeLabel(items[0]), '1717',
+      'which is what the row shows, rather than how long ago it was fetched');
+    t.is(nd.isHistory(items[0]), true, 'it knows it is history');
+    t.is(nd.isHistory(story({ src: 'ht' })), false, 'and the news knows it is not');
+    // Centuries old and never breaking, whatever words are in it.
+    t.same(nd.breakingList([Object.assign(items[0], { date: Date.now(),
+      title: 'Fire destroys the market hall' })]), [],
+      'history never reaches Breaking, however urgent the words in it');
+    const hist = nd.TABS[nd.TABS.findIndex((x) => x.id === 'hist')];
+    t.same(hist.srcs, ['hh'], 'the History tab draws from it alone');
+    const all = nd.TABS[nd.TABS.findIndex((x) => x.id === 'all')];
+    t.is(all.srcs.indexOf('hh'), -1, 'and All leaves it out, being today\'s news');
+    const today = nd.TABS[nd.TABS.findIndex((x) => x.id === 'today')];
+    t.is(today.srcs.indexOf('hh'), -1, 'as does Today');
+  });
+
+  /* ---------------------------------------------------------------- Search */
+  suite('Finding a story again', (t) => {
+    const S = nd.S, now = Date.now();
+    const pool = [
+      story({ src: 'ht', id: 'a', title: 'Road closed after crash on the A49',
+              summary: 'Police say the road is shut.', date: now }),
+      story({ src: 'ht', id: 'b', title: 'Council approves new homes',
+              summary: 'Near the A49 junction.', date: now - HOUR }),
+      story({ src: 'kg', id: 'c', kicker: 'UK', title: 'Something else entirely',
+              summary: 'Nothing to do with it.', date: now - 2 * HOUR }),
+      story({ src: 'vf', id: 'd', title: 'A crash course in tofu',
+              summary: 'Cooking.', date: now - 3 * HOUR })
+    ];
+    const ids = (q) => nd.searchHits(q, pool).map((x) => x.id);
+    t.same(ids('a49'), ['a', 'b'], 'a word in the headline beats one buried in the summary');
+    t.same(ids('crash'), ['a', 'd'], 'and both headlines carrying it come back');
+    // Two words narrow. This is the whole reason for typing a second one.
+    t.same(ids('crash a49'), ['a'], 'every word has to appear, so two words narrow');
+    t.same(ids('crash tofu'), ['d'], 'even when they are in different parts of the story');
+    t.same(ids('zebra'), [], 'a word in nothing finds nothing');
+    t.same(ids(''), [], 'and an empty box finds nothing rather than everything');
+    t.same(ids('  '), [], 'nor does a box of spaces');
+    t.same(ids('a'), [], 'a single letter is not a search');
+    t.is(nd.searchHits('ROAD', pool)[0].id, 'a', 'case does not matter');
+
+    // It searches what the app has: the feeds, what was saved, and the briefings.
+    S.saved = []; S.briefs = [];
+    nd.toggleSave(story({ src: 'ht', id: 'kept', title: 'A story I kept about badgers' }));
+    nd.rememberBrief({ headline: 'Badgers lead the news', paragraphs: ['A paragraph.'],
+                       at: now, slotName: 'Morning briefing', slotKey: 'b1' });
+    const found = nd.searchHits('badgers').map((x) => x.title);
+    t.ok(found.indexOf('A story I kept about badgers') >= 0, 'a saved story is searchable');
+    t.ok(found.indexOf('Badgers lead the news') >= 0, 'and so is a briefing');
+    S.saved = []; S.briefs = [];
+  });
+
+  suite('The search bar', (t) => {
+    const S = nd.S, doc = window.document, now = Date.now();
+    S.by = { cw: { items: [] }, kg: { items: [] }, yh: { items: [] }, bb: { items: [] },
+             vf: { items: [] }, lm: { items: [] },
+             ht: { items: [story({ src: 'ht', id: 'a', title: 'Road closed after a crash', date: now })] } };
+    nd.openSearch();
+    t.is(S.mode, 'search', 'opening search changes what the buttons do');
+    t.is(doc.getElementById('searchBar').hidden, false, 'and puts the box on screen');
+    nd.runSearch('road');
+    t.same(S.view.map((x) => x.id), ['a'], 'typing narrows the list itself, not a second one');
+    t.ok(/1 found/.test(doc.getElementById('sqCount').textContent), 'and says how many');
+    nd.runSearch('zebra');
+    t.is(S.view.length, 0, 'a word in nothing empties it');
+    t.ok(/nothing found/.test(doc.getElementById('sqCount').textContent), 'and says so plainly');
+    nd.closeSearch();
+    t.is(S.mode, 'home', 'Back leaves search');
+    t.is(doc.getElementById('searchBar').hidden, true, 'and takes the box away');
+    t.ok(S.view.length >= 0, 'putting the tab back as it was');
+  });
+
   /* ------------------------------------------------------ All of it at once */
   suite('Building a screen', (t) => {
     const S = nd.S, now = Date.now();
@@ -481,8 +956,52 @@ boot({ settle: 500 }).then(({ nd, window, errors, close }) => {
     t.ok(window.document.querySelectorAll('#list .row').length >= 1, 'and it reaches the screen');
   });
 
+  // The chip has two homes and the phone one is the one that went wrong, so the page
+  // is booted a second time as a phone rather than trusted to behave.
+  const phone = await boot({ settle: 500, device: 'touch' });
+  suite('The price band on a phone', (t) => {
+    const doc = phone.window.document;
+    phone.nd.S.mkt = { at: Date.now(), wx: { t: 9, icon: 'rain', label: 'Rain', c: '#7FB5E8',
+                                             day: true, at: Date.now(), from: 'open-meteo' } };
+    phone.nd.renderMkt();
+    const chip = doc.querySelector('#mkt .wx');
+    t.ok(chip, 'the weather leads the band on a phone, the same as on a television');
+    t.ok(/9/.test(chip.textContent), 'with the temperature');
+    t.ok(chip.querySelector('svg'), 'and its icon');
+    t.not(doc.getElementById('wx'), 'and the slot it used to need under the name is gone');
+    // It was in the header, two across and two down. Now it is where the TV has it.
+    const mkt = doc.getElementById('mkt');
+    t.not(mkt.closest('header'), 'the band is no longer inside the header');
+    t.is(mkt.parentNode.id, 'app', 'it is a band of its own between the header and the list');
+    const kids = [...mkt.parentNode.children].map((n) => n.id || n.tagName.toLowerCase());
+    t.ok(kids.indexOf('mkt') < kids.indexOf('searchBar'),
+      'above the search box, so opening search does not push the prices into the results');
+    t.ok(kids.indexOf('mkt') < kids.indexOf('main'), 'and above the headlines');
+  });
+
+  suite('What you can do with a story, on a phone', (t) => {
+    const S = phone.nd.S;
+    S.saved = [];
+    const ev = { src: 'lm', id: 'lm:1', title: 'Christmas Fayre', summary: 'In the square.',
+                 when: Date.now() + DAY, link: 'https://example.com/e', date: Date.now() };
+    const news = { src: 'ht', id: 'ht:2', title: 'Road closed', summary: 'The A49.',
+                   link: 'https://example.com/a', date: Date.now() };
+    const ids = (it, full) => {
+      S.reader = { item: it, full: !!full, loading: false, y: 0, act: -1, acts: [] };
+      return phone.nd.readerActions(it).map((a) => a.id);
+    };
+    t.same(ids(news), ['full', 'save', 'share'], 'a phone can share a story');
+    t.same(ids(ev), ['full', 'save', 'share', 'cal'],
+      'and put an event in the calendar, since it knows when it is');
+    const undated = Object.assign({}, ev, { when: 0 });
+    t.same(ids(undated), ['full', 'save', 'share'],
+      'but not one whose date could not be read, which would only guess');
+    S.reader = null; S.saved = [];
+  });
+
   return run('Newsdesk logic').then(() => {
     close();                       // stop the page's clock, or node never gets to exit
+    phone.close();
   });
 }).catch((e) => {
   console.error(e && e.stack || e);

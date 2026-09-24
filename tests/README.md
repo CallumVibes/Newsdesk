@@ -28,6 +28,13 @@ twice, in two languages that never see each other:
 - every `Native.x()` the page calls exists on the Kotlin side, and anything the
   foreground app does not offer is asked for before it is called.
 
+It also runs the cheap half of a Kotlin compiler: every capitalised name used as a
+constructor or a qualifier must be imported, declared in the package, or something
+the language gives you for nothing. Kotlin only reports an unresolved name when it
+compiles, which happens on a runner twenty minutes and one push away; this catches
+it in a second. `KOTLIN_FREE` in `check-source.js` is the list of names that need
+no import.
+
 **`logic.test.js`** — needs `jsdom`. It boots the real `index.html` with every
 source answered by a stub, then reads the rules back through the `__ndTestHook`
 seam at the foot of the file and checks them: the Breaking news gate, where a wire

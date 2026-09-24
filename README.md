@@ -8,11 +8,13 @@ One build, two layouts. On a TV it's headlines on the left, a large preview on t
 
 | Source | How it's read |
 | --- | --- |
+| Weather | Open-Meteo, then met.no. Both are free and need no key. Each answers in its own language — a WMO number, or a symbol name — and both are put through a table into one of eleven drawn icons. |
 | Prices | Bitcoin from CoinGecko, Coinbase or blockchain.info; gold and oil from Yahoo or Stooq, converted at a rate from Frankfurter; the debt from the ONS, then a counter site. The sources panel names whichever answered, and the dollar figure gold and oil were converted from. |
 | Citadel Wire | Each wire holds several stories and is split into them, by list, by numbering, by heading, or by blank-line blocks. A wire that resists all four is kept whole as one digest, and only the newest such digest is shown. Nostr notes from `npub1q8g803ajr0lw3xngs0k6hn2q3mejf6dtgv05d06h6krqgv9uh97q5382kp`, with the site's RSS feeds as backup. Each wire is split into its individual stories. |
 | Kagi News | RSS per category: UK, World, Technology, Science and Bitcoin. UK stories are given priority. Summaries are licensed CC BY-NC. |
 | BBC News | A BBC topic page. Read from the schema.org listing the page publishes for search engines, which carries the headline, link, time and summary and outlives any amount of front-end rebuilding. Its links are read only if that is missing. `BB_FEEDS` takes a feed address to use in place of the page. |
 | Vegan Food & Living | The site's news feed, with its WordPress API and any feed advertised on the homepage as backup. |
+| On this day here | Wikidata for anyone born or died here on today's date, then Wikipedia's national "on this day" sifted for local place names. Checked before it is shown: a year has to be a year and a name has to be a name. |
 | Local events | What's on in town, from the town council's `council_events` listing. Tried as the WordPress API, then the listing's feed, then the listing page itself. The listing often carries only a title and a link, so opening an event fetches its own page for the details and the date. |
 
 ## Tabs
@@ -25,6 +27,8 @@ One build, two layouts. On a TV it's headlines on the left, a large preview on t
 - **Bitcoin** — Kagi's Bitcoin category, plus anything off the wire that is about bitcoin itself.
 - **Vegan** — Vegan Food & Living.
 - **All** — everything, taking turns between sources so none of them floods the list.
+- **History** — who was born or died here on today's date, and what happened here, oldest first.
+- **Saved** — stories you kept. Only on the strip once there is something in it.
 
 The Citadel Wire files nothing under a category, so each of its stories is placed by what it
 says: **Bitcoin** means bitcoin itself, not money in general, since a wire like this one carries a
@@ -36,11 +40,34 @@ whole wire, prices and all, so it goes to UK & World rather than looking like a 
 Every tab but Today is a flat newest-first list, taking turns between its sources. Headlines
 carry a small picture, fetched only once the row is nearly on screen.
 
+## Weather
+
+A small icon and the temperature, leading the band of prices under the tabs, on both devices.
+
+The icons are drawn rather than typed. An emoji sun is at the mercy of whatever font the device
+ships — a Fire TV stick and a modern phone have different sets — and a missing one shows as an
+empty box. These are SVG, so they are the same everywhere, scale with the text and take their
+colour from the condition: a warm sun, a blue shower, an amber thunderstorm. At night a clear
+sky is a moon.
+
+A reading more than three hours old is dropped rather than shown, because stale weather is wrong
+in a way a stale gold price is not. `WX_AT` sets the coordinates and `WX_STALE_MS` that limit.
+
 ## Prices
 
-Bitcoin, gold, oil and the national debt, all in pounds. On the TV they sit in a band under
-the tabs; on a phone they take the top right corner, where the clock used to be, since the
-phone shows the time in its own status bar anyway. Each price carries its move over the day.
+Sats to the pound, gold, oil and the national debt, in a band under the tabs — the same place on
+a phone as on the TV. Each figure carries its move over the day.
+
+Bitcoin is counted the way anyone holding it counts: not what a whole coin costs, but how many
+satoshis a pound buys. That moves inversely to the price, so its arrow is inverted with it —
+bitcoin up a per cent is a per cent fewer sats for your pound, and that is a fall. Every arrow in
+the band describes the figure it sits beside. The ☰ panel gives both, and so does the briefing,
+where a sentence reads better with a pound price in it.
+
+They used to sit in the phone's top right corner, in the room the clock gave up. That corner
+fitted four figures and no more: a fifth had nowhere to go, and a five-figure bitcoin price
+carrying its change was wider than half of it and lost its label off the left edge. Across the
+whole width they take the room they need and wrap when they run out.
 
 Gold and oil are quoted in dollars wherever you look, so they are converted with a live rate.
 Every figure has a chain of providers tried in turn, and gold and oil fall back to the dollar
@@ -82,6 +109,60 @@ to everyone. There are three ways in:
 If nothing clears the bar, the tab says so rather than filling up with whatever is newest.
 Both word lists sit near the top of `index.html` and are meant to be edited.
 
+## On this day, here
+
+The **History** tab is today's date, locally. Two ways at it, because neither works alone.
+
+**Wikidata** knows where people were born and died and where things happened, so it can be asked
+for anyone whose birthday or anniversary falls today and whose place sits anywhere inside the
+county. That fills the tab most days. The query asks for the places first and the people second —
+asking the other way round makes the service walk every birthday there has ever been. The county's
+own id is looked up rather than assumed, and remembered once found; `HH_QID_DEFAULT` is the
+fallback if the lookup fails.
+
+**Wikipedia's own "on this day"** is the other, but it is a national list, so a line is kept only
+where it — or the page it points at — actually names somewhere local. Most days that is nothing,
+which is why it is second rather than first.
+
+Whatever comes back is checked before it is shown: a year has to be a year, a name has to be a
+name, and a thing with no English name is dropped rather than displayed as a Q-number. A query
+answering in a shape the app did not expect empties the tab rather than filling it with nonsense.
+
+Rows show the year rather than how long ago anything was fetched, and history never reaches
+Breaking whatever words are in it. It is kept out of **Today** and **All**, where a row from 1743
+among the morning's headlines would read as a mistake, but it is fetched, cached and searched like
+any other source.
+
+## Search
+
+Searches what the app already has — every story its sources last gave it, everything saved, and
+every briefing held. Nothing is fetched: this is for "where was that thing I saw", not for
+searching the web.
+
+Every word has to appear somewhere, so a second word narrows rather than widens, and a word in
+the headline counts for more than one buried in the summary. Results replace the list itself,
+so opening one works exactly as it does anywhere else.
+
+On a phone, the ⌕ button beside ☰. On a television, open ☰ and press ▶ to **Search stories**,
+then OK — ▼ from the box drops into the results, ▲ goes back to it, and Back leaves. OK on its
+own in the panel still refreshes, as it always did.
+
+## Saving, sharing and the calendar
+
+Open a story and the foot of the reader offers what you can do with it. On a phone they are
+buttons; on a television, press ▼ once you have read to the bottom and the strip lights up, then
+◀ ▶ between them and OK.
+
+- **Save** keeps the story in a **Saved** tab, which only appears on the strip once there is
+  something in it. What is kept is a copy, so a saved story still opens and reads after its source
+  has dropped it from the feed — which all of them do within days.
+- **Share** hands it to whatever the phone has: messages, mail, a notes app.
+- **Add to calendar** opens your calendar's own new-event screen, filled in, for an event whose
+  date could be read. Nothing is written to your calendar by the app; you save it, or you don't.
+
+A television is offered neither of the last two — there is nothing to share to and no calendar to
+open — so its strip stays at two.
+
 ## Remote (Fire TV)
 
 | Button | Does |
@@ -89,7 +170,7 @@ Both word lists sit near the top of `index.html` and are meant to be edited.
 | ◀ ▶ | Switch tab (they wrap round, so nothing is more than four presses away), or move between stories in the reader |
 | ▲ ▼ | Move through headlines, or scroll |
 | OK | Read a story |
-| ☰ Menu | Sources panel: what loaded, from where, and any errors. OK refreshes. |
+| ☰ Menu | Sources panel: what loaded, from where, and any errors. ◀ ▶ pick between **Refresh all** and **Search stories**, OK runs the one lit. |
 | Back | Top of list, then Today, then exit |
 
 After 3 idle minutes it shows one story at a time, dimmed and drifting to protect the screen. Any button wakes it.
@@ -102,6 +183,7 @@ After 3 idle minutes it shows one story at a time, dimmed and drifting to protec
 | Swipe left or right | Switch tab, or move between stories in the reader |
 | Tap a headline | Read the story |
 | Scroll | Normal scrolling throughout |
+| ⌕ (top right) | Search everything loaded and saved |
 | ☰ (top right) | Sources panel: what loaded, from where, and any errors |
 | Back | Top of list, then Today, then exit |
 
@@ -155,12 +237,34 @@ Android 13 and later ask permission the first time the app opens; refusing chang
 the briefings arrive silently. A television is watched rather than notified at, so it gets none. Turn
 them off like any other app's, under Briefings in Android's notification settings.
 
+Every edition is kept for four days, newest first, so this morning's is still there at teatime.
+Today's sit together under **Briefings** in the Today tab, each labelled with the edition it is;
+the ☰ panel lists everything held, including the previous few days'. An edition rewritten — by the
+Refresh button, or by a retry after a failure — replaces its own entry rather than making a second.
+`BRIEF_KEEP` and `BRIEF_KEEP_DAYS` set how much is held.
+
 Each edition is told which one it is, and is given the previous one so it carries on rather than repeats:
 the morning leads on what happened overnight, the afternoon on what has moved since, the evening draws
 the day together. `BRIEF_SLOTS` sets the hours and the angle of each. `BRIEF_MAX_PER_DAY` still caps the
 paid calls, retries included.
 
 Optionally add a repository variable `PPQ_MODEL` to pick a model. The default is `claude-sonnet-4-5`.
+
+## Home screen widget (phone)
+
+Long-press the home screen, pick **Widgets**, then **Newsdesk briefing**. It shows the latest
+edition, its headline and all of its paragraphs, scrolled if it doesn't fit. Tap anywhere on it to
+open the app. It resizes in both directions, so it can be a two-line headline or half a screen.
+
+The widget never fetches anything and never starts the app. The page hands each briefing over as it
+saves it — in the app or in the background job, which is the same code either way — and the widget
+draws whatever was last handed over. So the morning edition is on the home screen before the phone
+is picked up, and if nothing has been written yet the widget says so rather than sitting blank.
+
+Its header carries the time the briefing was written, and the date too once it's yesterday's, so a
+stale briefing looks stale rather than current.
+
+A Fire TV has no home screen widgets, so it simply never offers one.
 
 **Keep this repo private.** The key is built into the APK.
 
@@ -180,6 +284,8 @@ Near the top of `app/src/main/assets/index.html`:
 | `BTC_SOURCES`, `GOLD_SOURCES`, `OIL_SOURCES` | Where prices come from, tried in order |
 | `RATE_SOURCES` | Where the dollar to pound rate comes from |
 | `MKT_STALE_MS` | How old a price may be before it stops being shown |
+| `WX_AT` | Where the weather is for |
+| `WX_STALE_MS` | How old a forecast may be before it stops being shown |
 | `KAGI_WANT` | Which Kagi categories to pull |
 | `KAGI_BOOST` | How much of a head start UK stories get |
 | `EVENT_WINDOW_DAYS` | How far ahead **On in town** looks before falling back to the soonest events |
@@ -196,6 +302,16 @@ Near the top of `app/src/main/assets/index.html`:
 - Rows read "Tomorrow, 16:30" rather than "2h ago". An event whose date can't be read shows no time at all rather than the day it was posted.
 
 The date comes from the listing's own field where it has one, and is otherwise read out of the title or the blurb ("5 September 2026", "12th June at 4:30pm"). The AI briefing is told these are upcoming events rather than news, and is given the date.
+
+## Theme
+
+White on near-black, with one accent: Bitcoin orange, `#F7931A`. Every source and every tab used
+to carry a colour of its own; they all take the accent now, and the greys are neutral rather than
+the teal-tinted ones they replace, so nothing competes with it. `ACCENT` near the top of
+`index.html` is the single place it is set.
+
+Two colours are not part of the theme and stay as they are: green and red on a price's move. That
+is the one place in the app where colour is the only thing carrying the meaning.
 
 ## Requirements
 
