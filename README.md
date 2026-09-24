@@ -26,6 +26,7 @@ One build, two layouts. On a TV it's headlines on the left, a large preview on t
 - **Bitcoin** — Kagi's Bitcoin category, plus anything off the wire that is about bitcoin itself.
 - **Vegan** — Vegan Food & Living.
 - **All** — everything, taking turns between sources so none of them floods the list.
+- **Saved** — stories you kept. Only on the strip once there is something in it.
 
 The Citadel Wire files nothing under a category, so each of its stories is placed by what it
 says: **Bitcoin** means bitcoin itself, not money in general, since a wire like this one carries a
@@ -97,6 +98,22 @@ to everyone. There are three ways in:
 
 If nothing clears the bar, the tab says so rather than filling up with whatever is newest.
 Both word lists sit near the top of `index.html` and are meant to be edited.
+
+## Saving, sharing and the calendar
+
+Open a story and the foot of the reader offers what you can do with it. On a phone they are
+buttons; on a television, press ▼ once you have read to the bottom and the strip lights up, then
+◀ ▶ between them and OK.
+
+- **Save** keeps the story in a **Saved** tab, which only appears on the strip once there is
+  something in it. What is kept is a copy, so a saved story still opens and reads after its source
+  has dropped it from the feed — which all of them do within days.
+- **Share** hands it to whatever the phone has: messages, mail, a notes app.
+- **Add to calendar** opens your calendar's own new-event screen, filled in, for an event whose
+  date could be read. Nothing is written to your calendar by the app; you save it, or you don't.
+
+A television is offered neither of the last two — there is nothing to share to and no calendar to
+open — so its strip stays at two.
 
 ## Remote (Fire TV)
 

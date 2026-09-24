@@ -36,10 +36,9 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
 
   suite('The page itself', (t) => {
     t.same(errors, [], 'boots with no error on the console');
-    t.ok(nd.TABS.length === 8, 'has its eight tabs');
     t.same(nd.TABS.map((x) => x.id),
-      ['breaking', 'today', 'local', 'world', 'tech', 'coin', 'vegan', 'all'],
-      'in the order the remote walks them');
+      ['breaking', 'today', 'local', 'world', 'tech', 'coin', 'vegan', 'all', 'saved'],
+      'has its tabs, in the order the remote walks them');
     t.same(nd.ORDER, ['cw', 'kg', 'ht', 'yh', 'bb', 'vf', 'lm'], 'knows its seven sources');
     nd.TABS.forEach((tab) => {
       t.ok(tab.srcs.every((s) => nd.ORDER.indexOf(s) >= 0),
@@ -655,6 +654,74 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.is(nd.mk('ht', { title: 'No date here' }, 0).date, 0, 'an unreadable date reads as none');
   });
 
+  /* ------------------------------------------------ Saving, sharing, calendar */
+  suite('Saving a story', (t) => {
+    const S = nd.S;
+    S.saved = [];
+    const it = story({ src: 'ht', id: 'ht:9', title: 'Road closed after crash' });
+    t.is(nd.isSaved(it), false, 'nothing is saved to begin with');
+    t.is(nd.toggleSave(it), true, 'saving says so');
+    t.is(nd.isSaved(it), true, 'and it is saved');
+    t.is(S.saved.length, 1, 'once');
+    // The one button says Save or Saved, so pressing it again is letting go.
+    t.is(nd.toggleSave(it), false, 'pressing it again lets the story go');
+    t.is(S.saved.length, 0, 'and it leaves the list');
+    nd.toggleSave(it);
+    t.is(S.saved.length, 1, 'saved once more');
+    // The live item is rebuilt and thrown away on every refresh. A saved story that
+    // changed under you would not be the one you saved.
+    t.not(S.saved[0] === it, 'what is kept is a copy, not the item itself');
+    t.is(S.saved[0].title, it.title, 'with the same words');
+    t.ok(S.saved[0].savedAt > 0, 'and when it was saved');
+    it.title = 'Rewritten by a refresh';
+    t.is(S.saved[0].title, 'Road closed after crash', 'so a later refresh cannot rewrite it');
+    t.is(nd.toggleSave(it), false, 'letting go says so');
+    t.is(nd.isSaved(it), false, 'and it is gone');
+    t.is(S.saved.length, 0, 'from the list too');
+    S.saved = [];
+  });
+
+  suite('The Saved tab', (t) => {
+    const S = nd.S;
+    const saved = nd.TABS.findIndex((x) => x.id === 'saved');
+    S.saved = [];
+    t.is(nd.tabShown(nd.TABS[saved]), false, 'is not on the strip while nothing is saved');
+    t.is(nd.tabShown(nd.TABS[0]), true, 'unlike every other tab');
+    // The remote must not stop on a tab that is not there.
+    S.tab = nd.TABS.findIndex((x) => x.id === 'all');
+    nd.switchTab(1);
+    t.is(nd.TABS[S.tab].id, 'breaking', 'so the remote walks past it, round to the first');
+    nd.toggleSave(story({ src: 'ht', id: 'ht:9', title: 'Road closed', date: Date.now() }));
+    t.is(nd.tabShown(nd.TABS[saved]), true, 'once something is saved it appears');
+    S.tab = nd.TABS.findIndex((x) => x.id === 'all');
+    nd.switchTab(1);
+    t.is(nd.TABS[S.tab].id, 'saved', 'and the remote stops on it');
+    t.same(S.view.map((x) => x.id), ['ht:9'], 'showing what was saved');
+    S.saved = []; S.tab = 1;
+  });
+
+  suite('What you can do with a story', (t) => {
+    const S = nd.S;
+    S.saved = [];
+    const ev = story({ src: 'lm', id: 'lm:1', title: 'Christmas Fayre',
+                       when: Date.now() + DAY, link: 'https://example.com/e' });
+    const news = story({ src: 'ht', id: 'ht:2', title: 'Road closed',
+                         link: 'https://example.com/a' });
+    const ids = (it) => { S.reader = { item: it, full: false, loading: false, y: 0, act: -1, acts: [] };
+                          return nd.readerActions(it).map((a) => a.id); };
+    // This boot is a television: it has nothing to share to and no calendar.
+    t.same(ids(news), ['full', 'save'], 'a TV is offered the full story and saving, and no more');
+    t.same(ids(ev), ['full', 'save'], 'an event too');
+    S.reader = { item: news, full: true, loading: false, y: 0, act: -1, acts: [] };
+    t.same(nd.readerActions(news).map((a) => a.id), ['save'],
+      'and the full story drops off the strip once it has been loaded');
+    const brief = { src: 'ai', id: 'brief:1', title: 'H', link: '', summary: 'x' };
+    S.reader = { item: brief, full: true, loading: false, y: 0, act: -1, acts: [] };
+    t.same(nd.readerActions(brief).map((a) => a.id), ['save'],
+      'a briefing has no page to fetch, so it is only ever saved');
+    S.reader = null; S.saved = [];
+  });
+
   /* ------------------------------------------------------ All of it at once */
   suite('Building a screen', (t) => {
     const S = nd.S, now = Date.now();
@@ -705,6 +772,26 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     // Four prices fill the phone's two-by-two block exactly. A fifth pushed it to
     // three rows and clipped the others, which is why the chip lives elsewhere.
     t.not(doc.querySelector('#mkt .wx'), 'and never in the price band, which has no room for it');
+  });
+
+  suite('What you can do with a story, on a phone', (t) => {
+    const S = phone.nd.S;
+    S.saved = [];
+    const ev = { src: 'lm', id: 'lm:1', title: 'Christmas Fayre', summary: 'In the square.',
+                 when: Date.now() + DAY, link: 'https://example.com/e', date: Date.now() };
+    const news = { src: 'ht', id: 'ht:2', title: 'Road closed', summary: 'The A49.',
+                   link: 'https://example.com/a', date: Date.now() };
+    const ids = (it, full) => {
+      S.reader = { item: it, full: !!full, loading: false, y: 0, act: -1, acts: [] };
+      return phone.nd.readerActions(it).map((a) => a.id);
+    };
+    t.same(ids(news), ['full', 'save', 'share'], 'a phone can share a story');
+    t.same(ids(ev), ['full', 'save', 'share', 'cal'],
+      'and put an event in the calendar, since it knows when it is');
+    const undated = Object.assign({}, ev, { when: 0 });
+    t.same(ids(undated), ['full', 'save', 'share'],
+      'but not one whose date could not be read, which would only guess');
+    S.reader = null; S.saved = [];
   });
 
   return run('Newsdesk logic').then(() => {
