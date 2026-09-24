@@ -483,13 +483,22 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
   });
 
   suite('Reading an earlier briefing', (t) => {
-    const S = nd.S, now = Date.now();
-    const ed = (slot, ago, head) => ({
-      headline: head, paragraphs: ['One.', 'Two.'], at: now - ago,
-      slotName: slot, slotKey: slot + ago, model: 'claude-sonnet-5'
+    const S = nd.S;
+    // Wall-clock hours-ago would land on today or yesterday depending on when the
+    // suite ran, so the day is named rather than counted backwards from now.
+    const at = (daysAgo, hour) => {
+      const d = new Date();
+      d.setDate(d.getDate() - daysAgo);
+      d.setHours(hour, 0, 0, 0);
+      return d.getTime();
+    };
+    const ed = (slot, when, head) => ({
+      headline: head, paragraphs: ['One.', 'Two.'], at: when,
+      slotName: slot, slotKey: slot + when, model: 'claude-sonnet-5'
     });
-    S.briefs = [ed('Afternoon briefing', HOUR, 'This afternoon'),
-                ed('Morning briefing', 7 * HOUR, 'This morning')];
+    // Two of today's, written at hours that have certainly passed.
+    S.briefs = [ed('Afternoon briefing', at(0, 12), 'This afternoon'),
+                ed('Morning briefing', at(0, 5), 'This morning')];
     S.brief = S.briefs[0];
     const items = nd.briefItems();
     t.is(items.length, 2, 'both of today\'s editions can be opened');
@@ -505,11 +514,64 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.is(today.items[0].title, 'This afternoon', 'the latest at the top');
     t.is(today.items[1].title, 'This morning', 'this morning still there at teatime');
 
-    // Yesterday's is held, but Today is today.
-    S.briefs = [ed('Evening briefing', 30 * HOUR, 'Last night')];
+    // Before the first of a new day is written there is nothing from today, and then
+    // the last day's stay - all of them. At seven in the morning the evening briefing
+    // is still the freshest news anyone has.
+    S.briefs = [ed('Evening briefing', at(1, 17), 'Last night'),
+                ed('Afternoon briefing', at(1, 12), 'Yesterday afternoon'),
+                ed('Evening briefing', at(2, 17), 'The night before')];
     S.brief = S.briefs[0];
-    t.is(nd.briefItems().length, 0,
-      'once the last edition is more than a day old, Today stops offering it');
+    const over = nd.briefItems();
+    t.is(over.length, 2, 'the whole of the last day that has any, not just its newest');
+    t.same(over.map((x) => x.title), ['Last night', 'Yesterday afternoon'],
+      'and the day before that is left out of it');
+
+    // But not for ever: a briefing old enough to mislead is worse than none.
+    S.briefs = [ed('Evening briefing', Date.now() - (nd.BRIEF_SHOW_H + 2) * HOUR, 'Days ago')];
+    S.brief = S.briefs[0];
+    t.is(nd.briefItems().length, 0, 'past that, Today stops offering it at all');
+    S.briefs = []; S.brief = null;
+  });
+
+  suite('Two pages write briefings, and neither wins', (t) => {
+    const S = nd.S, now = Date.now(), store = window.localStorage;
+    const ed = (slot, ago, head) => ({
+      headline: head, paragraphs: ['One.', 'Two.'], at: now - ago,
+      slotName: slot + ' briefing', slotKey: 'k:' + slot
+    });
+    // The background job runs in a WebView of its own, with its own memory. It reads
+    // the storage, writes to it, and this page never hears about it.
+    S.briefs = [ed('morning', 12 * HOUR, 'Morning')];
+    store.setItem(nd.BRIEFS_KEY, JSON.stringify([
+      ed('afternoon', 6 * HOUR, 'Afternoon written by the job'),
+      ed('morning', 12 * HOUR, 'Morning')
+    ]));
+    // Now this page writes the evening from what it believed at breakfast.
+    nd.rememberBrief(ed('evening', 1 * HOUR, 'Evening'));
+    const heads = S.briefs.map((b) => b.headline);
+    t.is(S.briefs.length, 3, 'all three editions survive');
+    t.same(heads, ['Evening', 'Afternoon written by the job', 'Morning'],
+      'the one this page never saw is still there, and they are newest first');
+    const back = JSON.parse(store.getItem(nd.BRIEFS_KEY));
+    t.is(back.length, 3, 'and that is what was written back');
+
+    // A rewrite of an edition beats the copy already held, whoever wrote it.
+    nd.rememberBrief(Object.assign(ed('afternoon', 5 * HOUR, 'Afternoon, rewritten'), {}));
+    t.is(S.briefs.length, 3, 'a rewrite is still the same edition');
+    t.ok(S.briefs.some((b) => b.headline === 'Afternoon, rewritten'), 'and it is the one kept');
+    t.not(S.briefs.some((b) => b.headline === 'Afternoon written by the job'),
+      'not both of them');
+
+    // The reader's copy of a briefing is rebuilt on demand; storing it doubles
+    // everything held for nothing, and a quota reached quietly loses a briefing.
+    nd.briefItems();
+    t.ok(S.briefs.some((b) => b._item), 'the reader\'s version is cached in memory');
+    nd.rememberBrief(ed('evening', 1 * HOUR, 'Evening'));
+    const written = JSON.parse(store.getItem(nd.BRIEFS_KEY));
+    t.not(written.some((b) => b._item), 'but never written to storage');
+    t.ok(written.every((b) => b.paragraphs && b.headline), 'while everything needed is');
+
+    store.removeItem(nd.BRIEFS_KEY);
     S.briefs = []; S.brief = null;
   });
 

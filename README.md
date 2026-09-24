@@ -294,6 +294,17 @@ the ☰ panel lists everything held, including the previous few days'. An editio
 Refresh button, or by a retry after a failure — replaces its own entry rather than making a second.
 `BRIEF_KEEP` and `BRIEF_KEEP_DAYS` set how much is held.
 
+Before the first edition of a new day is written there is nothing from today, and then the last
+day's stay — all of them, not the newest alone — because at seven in the morning the evening
+briefing is still the freshest news there is. They go when a new day's first replaces them, or
+after `BRIEF_SHOW_H` hours, past which showing them would mislead rather than inform.
+
+Two pages write briefings: the app's, and the background job's, which runs in a WebView of its own
+with its own memory. They share the storage but not the list held in it, so what is stored is read
+again on the way out and merged rather than overwritten. Without that, a page left open since
+breakfast writes the evening edition from what it believed at breakfast and takes the afternoon's
+away with it.
+
 Each edition is told which one it is, and is given the previous one so it carries on rather than repeats:
 the morning leads on what happened overnight, the afternoon on what has moved since, the evening draws
 the day together. `BRIEF_SLOTS` sets the hours and the angle of each. `BRIEF_MAX_PER_DAY` still caps the
