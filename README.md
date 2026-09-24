@@ -156,6 +156,9 @@ the one thing on a page that cannot be restyled away, and a small service like t
 rebuilt long before it is retired. An address only counts as an item if it is on the archive's own
 host: plenty of sites have a `/view/123-something`.
 
+A listing is free to link the bare number rather than the full address; the number is the item
+and the slug is a courtesy, so either is read.
+
 An item is named by whatever the page was willing to say — the link's own words, then the
 picture's description, then the slug in the address. A slug that is only a shelf mark (`ca11003`)
 is not a name, and that item is left out rather than shown to you as a catalogue number. A year in
@@ -177,6 +180,17 @@ Rows show the year rather than how long ago anything was fetched, and history ne
 Breaking whatever words are in it. It is kept out of **Today** and **All**, where a row from 1743
 among the morning's headlines would read as a mistake, but it is fetched, cached and searched like
 any other source.
+
+### When a route goes quiet
+
+A source with three routes behind it can lose two of them and still look perfectly well: the tab
+has stories in it, and the panel says where they came from. What it did not say was what *else*
+was asked and answered with nothing — the difference between a route having a quiet day and one
+that has been broken since the site it reads was last rebuilt.
+
+So every route now counts what it got, and the ☰ panel lists any that failed or came back empty
+under **Nothing came from:**, with the address and the reason — `HTTP 404`, `Timed out`, or
+`answered with nothing`. A route that worked is not listed; there is nothing to say about it.
 
 ## Search
 

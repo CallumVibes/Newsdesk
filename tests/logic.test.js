@@ -1208,6 +1208,15 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
       + '<a href="/view/551-the-old-house"><img src="/t.jpg" alt=""></a>', nd.HHA_HOME);
     t.same(got.map((x) => x.title), ['The Old House'],
       'an item with nothing but a shelf mark is left out rather than shown as CA11003');
+    /* A listing is free to link the bare number, and some do. The number is the item;
+       the slug is a courtesy. */
+    const bare = nd.hhaLinks('<a href="/view/7548873">Broad Street, Hereford, 1904</a>', nd.HHA_HOME);
+    t.is(bare.length, 1, 'an address with no slug at all is still an item');
+    t.is(bare[0].ref, '7548873', 'keeping its catalogue number');
+    t.is(bare[0].title, 'Broad Street, Hereford, 1904', 'named by the link, since there is no slug to ask');
+    t.is(bare[0].year, 1904, 'and dated from it');
+    t.same(nd.hhaLinks('<a href="/view/7548873"><img src="/t.jpg" alt=""></a>', nd.HHA_HOME), [],
+      'but a bare number with nothing said about it is not worth a row');
   });
 
   suite('A year in the title is a year on the row', (t) => {
@@ -1611,6 +1620,63 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     const dead = asked.filter((r) => /\/archive$/.test(r.url))[0];
     t.ok(dead && !dead.ok, 'the one that never answered is among them');
     t.ok(dead && /Timed out/.test(dead.error || ''), 'with what went wrong beside it');
+  });
+
+  /* A source with three routes behind it can lose two and still look well: the tab
+     has stories in it and the line above says where they came from. Which is how the
+     archive could answer with nothing for a week without the panel ever saying so. */
+  suite('The panel says what answered with nothing', (t) => {
+    t.is(nd.reqLine({ url: 'https://herefordshirehistory.org.uk/archive', ok: true, status: 200, got: 0 }),
+      'herefordshirehistory.org.uk/archive - answered with nothing',
+      'a page that worked and gave nothing says so');
+    t.is(nd.reqLine({ url: 'https://herefordshirehistory.org.uk/archive', ok: false, status: 404 }),
+      'herefordshirehistory.org.uk/archive - HTTP 404', 'a page that was not there says that instead');
+    t.is(nd.reqLine({ url: 'https://www.example.com/x', ok: false, status: 0, error: 'Timed out' }),
+      'example.com/x - Timed out', 'and one that never answered says what went wrong');
+    t.is(nd.reqLine('a plain string the coin source uses'), 'a plain string the coin source uses',
+      'the one source that lists every address it asks for is left as it was');
+
+    const quiet = nd.quietReqs({ requests: [
+      { url: 'a', ok: true, status: 200, got: 3 },
+      { url: 'b', ok: true, status: 200, got: 0 },
+      { url: 'c', ok: false, status: 500 },
+      { url: 'd', ok: true, status: 200 },
+      'a plain string'
+    ] });
+    t.same(quiet.map((x) => x.url), ['b', 'c'],
+      'only the ones that failed or came back empty are worth the room');
+    t.same(nd.quietReqs({}), [], 'a source that has not been asked yet lists nothing');
+    t.same(nd.quietReqs({ requests: [{ url: 'a', ok: true, got: 2 }] }), [],
+      'and one where everything worked says nothing at all');
+  });
+
+  suite('Every route of the History tab reports its tally', (t) => {
+    // Without a count, a route that answered with nothing is indistinguishable from
+    // one that was never asked - which is exactly the state this went out in.
+    const reqs = (hist.nd.S.by.hh || {}).requests || [];
+    t.ok(reqs.length >= 5, 'every route and every listing page is accounted for');
+    t.ok(reqs.every((r) => typeof r.got === 'number'), 'and every one of them counted what it got');
+    t.same(hist.nd.quietReqs(hist.nd.S.by.hh), [],
+      'on a day when all three answer, the panel has nothing to report');
+
+    // The day the archive answers with nothing, the panel names the pages that did.
+    const halfReqs = (halfDown.nd.S.by.hh || {}).requests || [];
+    const named = halfDown.nd.quietReqs(halfDown.nd.S.by.hh).map((x) => x.url);
+    t.ok(named.some((u) => /\/archive$/.test(u)), 'the page that never answered is named');
+    t.ok(named.some((u) => /people-and-portraits/.test(u)), 'so is the one that answered with an error');
+    t.not(named.some((u) => /transport/.test(u)), 'and the one that worked is not');
+    t.ok(halfReqs.some((r) => /onthisday/.test(r.url) && r.got === 0),
+      'a national route that simply had a quiet day is counted too');
+
+    // And it has to reach the panel, not just the state behind it.
+    halfDown.window.nd.key('menu');
+    const panel = halfDown.window.document.getElementById('sheetBody').textContent;
+    t.ok(/Nothing came from:/.test(panel), 'the panel says so in as many words');
+    t.ok(/herefordshirehistory\.org\.uk\/archive - Timed out/.test(panel),
+      'naming the page and what happened to it');
+    t.ok(/people-and-portraits - HTTP 503/.test(panel), 'and the one that answered with an error');
+    t.not(/transport - /.test(panel), 'while the page that worked is not listed as a problem');
+    halfDown.window.nd.key('menu');
   });
 
   return run('Newsdesk logic').then(() => {
