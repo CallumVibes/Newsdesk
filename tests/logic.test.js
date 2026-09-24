@@ -1282,6 +1282,74 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     c.buzzed.length = 0;
   });
 
+  /* The pill counts from the story that was at the top the last time the reader was
+     at the top, so the count is read off the list rather than tallied up and kept in
+     step with it. */
+  suite('The pill counts what arrived above you', (t) => {
+    const nd = phone.nd, S = nd.S, doc = phone.window.document, now = Date.now();
+    const wrap = doc.getElementById('listWrap');
+    const empty = { cw: { items: [] }, kg: { items: [] }, yh: { items: [] },
+                    bb: { items: [] }, vf: { items: [] }, lm: { items: [] }, ht: { items: [] } };
+    const news = (n, from) => Array.from({ length: n }, (_, i) => story({
+      src: 'ht', id: 'ht:' + (from + i), title: 'Story ' + (from + i), date: now - (from + i) * 60e3 }));
+
+    S.mode = 'home';
+    S.tab = nd.TABS.findIndex((x) => x.id === 'local');
+    S.by = Object.assign({}, empty, { ht: { items: news(6, 10) } });
+    wrap.scrollTop = 0;
+    nd.rebuild(null);
+    t.is(S.top, 'ht:10', 'at the top of the list, the top story is the mark');
+    t.is(nd.newAbove(), 0, 'and nothing has arrived above it');
+
+    // The reader goes down the page, and a refresh lands three newer stories.
+    wrap.scrollTop = 400;
+    S.by.ht.items = news(3, 1).concat(S.by.ht.items);
+    nd.rebuild(null);
+    t.is(S.top, 'ht:10', 'reading further down, the mark stays where it was');
+    t.is(nd.newAbove(), 3, 'and the three that landed above it are counted');
+    nd.paintPill();
+    t.is(doc.getElementById('newPill').textContent, '\u2191  3 new stories', 'the pill says so');
+    t.ok(/\bon\b/.test(doc.getElementById('newPill').className), 'and is on screen');
+
+    // One more lands while the pill is already up.
+    S.by.ht.items = news(1, 0).concat(S.by.ht.items);
+    nd.rebuild(null);
+    t.is(nd.newAbove(), 4, 'another one joins the count rather than replacing it');
+
+    // Tapping it goes to the top, which is what puts it away.
+    nd.showNew();
+    t.is(wrap.scrollTop, 0, 'tapping the pill goes back to the top');
+    t.is(S.top, 'ht:0', 'the newest story is the mark now');
+    t.is(nd.newAbove(), 0, 'so nothing is above it');
+    nd.paintPill();
+    t.is(doc.getElementById('newPill').className, '', 'and the pill is gone');
+
+    // One story, not "1 new stories".
+    wrap.scrollTop = 400;
+    S.by.ht.items = [story({ src: 'ht', id: 'ht:x', title: 'One more', date: now + 60e3 })].concat(S.by.ht.items);
+    nd.rebuild(null);
+    nd.paintPill();
+    t.is(doc.getElementById('newPill').textContent, '\u2191  1 new story', 'one story reads as one story');
+
+    // A story that leaves the list takes the count with it rather than guessing.
+    S.top = 'ht:gone';
+    t.is(nd.newAbove(), 0, 'a mark that has dropped out of the list counts nothing');
+
+    // Saving something is not news arriving.
+    S.top = 'ht:0';
+    S.tab = nd.TABS.findIndex((x) => x.id === 'saved');
+    t.is(nd.newAbove(), 0, 'and the Saved tab never shows it');
+
+    // Reading a story is not the moment to shout about four more.
+    S.tab = nd.TABS.findIndex((x) => x.id === 'local');
+    S.mode = 'reader';
+    nd.paintPill();
+    t.is(doc.getElementById('newPill').className, '', 'the pill stays down while a story is open');
+    S.mode = 'home';
+    wrap.scrollTop = 0;
+    S.by = empty; S.top = null;
+  });
+
   suite('What you can do with a story, on a phone', (t) => {
     const S = phone.nd.S;
     S.saved = [];

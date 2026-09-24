@@ -209,10 +209,32 @@ remote has nothing to buzz, so it is never asked.
 | Tap a tab | Switch tab. The strip scrolls, and keeps the current tab in view |
 | Swipe left or right | Switch tab, or move between stories in the reader |
 | Tap a headline | Read the story |
+| Pull down from the top | Refresh every source, with a spinner that follows your thumb |
 | Scroll | Normal scrolling throughout |
 | ⌕ (top right) | Search everything loaded and saved |
 | ☰ (top right) | Sources panel: what loaded, from where, and any errors. **Refresh all** and the light/dark toggle are along its foot |
 | Back | Top of list, then Today, then exit |
+
+### Pull down for the news
+
+At the top of the list, keep pulling: past about two thirds of an inch the ring fills in, and
+letting go refreshes every source. It's deliberately hard to do by accident — the travel is
+resisted, and the gesture has to be going more down than along, or a flick across for the next
+tab that drifted a little would refresh the app every time.
+
+### "4 new stories"
+
+The app refreshes itself every ten minutes whether or not you asked. If that lands stories above
+where you're reading, two things happen. The page doesn't move: the headline under the top edge
+of the screen stays exactly where it was, rather than the list jumping down by four rows under
+your thumb. And a pill appears at the top saying how many arrived. Tap it to go up to them.
+
+The count is read off the list rather than tallied up: it's the number of stories now sitting
+above the one that was at the top the last time you were at the top. So it can't drift out of
+step, and scrolling up yourself puts the pill away just as tapping it does.
+
+Both are phone gestures, and neither appears on the TV — a remote has nothing to pull with, and
+the D-pad keeps your place already.
 
 The phone keeps its status bar, rotates freely and is left to sleep on its own, so there's no idle screen and nothing holds the display awake.
 
