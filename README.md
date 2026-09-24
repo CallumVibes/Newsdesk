@@ -15,7 +15,7 @@ One build, two layouts. On a TV it's headlines on the left, a large preview on t
 | BBC News | A BBC topic page. Read from the schema.org listing the page publishes for search engines, which carries the headline, link, time and summary and outlives any amount of front-end rebuilding. Its links are read only if that is missing. `BB_FEEDS` takes a feed address to use in place of the page. |
 | Vegan Food & Living | The site's news feed, with its WordPress API and any feed advertised on the homepage as backup. |
 | Plant-based recipes | Six kitchens' feeds, pooled rather than tried in turn, deduped and newest first. Posts that are not recipes — giveaways, podcasts, gift guides — are filtered out, and a feed that has not moved in four months is treated as a kitchen that has closed. |
-| On this day here | Wikidata for anyone born or died here on today's date, then Wikipedia's national "on this day" sifted for local place names. Checked before it is shown: a year has to be a year and a name has to be a name. |
+| On this day here | Wikidata for anyone born or died here on today's date, Wikipedia's national "on this day" sifted for local place names, and the county's own digitised archive at herefordshirehistory.org.uk. Checked before it is shown: a year has to be a year and a name has to be a name. |
 | Local events | What's on in town, from the town council's `council_events` listing. Tried as the WordPress API, then the listing's feed, then the listing page itself. The listing often carries only a title and a link, so opening an event fetches its own page for the details and the date. |
 
 ## Tabs
@@ -29,7 +29,7 @@ One build, two layouts. On a TV it's headlines on the left, a large preview on t
 - **Vegan** — Vegan Food & Living.
 - **All** — everything, taking turns between sources so none of them floods the list.
 - **Recipes** — plant-based cooking, newest first, pooled from several kitchens.
-- **History** — who was born or died here on today's date, and what happened here, oldest first.
+- **History** — who was born or died here on today's date, what happened here, and pictures from the county archive, oldest first.
 - **Saved** — stories you kept. Only on the strip once there is something in it.
 
 The Citadel Wire files nothing under a category, so each of its stories is placed by what it
@@ -132,7 +132,7 @@ which is what "daily" is actually worth. `RC_KITCHENS` is a plain list; add or r
 
 ## On this day, here
 
-The **History** tab is today's date, locally. Two ways at it, because neither works alone.
+The **History** tab is today's date, locally. Three ways at it, because none of them works alone.
 
 **Wikidata** knows where people were born and died and where things happened, so it can be asked
 for anyone whose birthday or anniversary falls today and whose place sits anywhere inside the
@@ -141,9 +141,33 @@ asking the other way round makes the service walk every birthday there has ever 
 own id is looked up rather than assumed, and remembered once found; `HH_QID_DEFAULT` is the
 fallback if the lookup fails.
 
-**Wikipedia's own "on this day"** is the other, but it is a national list, so a line is kept only
+**Wikipedia's own "on this day"** is the second, but it is a national list, so a line is kept only
 where it — or the page it points at — actually names somewhere local. Most days that is nothing,
 which is why it is second rather than first.
+
+**[Herefordshire History](https://herefordshirehistory.org.uk/)** is the third, and the only one of
+them that is nothing but here. It is Herefordshire Libraries' digitised collection — some forty
+thousand photographs, postcards, posters, newspapers, maps and letters. The other two are national
+services asked about a county; neither has a picture of Broad Street with the trams still on it.
+
+It publishes no feed and no API, so the app reads its listing pages — and reads them by the shape
+of an item's address, `/view/<number>-<slug>`, rather than by any class name or nesting. A link is
+the one thing on a page that cannot be restyled away, and a small service like this will be
+rebuilt long before it is retired. An address only counts as an item if it is on the archive's own
+host: plenty of sites have a `/view/123-something`.
+
+An item is named by whatever the page was willing to say — the link's own words, then the
+picture's description, then the slug in the address. A slug that is only a shelf mark (`ca11003`)
+is not a name, and that item is left out rather than shown to you as a catalogue number. A year in
+the title is read off it, so a catalogued picture sorts in among the rest; undated ones follow the
+dated ones rather than leading the tab from the year nought.
+
+The archive does not change from one day to the next and forty thousand items will not fit on a
+screen, so the day picks its own window into them: the same day gives the same pictures however
+often you open the app, and tomorrow gives others. The three listing pages are asked for one after
+another rather than all at once — it is run by a county library, not a newsroom, and three requests
+in a row is politer than three at once for the sake of half a second. One page being down costs
+that page's items and nothing else.
 
 Whatever comes back is checked before it is shown: a year has to be a year, a name has to be a
 name, and a thing with no English name is dropped rather than displayed as a Q-number. A query
