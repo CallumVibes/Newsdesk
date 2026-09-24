@@ -99,6 +99,20 @@ to everyone. There are three ways in:
 If nothing clears the bar, the tab says so rather than filling up with whatever is newest.
 Both word lists sit near the top of `index.html` and are meant to be edited.
 
+## Search
+
+Searches what the app already has — every story its sources last gave it, everything saved, and
+every briefing held. Nothing is fetched: this is for "where was that thing I saw", not for
+searching the web.
+
+Every word has to appear somewhere, so a second word narrows rather than widens, and a word in
+the headline counts for more than one buried in the summary. Results replace the list itself,
+so opening one works exactly as it does anywhere else.
+
+On a phone, the ⌕ button beside ☰. On a television, open ☰ and press ▶ to **Search stories**,
+then OK — ▼ from the box drops into the results, ▲ goes back to it, and Back leaves. OK on its
+own in the panel still refreshes, as it always did.
+
 ## Saving, sharing and the calendar
 
 Open a story and the foot of the reader offers what you can do with it. On a phone they are
@@ -122,7 +136,7 @@ open — so its strip stays at two.
 | ◀ ▶ | Switch tab (they wrap round, so nothing is more than four presses away), or move between stories in the reader |
 | ▲ ▼ | Move through headlines, or scroll |
 | OK | Read a story |
-| ☰ Menu | Sources panel: what loaded, from where, and any errors. OK refreshes. |
+| ☰ Menu | Sources panel: what loaded, from where, and any errors. ◀ ▶ pick between **Refresh all** and **Search stories**, OK runs the one lit. |
 | Back | Top of list, then Today, then exit |
 
 After 3 idle minutes it shows one story at a time, dimmed and drifting to protect the screen. Any button wakes it.
@@ -135,6 +149,7 @@ After 3 idle minutes it shows one story at a time, dimmed and drifting to protec
 | Swipe left or right | Switch tab, or move between stories in the reader |
 | Tap a headline | Read the story |
 | Scroll | Normal scrolling throughout |
+| ⌕ (top right) | Search everything loaded and saved |
 | ☰ (top right) | Sources panel: what loaded, from where, and any errors |
 | Back | Top of list, then Today, then exit |
 

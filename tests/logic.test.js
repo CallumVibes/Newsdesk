@@ -722,6 +722,62 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     S.reader = null; S.saved = [];
   });
 
+  /* ---------------------------------------------------------------- Search */
+  suite('Finding a story again', (t) => {
+    const S = nd.S, now = Date.now();
+    const pool = [
+      story({ src: 'ht', id: 'a', title: 'Road closed after crash on the A49',
+              summary: 'Police say the road is shut.', date: now }),
+      story({ src: 'ht', id: 'b', title: 'Council approves new homes',
+              summary: 'Near the A49 junction.', date: now - HOUR }),
+      story({ src: 'kg', id: 'c', kicker: 'UK', title: 'Something else entirely',
+              summary: 'Nothing to do with it.', date: now - 2 * HOUR }),
+      story({ src: 'vf', id: 'd', title: 'A crash course in tofu',
+              summary: 'Cooking.', date: now - 3 * HOUR })
+    ];
+    const ids = (q) => nd.searchHits(q, pool).map((x) => x.id);
+    t.same(ids('a49'), ['a', 'b'], 'a word in the headline beats one buried in the summary');
+    t.same(ids('crash'), ['a', 'd'], 'and both headlines carrying it come back');
+    // Two words narrow. This is the whole reason for typing a second one.
+    t.same(ids('crash a49'), ['a'], 'every word has to appear, so two words narrow');
+    t.same(ids('crash tofu'), ['d'], 'even when they are in different parts of the story');
+    t.same(ids('zebra'), [], 'a word in nothing finds nothing');
+    t.same(ids(''), [], 'and an empty box finds nothing rather than everything');
+    t.same(ids('  '), [], 'nor does a box of spaces');
+    t.same(ids('a'), [], 'a single letter is not a search');
+    t.is(nd.searchHits('ROAD', pool)[0].id, 'a', 'case does not matter');
+
+    // It searches what the app has: the feeds, what was saved, and the briefings.
+    S.saved = []; S.briefs = [];
+    nd.toggleSave(story({ src: 'ht', id: 'kept', title: 'A story I kept about badgers' }));
+    nd.rememberBrief({ headline: 'Badgers lead the news', paragraphs: ['A paragraph.'],
+                       at: now, slotName: 'Morning briefing', slotKey: 'b1' });
+    const found = nd.searchHits('badgers').map((x) => x.title);
+    t.ok(found.indexOf('A story I kept about badgers') >= 0, 'a saved story is searchable');
+    t.ok(found.indexOf('Badgers lead the news') >= 0, 'and so is a briefing');
+    S.saved = []; S.briefs = [];
+  });
+
+  suite('The search bar', (t) => {
+    const S = nd.S, doc = window.document, now = Date.now();
+    S.by = { cw: { items: [] }, kg: { items: [] }, yh: { items: [] }, bb: { items: [] },
+             vf: { items: [] }, lm: { items: [] },
+             ht: { items: [story({ src: 'ht', id: 'a', title: 'Road closed after a crash', date: now })] } };
+    nd.openSearch();
+    t.is(S.mode, 'search', 'opening search changes what the buttons do');
+    t.is(doc.getElementById('searchBar').hidden, false, 'and puts the box on screen');
+    nd.runSearch('road');
+    t.same(S.view.map((x) => x.id), ['a'], 'typing narrows the list itself, not a second one');
+    t.ok(/1 found/.test(doc.getElementById('sqCount').textContent), 'and says how many');
+    nd.runSearch('zebra');
+    t.is(S.view.length, 0, 'a word in nothing empties it');
+    t.ok(/nothing found/.test(doc.getElementById('sqCount').textContent), 'and says so plainly');
+    nd.closeSearch();
+    t.is(S.mode, 'home', 'Back leaves search');
+    t.is(doc.getElementById('searchBar').hidden, true, 'and takes the box away');
+    t.ok(S.view.length >= 0, 'putting the tab back as it was');
+  });
+
   /* ------------------------------------------------------ All of it at once */
   suite('Building a screen', (t) => {
     const S = nd.S, now = Date.now();
