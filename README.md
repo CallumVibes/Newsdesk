@@ -137,9 +137,21 @@ The **History** tab is today's date, locally. Three ways at it, because none of 
 **Wikidata** knows where people were born and died and where things happened, so it can be asked
 for anyone whose birthday or anniversary falls today and whose place sits anywhere inside the
 county. That fills the tab most days. The query asks for the places first and the people second —
-asking the other way round makes the service walk every birthday there has ever been. The county's
-own id is looked up rather than assumed, and remembered once found; `HH_QID_DEFAULT` is the
-fallback if the lookup fails.
+asking the other way round makes the service walk every birthday there has ever been.
+
+Which Herefordshire it asks about matters more than it sounds. Wikidata has several. **Q23129** is
+the county as it is now — the ceremonial county and unitary authority that every modern place in
+it records itself as part of. **Q67531905** is the *historic* county, which nothing records itself
+as part of, because a place says where it is rather than where it used to be; asking that one what
+it contains answers nothing at all, every day, for ever.
+
+Q67531905 is exactly what the first version picked, because "historic county of England" has the
+word *county* in it — and having picked it, it wrote it down, so the route stayed silent until the
+panel was taught to say so. The description is read properly now: anything placing the thing in
+the past is skipped, anything naming what it is today wins, and a plain "county of England" will
+do if nothing better is offered. The stored key is `nd.hhqid.v2`, so a phone that remembered the
+wrong one forgets it. `HH_QID_DEFAULT` is the fallback if the lookup fails, and is Q23129 — it
+used to be Q23124, which is the West Midlands.
 
 **Wikipedia's own "on this day"** is the second, but it is a national list, so a line is kept only
 where it — or the page it points at — actually names somewhere local. Most days that is nothing,

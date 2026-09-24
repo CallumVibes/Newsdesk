@@ -14,6 +14,15 @@ const { suite, run } = require('./lib/check');
 
 const HOUR = 3600e3, DAY = 24 * HOUR;
 
+/* The smallest feed a kitchen can answer with. */
+function rss(title) {
+  return '<?xml version="1.0"?><rss version="2.0"><channel>'
+    + '<item><title>' + title + '</title>'
+    + '<link>https://example.com/' + encodeURIComponent(title) + '</link>'
+    + '<pubDate>' + new Date(Date.now() - HOUR).toUTCString() + '</pubDate>'
+    + '<description>A paragraph about it.</description></item></channel></rss>';
+}
+
 /* A story shaped the way the loaders make them. */
 function story(o) {
   return Object.assign({
@@ -1497,8 +1506,11 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     settle: 1400,
     reply(url) {
       if (/wbsearchentities/.test(url)) {
+        // What the search actually answers: the historic county leads.
         return { ok: true, body: JSON.stringify({ search: [
-          { id: 'Q23124', description: 'ceremonial county of England' }] }) };
+          { id: 'Q67531905', description: 'historic county of England' },
+          { id: 'Q23129', description: 'ceremonial county and unitary authority area in England' },
+          { id: 'Q8508759', description: 'Wikimedia category' }] }) };
       }
       if (/query\.wikidata\.org/.test(url)) {
         return { ok: true, body: JSON.stringify({ results: { bindings: [{
@@ -1594,6 +1606,12 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
       if (/herefordshirehistory\.org\.uk\/archive/.test(url)) throw new Error('Timed out');
       // The one that answers with an error answers, at least
       if (/people-and-portraits/.test(url)) return { ok: false, status: 503, body: '' };
+      /* Two kitchens: one serving dinner, one whose feed is working perfectly and has
+         nothing on it but a giveaway. The second is the case that used to be
+         invisible - it answered, so it was not a failure, and it gave nothing, so it
+         was not a source either. */
+      if (/minimalistbaker/.test(url)) return { ok: true, body: rss('A one-pot lentil dhal') };
+      if (/deliciouslyella/.test(url)) return { ok: true, body: rss('Win a blender in our giveaway') };
       if (/transport/.test(url)) {
         return { ok: true, body: [1, 2, 3].map((i) =>
           `<a href="/view/30${i}-a-transport-picture-${i}">A transport picture ${i}</a>`).join('') };
@@ -1620,6 +1638,53 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     const dead = asked.filter((r) => /\/archive$/.test(r.url))[0];
     t.ok(dead && !dead.ok, 'the one that never answered is among them');
     t.ok(dead && /Timed out/.test(dead.error || ''), 'with what went wrong beside it');
+  });
+
+  /* Wikidata has more than one Herefordshire and only one of them is any use. The
+     tab was asking the historic county what it contained - nothing records itself as
+     being in a county that has stopped existing - and had written that choice down,
+     so it answered nothing every day until somebody looked at the panel. */
+  suite('Which Herefordshire is asked', (t) => {
+    const pick = (hits) => nd.hhQidFrom(hits);
+    // The order the search really answers in
+    t.is(pick([{ id: 'Q67531905', description: 'historic county of England' },
+               { id: 'Q23129', description: 'ceremonial county and unitary authority area in England' }]),
+      'Q23129', 'the county as it is now, not the one that used to be');
+    t.is(pick([{ id: 'Q67531905', description: 'historic county of England' }]), '',
+      'and nothing at all rather than the historic one on its own');
+    ['former county', 'traditional county of England', 'ancient county',
+     'proposed county', 'abolished county'].forEach((d) => {
+      t.is(pick([{ id: 'Q1', description: d }]), '', 'nor a county described as ' + d);
+    });
+    t.is(pick([{ id: 'Q1', description: 'county of England' }]), 'Q1',
+      'a plain county will do if nothing better is offered');
+    t.is(pick([{ id: 'Q1', description: 'county of England' },
+               { id: 'Q2', description: 'unitary authority area in England' }]), 'Q2',
+      'but what it is today is taken first, whatever the order');
+    t.is(pick([{ id: 'Q8508759', description: 'Wikimedia category' },
+               { id: 'Q51402437', description: 'Wikimedia module' }]), '',
+      'a category is not a place');
+    t.is(pick([{ id: 'not-a-qid', description: 'ceremonial county' }]), '',
+      'and an id that is not one is not followed');
+    t.is(pick([]), '', 'an answer with nothing in it picks nothing');
+    t.is(pick(null), '', 'as does no answer at all');
+
+    // The two constants this went wrong on.
+    t.is(nd.HH_QID_DEFAULT, 'Q23129', 'the fallback is Herefordshire, not the West Midlands');
+    t.is(nd.HH_QID_KEY, 'nd.hhqid.v2',
+      'and the key moved on, so a phone that wrote down the wrong one forgets it');
+  });
+
+  suite('The county it actually asks about', (t) => {
+    // End to end: the search answers historic-first and the query still goes to the
+    // right county, which is the whole of what went wrong.
+    const asked = hist.calls.fetched.filter((u) => /query\.wikidata\.org/.test(u));
+    t.is(asked.length, 1, 'the county is asked once');
+    t.ok(/Q23129/.test(asked[0]), 'about the county as it is now');
+    t.not(/Q67531905/.test(asked[0]), 'and never about the one that stopped existing');
+    const line = ((hist.nd.S.by.hh || {}).requests || [])
+      .filter((r) => /wikidata/.test(r.url))[0];
+    t.ok(line && /Q23129/.test(line.url), 'and the panel names the one it asked');
   });
 
   /* A source with three routes behind it can lose two and still look well: the tab
@@ -1676,6 +1741,18 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
       'naming the page and what happened to it');
     t.ok(/people-and-portraits - HTTP 503/.test(panel), 'and the one that answered with an error');
     t.not(/transport - /.test(panel), 'while the page that worked is not listed as a problem');
+
+    /* A kitchen whose feed works and has nothing on it but a giveaway answered, so it
+       was not a failure, and gave nothing, so it was not a source. It used to be
+       invisible in both directions. */
+    const rc = halfDown.nd.S.by.rc || {};
+    t.ok(/1 of 6 kitchens/.test(rc.method || ''), 'one kitchen served dinner');
+    const rcQuiet = halfDown.nd.quietReqs(rc).map((x) => halfDown.nd.reqLine(x));
+    t.ok(rcQuiet.some((l) => /deliciouslyella\.com\/feed\/ - answered with nothing/.test(l)),
+      'and the one with nothing but a giveaway on it says so');
+    t.not(rcQuiet.some((l) => /minimalistbaker/.test(l)), 'while the one that worked does not');
+    t.ok(/deliciouslyella\.com\/feed\/ - answered with nothing/.test(panel),
+      'which reaches the panel as well as the state behind it');
     halfDown.window.nd.key('menu');
   });
 
