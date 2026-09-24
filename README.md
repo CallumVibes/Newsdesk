@@ -198,6 +198,12 @@ After 3 idle minutes it shows one story at a time, dimmed and drifting to protec
 
 ## Touch (phone and tablet)
 
+Every press and swipe gives a short buzz. It goes through Android's own haptic feedback rather
+than the vibrator, so **Android's touch-vibration setting governs it** — turn that off and this
+goes quiet with it, and the app asks for no vibrate permission. A press and a swipe feel
+different, and saving a story has a third feel of its own, because something changed. A Fire TV
+remote has nothing to buzz, so it is never asked.
+
 | Gesture | Does |
 | --- | --- |
 | Tap a tab | Switch tab. The strip scrolls, and keeps the current tab in view |

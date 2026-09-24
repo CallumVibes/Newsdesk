@@ -356,6 +356,15 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.is(nd.briefPrices(), '', 'with no prices read, nothing is claimed');
   });
 
+  /* ------------------------------------------------------------- Haptics */
+  suite('A television has nothing to buzz', (t) => {
+    calls.buzzed.length = 0;
+    nd.buzz('tap');
+    nd.buzz('tick');
+    t.same(calls.buzzed, [], 'so it is never asked to, whatever is pressed');
+    calls.buzzed.length = 0;
+  });
+
   /* ------------------------------------------------------------- The theme */
   suite('One accent, not nine', (t) => {
     // A reference rather than a colour, because there are two of them: orange on
@@ -1098,6 +1107,36 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.ok(box.querySelector('.mk b .ar'), 'and each move keeps its arrow');
     t.is(phone.nd.tickerFits(box), true, 'and they fit across one line');
     phone.nd.S.mkt = {};
+  });
+
+  suite('A phone buzzes under the thumb', (t) => {
+    const c = phone.calls, doc = phone.window.document;
+    c.buzzed.length = 0;
+    phone.nd.buzz();
+    t.same(c.buzzed, ['tap'], 'a press is the default');
+    phone.nd.buzz('tick');
+    t.same(c.buzzed, ['tap', 'tick'], 'and moving between things is lighter');
+
+    // Everything a thumb can press goes through one place, so nothing is silent
+    // and - just as important - nothing buzzes twice for one press.
+    c.buzzed.length = 0;
+    const tab = doc.querySelector('#tabs .tab');
+    t.ok(tab, 'there are tabs to press');
+    tab.dispatchEvent(new phone.window.MouseEvent('click', { bubbles: true, cancelable: true }));
+    t.is(c.buzzed.length, 1, 'tapping a tab buzzes once');
+    t.is(c.buzzed[0], 'tap', 'as a press');
+
+    c.buzzed.length = 0;
+    const btn = doc.getElementById('menuBtn');
+    btn.dispatchEvent(new phone.window.MouseEvent('click', { bubbles: true, cancelable: true }));
+    t.is(c.buzzed.length, 1, 'and so does a button, once');
+
+    // Saving is the one place a different feel earns its keep.
+    const save = phone.nd.readerActions({ src: 'ht', id: 'x', title: 'A story',
+      summary: '', link: 'https://x/1', date: Date.now() }).filter((a) => a.id === 'save')[0];
+    t.ok(save, 'saving is offered');
+    t.is(save.buzz, 'confirm', 'and confirms with its own feel, since something changed');
+    c.buzzed.length = 0;
   });
 
   suite('What you can do with a story, on a phone', (t) => {
