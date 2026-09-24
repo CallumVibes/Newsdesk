@@ -162,6 +162,22 @@ paid calls, retries included.
 
 Optionally add a repository variable `PPQ_MODEL` to pick a model. The default is `claude-sonnet-4-5`.
 
+## Home screen widget (phone)
+
+Long-press the home screen, pick **Widgets**, then **Newsdesk briefing**. It shows the latest
+edition, its headline and all of its paragraphs, scrolled if it doesn't fit. Tap anywhere on it to
+open the app. It resizes in both directions, so it can be a two-line headline or half a screen.
+
+The widget never fetches anything and never starts the app. The page hands each briefing over as it
+saves it — in the app or in the background job, which is the same code either way — and the widget
+draws whatever was last handed over. So the morning edition is on the home screen before the phone
+is picked up, and if nothing has been written yet the widget says so rather than sitting blank.
+
+Its header carries the time the briefing was written, and the date too once it's yesterday's, so a
+stale briefing looks stale rather than current.
+
+A Fire TV has no home screen widgets, so it simply never offers one.
+
 **Keep this repo private.** The key is built into the APK.
 
 ## Settings

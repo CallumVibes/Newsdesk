@@ -32,7 +32,7 @@ function monthsAgo(n) {
   return d.getFullYear() + ' ' + MON[d.getMonth()];
 }
 
-boot({ settle: 500 }).then(({ nd, window, errors, close }) => {
+boot({ settle: 500 }).then(({ nd, window, errors, close, calls }) => {
 
   suite('The page itself', (t) => {
     t.same(errors, [], 'boots with no error on the console');
@@ -355,6 +355,47 @@ boot({ settle: 500 }).then(({ nd, window, errors, close }) => {
       'and an event carries when it is on, so the briefing does not report it as news');
     S.mkt = {};
     t.is(nd.briefPrices(), '', 'with no prices read, nothing is claimed');
+  });
+
+  /* --------------------------------------------------- The home screen widget */
+  suite('What the widget is handed', (t) => {
+    const S = nd.S;
+    calls.widget.length = 0;
+    const was = S.brief;
+
+    S.brief = { error: 'PPQ said no', count: 1 };
+    nd.widgetBrief();
+    t.is(calls.widget.length, 0, 'a failed briefing is not sent to the home screen');
+    S.brief = { headline: 'H', paragraphs: [], at: Date.now() };
+    nd.widgetBrief();
+    t.is(calls.widget.length, 0, 'and neither is an empty one');
+
+    const at = Date.now();
+    S.brief = {
+      headline: 'A quiet start, with rain on the way',
+      paragraphs: ['First paragraph.', 'Second paragraph.', 'Third paragraph.'],
+      at: at, slotName: 'Morning briefing', slotKey: 'x'
+    };
+    // saveBrief is the one place a briefing is written, in the app and in the job
+    // alike, so the widget is fed from there rather than from either caller.
+    nd.saveBrief();
+    t.is(calls.widget.length, 1, 'saving a briefing hands it to the widget');
+    const w = calls.widget[0];
+    t.is(w.edition, 'Morning briefing', 'the edition comes through as its own line');
+    t.is(w.headline, 'A quiet start, with rain on the way', 'and the headline');
+    t.same(w.paragraphs, ['First paragraph.', 'Second paragraph.', 'Third paragraph.'],
+      'and every paragraph, since the widget scrolls them');
+    t.is(w.at, at, 'with the time it was written, for the header');
+    t.same(Object.keys(w).sort(), ['at', 'edition', 'headline', 'paragraphs'],
+      'and nothing else: the widget is sent what it draws, not the whole state');
+
+    S.brief = { headline: 'No edition', paragraphs: ['One.'], at: at };
+    nd.widgetBrief();
+    t.is(calls.widget[calls.widget.length - 1].edition, 'Briefing',
+      'a briefing from before the editions existed still has something to call itself');
+
+    S.brief = was;
+    calls.widget.length = 0;
   });
 
   /* ------------------------------------------------------------- The wire */

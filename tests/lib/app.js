@@ -38,7 +38,7 @@ async function boot(opts) {
     .replace(/<link[^>]*fonts\.(googleapis|gstatic)[^>]*>/g, '');
 
   const errors = [];
-  const calls = { fetched: [], posted: [], notified: [], scraped: [] };
+  const calls = { fetched: [], posted: [], notified: [], scraped: [], widget: [] };
   let nd = null;
 
   const dom = new JSDOM(html, {
@@ -62,6 +62,10 @@ async function boot(opts) {
         keepAwake(on) { calls.awake = !!on; },
         exit() { calls.exited = true; },
         briefDone(wrote, edition, headline) { calls.notified.push({ wrote, edition, headline }); },
+        briefSave(json) {
+          // What the home screen widget would be handed, parsed as Kotlin parses it
+          try { calls.widget.push(JSON.parse(json)); } catch (e) { calls.widget.push({ bad: json }); }
+        },
         scrape(url) {
           calls.scraped.push(url);
           setTimeout(() => w.__scrapeDone('[]', '[]'), 1);

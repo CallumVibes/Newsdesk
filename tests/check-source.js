@@ -29,8 +29,13 @@ suite('Everything the build needs is there', (t) => {
     'app/src/main/AndroidManifest.xml',
     PAGE, 'app/src/main/assets/config.js', 'app/src/main/assets/extract.js',
     KT + 'MainActivity.kt', KT + 'Net.kt', KT + 'Briefings.kt',
+    KT + 'Widget.kt',
     'app/src/main/res/drawable/icon.png', 'app/src/main/res/drawable/banner.png',
-    'app/src/main/res/drawable/notify.png'
+    'app/src/main/res/drawable/notify.png', 'app/src/main/res/drawable/widget_bg.xml',
+    'app/src/main/res/drawable-v31/widget_bg.xml', 'app/src/main/res/values/strings.xml',
+    'app/src/main/res/xml/briefing_widget.xml',
+    'app/src/main/res/layout/widget_briefing.xml', 'app/src/main/res/layout/widget_paragraph.xml',
+    'app/src/main/res/layout/widget_preview.xml'
   ].forEach((f) => t.ok(has(f), f + ' is in the tarball'));
 });
 
@@ -110,6 +115,72 @@ suite('The manifest says what the app actually does', (t) => {
     'and is not locked to landscape, which is what broke it on a phone');
   t.ok(/leanback"\s+android:required="false"/.test(m), 'leanback is optional, so phones can install it');
   t.ok(/touchscreen"\s+android:required="false"/.test(m), 'and so is a touchscreen, so TVs can');
+});
+
+/*
+ * A widget is inflated by the launcher, in the launcher's process, out of a
+ * RemoteViews. Put a view in there that RemoteViews cannot send across and nothing
+ * complains until the widget is placed on a home screen, where it shows "Problem
+ * loading widget" and says no more about it. So the layouts are checked here.
+ */
+const REMOTE_VIEWS_OK = [
+  // Containers RemoteViews can inflate
+  'FrameLayout', 'LinearLayout', 'RelativeLayout', 'GridLayout',
+  // Widgets it can inflate
+  'AnalogClock', 'Button', 'Chronometer', 'ImageButton', 'ImageView', 'ProgressBar',
+  'TextView', 'TextClock', 'ViewFlipper', 'ListView', 'GridView', 'StackView',
+  'AdapterViewFlipper', 'ViewStub'
+];
+const WIDGET_LAYOUTS = ['widget_briefing', 'widget_paragraph', 'widget_preview'];
+
+suite('The widget layouts are ones a launcher can draw', (t) => {
+  WIDGET_LAYOUTS.forEach((name) => {
+    const xml = read('app/src/main/res/layout/' + name + '.xml').replace(/<!--[\s\S]*?-->/g, '');
+    const tags = Array.from(new Set((xml.match(/<([A-Z][A-Za-z0-9.]*)/g) || []).map((m) => m.slice(1))));
+    t.ok(tags.length > 0, name + ' has views in it at all');
+    tags.forEach((tag) => {
+      t.ok(REMOTE_VIEWS_OK.indexOf(tag) >= 0,
+        name + ' uses <' + tag + '>, which RemoteViews can send to a launcher');
+    });
+  });
+});
+
+suite('The widget is wired up end to end', (t) => {
+  const m = read('app/src/main/AndroidManifest.xml');
+  t.ok(/<receiver[\s\S]{0,400}\.BriefingWidget[\s\S]{0,400}APPWIDGET_UPDATE/.test(m),
+    'the provider is declared and listens for the launcher\'s update');
+  t.ok(/android\.appwidget\.provider"[\s\S]{0,120}@xml\/briefing_widget/.test(m),
+    'and points at its own description');
+  t.ok(/<receiver[\s\S]{0,200}\.BriefingWidget[\s\S]{0,200}android:exported="true"/.test(m),
+    'exported, since the launcher is another app');
+  t.ok(/<service[\s\S]{0,200}\.BriefingWidgetService[\s\S]{0,200}BIND_REMOTEVIEWS/.test(m),
+    'and the adapter service may only be bound by the system');
+
+  const info = read('app/src/main/res/xml/briefing_widget.xml');
+  ['initialLayout', 'previewLayout'].forEach((k) => {
+    const at = info.match(new RegExp('android:' + k + '="@layout/([a-z_]+)"'));
+    t.ok(at, k + ' is set');
+    if (at) t.ok(has('app/src/main/res/layout/' + at[1] + '.xml'), k + ' names a layout that exists');
+  });
+  // Zero on purpose: the page pushes an update when it saves, so polling would only
+  // cost battery to find nothing had changed. Changing it should be a decision.
+  t.ok(/android:updatePeriodMillis="0"/.test(info), 'and the system is not asked to poll');
+
+  // R.id.x compiles whatever layout it came from, so a renamed id fails silently.
+  const kt = read(KT + 'Widget.kt');
+  const ids = Array.from(new Set((kt.match(/R\.id\.([a-z_]+)/g) || []).map((x) => x.slice(5))));
+  const declared = new Set();
+  WIDGET_LAYOUTS.forEach((name) => {
+    (read('app/src/main/res/layout/' + name + '.xml').match(/@\+id\/([a-z_]+)/g) || [])
+      .forEach((x) => declared.add(x.slice(5)));
+  });
+  t.ok(ids.length >= 4, 'the widget addresses views by id');
+  ids.forEach((id) => t.ok(declared.has(id), 'R.id.' + id + ' is a view in one of the widget layouts'));
+
+  // The empty view has to be a sibling of the list, or it is never shown.
+  const page = read('app/src/main/res/layout/widget_briefing.xml');
+  t.ok(/@\+id\/widget_list/.test(page) && /@\+id\/widget_empty/.test(page),
+    'and the list and its empty view share a layout, as setEmptyView needs');
 });
 
 suite('The build stays the build we can reason about', (t) => {
