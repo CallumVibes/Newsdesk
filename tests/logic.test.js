@@ -1097,6 +1097,36 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.ok(S.view.length >= 0, 'putting the tab back as it was');
   });
 
+  /* Everything the app keeps shares one origin quota. Every write was wrapped in a
+     silent try/catch, so a full quota meant a briefing quietly not kept - and a
+     briefing quietly not kept is exactly the complaint that started all this. */
+  suite('A full quota costs the cache, not the briefing', (t) => {
+    // Storage is a proxy: assigning to localStorage.setItem stores a key called
+    // "setItem" and leaves the method alone. The prototype is the way in.
+    const ls = window.localStorage, proto = window.Storage.prototype;
+    const real = proto.setItem, realRm = proto.removeItem;
+    const tried = [];
+    let full = true;
+    // A browser with no room left: every write throws until something is let go.
+    proto.setItem = function (k, v) {
+      tried.push(k);
+      if (full) { const e = new Error('QuotaExceededError'); e.name = 'QuotaExceededError'; throw e; }
+      return real.call(this, k, v);
+    };
+    proto.removeItem = function (k) { if (k === nd.CACHE_KEY) full = false; return realRm.call(this, k); };
+
+    t.is(nd.put('nd.briefs.v1', '["a briefing"]'), true, 'a briefing gets in by dropping the cache');
+    t.same(tried, ['nd.briefs.v1', 'nd.briefs.v1'], 'having asked twice, once either side of it');
+    t.is(ls.getItem('nd.briefs.v1'), '["a briefing"]', 'and it is really there afterwards');
+
+    // The cache is the thing being dropped. It does not get to drop itself.
+    tried.length = 0; full = true;
+    t.is(nd.put(nd.CACHE_KEY, '{"by":{}}'), false, 'the cache itself goes without');
+    t.same(tried, [nd.CACHE_KEY], 'asking once and not again');
+
+    proto.setItem = real; proto.removeItem = realRm;
+  });
+
   /* A refresh lands a source every few seconds after a cold start and every ten
      minutes after that, and each landing rebuilds the list. It used to rebuild it
      as the tab, throwing away results the reader was still looking at. */
