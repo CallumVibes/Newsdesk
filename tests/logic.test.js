@@ -487,6 +487,37 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     calls.widget.length = 0;
   });
 
+  /* ------------------------------------------------------ One line of prices */
+  suite('Fitting the band on one line', (t) => {
+    const S = nd.S, doc = window.document, now = Date.now();
+    const box = doc.getElementById('mkt');
+    S.mkt = { at: now,
+      wx: { t: 14, icon: 'clear', label: 'Clear', c: '#F7931A', day: true, at: now, from: 'x' },
+      btc: { gbp: 74211, chg: 1.23, at: now, from: 'x' },
+      gold: { gbp: 2110, usd: 2653, chg: -0.42, at: now, from: 'x' },
+      oil: { gbp: 63.42, usd: 79, chg: 0.3, at: now, from: 'x' },
+      debt: { gbp: 2.94e12, rate: 4435, at: now }, rate: 0.79 };
+    nd.renderMkt();
+    t.is(box.children.length, 5, 'the weather and four figures');
+    // A move is two pieces so one can go without the other.
+    const b = box.querySelector('.mk b');
+    t.ok(b.querySelector('.ar'), 'a move carries its arrow separately');
+    t.ok(b.querySelector('.pc'), 'from its percentage');
+    t.ok(/[\u25B2\u25BC]/.test(b.querySelector('.ar').textContent), 'the arrow is an arrow');
+    t.is(b.querySelector('.pc').textContent, '1.2%', 'and the percentage a percentage');
+
+    // This boot is a television, which has room for all of it at full size.
+    t.is(box.className, '', 'a TV shows everything, full size');
+    t.is(box.style.fontSize, '', 'and is never shrunk');
+    t.is(nd.tickerFits(box), true, 'because it fits');
+
+    // The ladder gives up size first, then the percentages, then the line itself.
+    t.ok(nd.MKT_COMFY_REM > nd.MKT_MIN_REM,
+      'there is room to shrink before anything is dropped');
+    t.ok(nd.MKT_MIN_REM >= 0.5, 'and a floor below which it stops rather than becoming unreadable');
+    S.mkt = {};
+  });
+
   /* --------------------------------------------------------------- Weather */
   suite('Reading the weather', (t) => {
     const at = (c) => { const w = nd.wmoIcon(c); return w && w.icon; };
@@ -947,6 +978,22 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.ok(kids.indexOf('mkt') < kids.indexOf('searchBar'),
       'above the search box, so opening search does not push the prices into the results');
     t.ok(kids.indexOf('mkt') < kids.indexOf('main'), 'and above the headlines');
+
+    // The whole point: five figures across a phone, on one line. It gets there by
+    // shrinking, and then by dropping the percentages while keeping the arrows.
+    const box = doc.getElementById('mkt');
+    const now = Date.now();
+    phone.nd.S.mkt = { at: now,
+      wx: { t: 14, icon: 'clear', label: 'Clear', c: '#F7931A', day: true, at: now, from: 'x' },
+      btc: { gbp: 74211, chg: 1.23, at: now, from: 'x' },
+      gold: { gbp: 2110, usd: 2653, chg: -0.42, at: now, from: 'x' },
+      oil: { gbp: 63.42, usd: 79, chg: 0.3, at: now, from: 'x' },
+      debt: { gbp: 2.94e12, rate: 4435, at: now }, rate: 0.79 };
+    phone.nd.renderMkt();
+    t.is(box.children.length, 5, 'all five are drawn');
+    t.ok(box.querySelector('.mk b .ar'), 'and each move keeps its arrow');
+    t.is(phone.nd.tickerFits(box), true, 'and they fit across one line');
+    phone.nd.S.mkt = {};
   });
 
   suite('What you can do with a story, on a phone', (t) => {

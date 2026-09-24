@@ -56,7 +56,16 @@ in a way a stale gold price is not. `WX_AT` sets the coordinates and `WX_STALE_M
 ## Prices
 
 Bitcoin, gold, oil and the national debt, all in pounds, in a band under the tabs — the same
-place on a phone as on the TV. Each price carries its move over the day.
+place on a phone as on the TV, and on one line.
+
+Five figures will not fit across a phone at a comfortable size, so the band fits itself to the
+width it has, giving up the cheapest thing first: a little size, then the percentages — keeping
+the arrows, since which way it went is most of what a glance wants and it costs a fifth of the
+width — then a little more size, down to a floor. Below that the second row comes back, because
+a band too small to read is worse than a tall one. It is measured rather than calculated, since
+the width depends on the numbers (a six-figure bitcoin price is wider than a five) and on
+whichever font the device actually loaded. A TV clears the first rung without moving.
+`MKT_COMFY_REM` and `MKT_MIN_REM` set the two floors.
 
 They used to sit in the phone's top right corner, in the room the clock gave up. That corner
 fitted four figures and no more: a fifth had nowhere to go, and a five-figure bitcoin price
