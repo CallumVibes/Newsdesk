@@ -198,15 +198,43 @@ After 3 idle minutes it shows one story at a time, dimmed and drifting to protec
 
 ## Touch (phone and tablet)
 
+Every press and swipe gives a short buzz. It goes through Android's own haptic feedback rather
+than the vibrator, so **Android's touch-vibration setting governs it** — turn that off and this
+goes quiet with it, and the app asks for no vibrate permission. A press and a swipe feel
+different, and saving a story has a third feel of its own, because something changed. A Fire TV
+remote has nothing to buzz, so it is never asked.
+
 | Gesture | Does |
 | --- | --- |
 | Tap a tab | Switch tab. The strip scrolls, and keeps the current tab in view |
 | Swipe left or right | Switch tab, or move between stories in the reader |
 | Tap a headline | Read the story |
+| Pull down from the top | Refresh every source, with a spinner that follows your thumb |
 | Scroll | Normal scrolling throughout |
 | ⌕ (top right) | Search everything loaded and saved |
-| ☰ (top right) | Sources panel: what loaded, from where, and any errors |
+| ☰ (top right) | Sources panel: what loaded, from where, and any errors. **Refresh all** and the light/dark toggle are along its foot |
 | Back | Top of list, then Today, then exit |
+
+### Pull down for the news
+
+At the top of the list, keep pulling: past about two thirds of an inch the ring fills in, and
+letting go refreshes every source. It's deliberately hard to do by accident — the travel is
+resisted, and the gesture has to be going more down than along, or a flick across for the next
+tab that drifted a little would refresh the app every time.
+
+### "4 new stories"
+
+The app refreshes itself every ten minutes whether or not you asked. If that lands stories above
+where you're reading, two things happen. The page doesn't move: the headline under the top edge
+of the screen stays exactly where it was, rather than the list jumping down by four rows under
+your thumb. And a pill appears at the top saying how many arrived. Tap it to go up to them.
+
+The count is read off the list rather than tallied up: it's the number of stories now sitting
+above the one that was at the top the last time you were at the top. So it can't drift out of
+step, and scrolling up yourself puts the pill away just as tapping it does.
+
+Both are phone gestures, and neither appears on the TV — a remote has nothing to pull with, and
+the D-pad keeps your place already.
 
 The phone keeps its status bar, rotates freely and is left to sleep on its own, so there's no idle screen and nothing holds the display awake.
 
@@ -232,27 +260,26 @@ bad push fails in seconds. `tests/README.md` has the detail.
 ## As a web app
 
 The same `index.html` the APK carries is also a progressive web app: a manifest, an icon and a
-service worker that keeps the shell so it opens without a network. Add it to a home screen and it
-runs without browser furniture. The news itself is never cached by the worker — the page already
-keeps its last fetch and shows that while it refreshes, so a train tunnel gets yesterday's
-headlines rather than a browser error page.
+service worker that keeps the shell so it opens without a network. Nothing hosts it — there is no
+publish workflow, deliberately — so this is capability rather than a deployment. Serve
+`app/src/main/assets/` over https from anywhere and it installs to a home screen and runs without
+browser furniture.
 
-One difference that matters. In the app, Kotlin does the fetching, so CORS never applies. In a
-browser it applies to everything and not one of these sources allows it, so the web version reads
-every address through a public CORS proxy — `WEB_PROXIES`, tried in turn. That means in a browser
-every address the app reads passes through a third party. The ☰ panel says so when it is running
-that way. The installed app uses none of them.
+Two things to know before you do.
 
-### Publishing it
+The service worker never caches a story, only the app's own files. The news is the one thing that
+must not come out of a cupboard, and the page already keeps its last fetch and shows that while it
+refreshes.
 
-`.github/workflows/pages.yml` publishes it to GitHub Pages. It is **not** run on push — this
-repository is public, and a published page is easier to come across than a file in a repository,
-so going live is a decision. Run it by hand from the **Actions** tab, and again whenever you want
-the page to catch up.
+And CORS. In the app, Kotlin does the fetching, so it never applies. In a browser it applies to
+everything and not one of these sources allows it, so the web version reads every address through
+a public CORS proxy — `WEB_PROXIES`, tried in turn — which means a third party sees every address
+the app reads. The ☰ panel says so when it is running that way. The installed app uses none of
+them, and none of this code runs inside the APK at all: a service worker cannot register from a
+`file://` page, and `WEB_PROXIES` is only reached when there is no native bridge.
 
-The published copy never carries the PPQ key: the workflow writes an empty `config.js` over
-whatever the tarball had, then greps the output for anything key-shaped and refuses to publish if
-it finds any. So the web version has no AI briefing. Everything else works.
+Anything you do host must not carry the PPQ key. `config.js` is where it lands at build time;
+overwrite it with an empty one before serving the folder.
 
 ## Build
 
@@ -288,6 +315,17 @@ Today's sit together under **Briefings** in the Today tab, each labelled with th
 the ☰ panel lists everything held, including the previous few days'. An edition rewritten — by the
 Refresh button, or by a retry after a failure — replaces its own entry rather than making a second.
 `BRIEF_KEEP` and `BRIEF_KEEP_DAYS` set how much is held.
+
+Before the first edition of a new day is written there is nothing from today, and then the last
+day's stay — all of them, not the newest alone — because at seven in the morning the evening
+briefing is still the freshest news there is. They go when a new day's first replaces them, or
+after `BRIEF_SHOW_H` hours, past which showing them would mislead rather than inform.
+
+Two pages write briefings: the app's, and the background job's, which runs in a WebView of its own
+with its own memory. They share the storage but not the list held in it, so what is stored is read
+again on the way out and merged rather than overwritten. Without that, a page left open since
+breakfast writes the evening edition from what it believed at breakfast and takes the afternoon's
+away with it.
 
 Each edition is told which one it is, and is given the previous one so it carries on rather than repeats:
 the morning leads on what happened overnight, the afternoon on what has moved since, the evening draws
@@ -351,9 +389,10 @@ The date comes from the listing's own field where it has one, and is otherwise r
 
 ## Theme
 
-Two of them: white on near-black, and near-black on white. Change it under ☰ — on a phone the
-third button along the foot, on the TV press ▶ to **Light theme** / **Dark theme** and OK. It is
-remembered, and the button says where it will take you rather than where you are.
+Two of them: white on near-black, and near-black on white. Change it under ☰ — on a phone it is
+the button next to **Refresh all** along the foot; on the TV press ▶ to **Light theme** /
+**Dark theme** and OK. It is remembered, and the button says where it will take you rather than
+where you are.
 
 One accent either way: Bitcoin orange. On white that orange is too faint to read as text, so the
 light theme uses a darker one (`#B45309` against `#F7931A`) that clears 4.5:1 on its background —

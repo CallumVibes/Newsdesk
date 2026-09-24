@@ -38,7 +38,7 @@ async function boot(opts) {
     .replace(/<link[^>]*fonts\.(googleapis|gstatic)[^>]*>/g, '');
 
   const errors = [];
-  const calls = { fetched: [], posted: [], notified: [], scraped: [], widget: [], shared: [], diaried: [], themed: [] };
+  const calls = { fetched: [], posted: [], notified: [], scraped: [], widget: [], shared: [], diaried: [], themed: [], buzzed: [] };
   let nd = null;
 
   const dom = new JSDOM(html, {
@@ -68,6 +68,7 @@ async function boot(opts) {
         exit() { calls.exited = true; },
         briefDone(wrote, edition, headline) { calls.notified.push({ wrote, edition, headline }); },
         theme(name) { calls.themed.push(name); },
+        haptic(kind) { calls.buzzed.push(kind); },
         share(title, text, url) { calls.shared.push({ title, text, url }); return true; },
         calendar(title, desc, where, start, end) {
           calls.diaried.push({ title, desc, where, start, end });

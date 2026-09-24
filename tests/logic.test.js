@@ -356,6 +356,15 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.is(nd.briefPrices(), '', 'with no prices read, nothing is claimed');
   });
 
+  /* ------------------------------------------------------------- Haptics */
+  suite('A television has nothing to buzz', (t) => {
+    calls.buzzed.length = 0;
+    nd.buzz('tap');
+    nd.buzz('tick');
+    t.same(calls.buzzed, [], 'so it is never asked to, whatever is pressed');
+    calls.buzzed.length = 0;
+  });
+
   /* ------------------------------------------------------------- The theme */
   suite('One accent, not nine', (t) => {
     // A reference rather than a colour, because there are two of them: orange on
@@ -474,13 +483,22 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
   });
 
   suite('Reading an earlier briefing', (t) => {
-    const S = nd.S, now = Date.now();
-    const ed = (slot, ago, head) => ({
-      headline: head, paragraphs: ['One.', 'Two.'], at: now - ago,
-      slotName: slot, slotKey: slot + ago, model: 'claude-sonnet-5'
+    const S = nd.S;
+    // Wall-clock hours-ago would land on today or yesterday depending on when the
+    // suite ran, so the day is named rather than counted backwards from now.
+    const at = (daysAgo, hour) => {
+      const d = new Date();
+      d.setDate(d.getDate() - daysAgo);
+      d.setHours(hour, 0, 0, 0);
+      return d.getTime();
+    };
+    const ed = (slot, when, head) => ({
+      headline: head, paragraphs: ['One.', 'Two.'], at: when,
+      slotName: slot, slotKey: slot + when, model: 'claude-sonnet-5'
     });
-    S.briefs = [ed('Afternoon briefing', HOUR, 'This afternoon'),
-                ed('Morning briefing', 7 * HOUR, 'This morning')];
+    // Two of today's, written at hours that have certainly passed.
+    S.briefs = [ed('Afternoon briefing', at(0, 12), 'This afternoon'),
+                ed('Morning briefing', at(0, 5), 'This morning')];
     S.brief = S.briefs[0];
     const items = nd.briefItems();
     t.is(items.length, 2, 'both of today\'s editions can be opened');
@@ -496,11 +514,64 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.is(today.items[0].title, 'This afternoon', 'the latest at the top');
     t.is(today.items[1].title, 'This morning', 'this morning still there at teatime');
 
-    // Yesterday's is held, but Today is today.
-    S.briefs = [ed('Evening briefing', 30 * HOUR, 'Last night')];
+    // Before the first of a new day is written there is nothing from today, and then
+    // the last day's stay - all of them. At seven in the morning the evening briefing
+    // is still the freshest news anyone has.
+    S.briefs = [ed('Evening briefing', at(1, 17), 'Last night'),
+                ed('Afternoon briefing', at(1, 12), 'Yesterday afternoon'),
+                ed('Evening briefing', at(2, 17), 'The night before')];
     S.brief = S.briefs[0];
-    t.is(nd.briefItems().length, 0,
-      'once the last edition is more than a day old, Today stops offering it');
+    const over = nd.briefItems();
+    t.is(over.length, 2, 'the whole of the last day that has any, not just its newest');
+    t.same(over.map((x) => x.title), ['Last night', 'Yesterday afternoon'],
+      'and the day before that is left out of it');
+
+    // But not for ever: a briefing old enough to mislead is worse than none.
+    S.briefs = [ed('Evening briefing', Date.now() - (nd.BRIEF_SHOW_H + 2) * HOUR, 'Days ago')];
+    S.brief = S.briefs[0];
+    t.is(nd.briefItems().length, 0, 'past that, Today stops offering it at all');
+    S.briefs = []; S.brief = null;
+  });
+
+  suite('Two pages write briefings, and neither wins', (t) => {
+    const S = nd.S, now = Date.now(), store = window.localStorage;
+    const ed = (slot, ago, head) => ({
+      headline: head, paragraphs: ['One.', 'Two.'], at: now - ago,
+      slotName: slot + ' briefing', slotKey: 'k:' + slot
+    });
+    // The background job runs in a WebView of its own, with its own memory. It reads
+    // the storage, writes to it, and this page never hears about it.
+    S.briefs = [ed('morning', 12 * HOUR, 'Morning')];
+    store.setItem(nd.BRIEFS_KEY, JSON.stringify([
+      ed('afternoon', 6 * HOUR, 'Afternoon written by the job'),
+      ed('morning', 12 * HOUR, 'Morning')
+    ]));
+    // Now this page writes the evening from what it believed at breakfast.
+    nd.rememberBrief(ed('evening', 1 * HOUR, 'Evening'));
+    const heads = S.briefs.map((b) => b.headline);
+    t.is(S.briefs.length, 3, 'all three editions survive');
+    t.same(heads, ['Evening', 'Afternoon written by the job', 'Morning'],
+      'the one this page never saw is still there, and they are newest first');
+    const back = JSON.parse(store.getItem(nd.BRIEFS_KEY));
+    t.is(back.length, 3, 'and that is what was written back');
+
+    // A rewrite of an edition beats the copy already held, whoever wrote it.
+    nd.rememberBrief(Object.assign(ed('afternoon', 5 * HOUR, 'Afternoon, rewritten'), {}));
+    t.is(S.briefs.length, 3, 'a rewrite is still the same edition');
+    t.ok(S.briefs.some((b) => b.headline === 'Afternoon, rewritten'), 'and it is the one kept');
+    t.not(S.briefs.some((b) => b.headline === 'Afternoon written by the job'),
+      'not both of them');
+
+    // The reader's copy of a briefing is rebuilt on demand; storing it doubles
+    // everything held for nothing, and a quota reached quietly loses a briefing.
+    nd.briefItems();
+    t.ok(S.briefs.some((b) => b._item), 'the reader\'s version is cached in memory');
+    nd.rememberBrief(ed('evening', 1 * HOUR, 'Evening'));
+    const written = JSON.parse(store.getItem(nd.BRIEFS_KEY));
+    t.not(written.some((b) => b._item), 'but never written to storage');
+    t.ok(written.every((b) => b.paragraphs && b.headline), 'while everything needed is');
+
+    store.removeItem(nd.BRIEFS_KEY);
     S.briefs = []; S.brief = null;
   });
 
@@ -1026,6 +1097,87 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.ok(S.view.length >= 0, 'putting the tab back as it was');
   });
 
+  /* Everything the app keeps shares one origin quota. Every write was wrapped in a
+     silent try/catch, so a full quota meant a briefing quietly not kept - and a
+     briefing quietly not kept is exactly the complaint that started all this. */
+  suite('A full quota costs the cache, not the briefing', (t) => {
+    // Storage is a proxy: assigning to localStorage.setItem stores a key called
+    // "setItem" and leaves the method alone. The prototype is the way in.
+    const ls = window.localStorage, proto = window.Storage.prototype;
+    const real = proto.setItem, realRm = proto.removeItem;
+    const tried = [];
+    let full = true;
+    // A browser with no room left: every write throws until something is let go.
+    proto.setItem = function (k, v) {
+      tried.push(k);
+      if (full) { const e = new Error('QuotaExceededError'); e.name = 'QuotaExceededError'; throw e; }
+      return real.call(this, k, v);
+    };
+    proto.removeItem = function (k) { if (k === nd.CACHE_KEY) full = false; return realRm.call(this, k); };
+
+    t.is(nd.put('nd.briefs.v1', '["a briefing"]'), true, 'a briefing gets in by dropping the cache');
+    t.same(tried, ['nd.briefs.v1', 'nd.briefs.v1'], 'having asked twice, once either side of it');
+    t.is(ls.getItem('nd.briefs.v1'), '["a briefing"]', 'and it is really there afterwards');
+
+    // The cache is the thing being dropped. It does not get to drop itself.
+    tried.length = 0; full = true;
+    t.is(nd.put(nd.CACHE_KEY, '{"by":{}}'), false, 'the cache itself goes without');
+    t.same(tried, [nd.CACHE_KEY], 'asking once and not again');
+
+    proto.setItem = real; proto.removeItem = realRm;
+  });
+
+  /* A refresh lands a source every few seconds after a cold start and every ten
+     minutes after that, and each landing rebuilds the list. It used to rebuild it
+     as the tab, throwing away results the reader was still looking at. */
+  suite('A refresh does not take the search away', (t) => {
+    const S = nd.S, now = Date.now();
+    const empty = { cw: { items: [] }, kg: { items: [] }, yh: { items: [] },
+                    bb: { items: [] }, vf: { items: [] }, lm: { items: [] } };
+    S.by = Object.assign({}, empty, { ht: { items: [
+      story({ src: 'ht', id: 'a', title: 'Road closed after a crash', date: now }) ] } });
+    nd.openSearch();
+    nd.runSearch('road');
+    t.same(S.view.map((x) => x.id), ['a'], 'a search finds the one story');
+
+    // A source lands. Nothing in it matches, so the results should not move.
+    S.by.ht.items.push(story({ src: 'ht', id: 'b', title: 'Council approves new homes', date: now }));
+    nd.rebuild();
+    t.is(S.mode, 'search', 'the box is still open after a source lands');
+    t.same(S.view.map((x) => x.id), ['a'], 'and still holds the results, not the tab');
+
+    // One that does match joins them, because the pool is bigger than it was.
+    S.by.ht.items.push(story({ src: 'ht', id: 'c', title: 'Another road shut', date: now - 60e3 }));
+    nd.rebuild();
+    t.same(S.view.map((x) => x.id).sort(), ['a', 'c'], 'a story that matches joins the results');
+
+    // The row being read stays under the cursor rather than jumping to the top.
+    S.idx = S.view.map((x) => x.id).indexOf('c');
+    const was = S.view[S.idx].id;
+    S.by.ht.items.push(story({ src: 'ht', id: 'd', title: 'Road works begin', date: now }));
+    nd.rebuild();
+    t.is(S.view[S.idx] && S.view[S.idx].id, was, 'and the row being read stays put');
+    nd.closeSearch();
+    S.by = empty;
+  });
+
+  /* WebView.pauseTimers is application-wide. Using it would have frozen the
+     background job's page mid-briefing, and the job's resumeTimers would have set
+     this page refreshing behind the reader's back. Each page stops its own. */
+  suite('A page off screen stops its own timers', (t) => {
+    const page = window.nd;
+    t.ok(nd.timers() > 0, 'a page on screen is running timers');
+    page.paused();
+    t.is(nd.timers(), 0, 'going off screen stops every one of them');
+    page.paused();
+    t.is(nd.timers(), 0, 'and being told twice leaves none behind');
+    page.resumed();
+    const n = nd.timers();
+    t.ok(n > 0, 'coming back starts them again');
+    page.resumed();
+    t.is(nd.timers(), n, 'and coming back twice does not start a second set');
+  });
+
   /* ------------------------------------------------------ All of it at once */
   suite('Building a screen', (t) => {
     const S = nd.S, now = Date.now();
@@ -1098,6 +1250,104 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.ok(box.querySelector('.mk b .ar'), 'and each move keeps its arrow');
     t.is(phone.nd.tickerFits(box), true, 'and they fit across one line');
     phone.nd.S.mkt = {};
+  });
+
+  suite('A phone buzzes under the thumb', (t) => {
+    const c = phone.calls, doc = phone.window.document;
+    c.buzzed.length = 0;
+    phone.nd.buzz();
+    t.same(c.buzzed, ['tap'], 'a press is the default');
+    phone.nd.buzz('tick');
+    t.same(c.buzzed, ['tap', 'tick'], 'and moving between things is lighter');
+
+    // Everything a thumb can press goes through one place, so nothing is silent
+    // and - just as important - nothing buzzes twice for one press.
+    c.buzzed.length = 0;
+    const tab = doc.querySelector('#tabs .tab');
+    t.ok(tab, 'there are tabs to press');
+    tab.dispatchEvent(new phone.window.MouseEvent('click', { bubbles: true, cancelable: true }));
+    t.is(c.buzzed.length, 1, 'tapping a tab buzzes once');
+    t.is(c.buzzed[0], 'tap', 'as a press');
+
+    c.buzzed.length = 0;
+    const btn = doc.getElementById('menuBtn');
+    btn.dispatchEvent(new phone.window.MouseEvent('click', { bubbles: true, cancelable: true }));
+    t.is(c.buzzed.length, 1, 'and so does a button, once');
+
+    // Saving is the one place a different feel earns its keep.
+    const save = phone.nd.readerActions({ src: 'ht', id: 'x', title: 'A story',
+      summary: '', link: 'https://x/1', date: Date.now() }).filter((a) => a.id === 'save')[0];
+    t.ok(save, 'saving is offered');
+    t.is(save.buzz, 'confirm', 'and confirms with its own feel, since something changed');
+    c.buzzed.length = 0;
+  });
+
+  /* The pill counts from the story that was at the top the last time the reader was
+     at the top, so the count is read off the list rather than tallied up and kept in
+     step with it. */
+  suite('The pill counts what arrived above you', (t) => {
+    const nd = phone.nd, S = nd.S, doc = phone.window.document, now = Date.now();
+    const wrap = doc.getElementById('listWrap');
+    const empty = { cw: { items: [] }, kg: { items: [] }, yh: { items: [] },
+                    bb: { items: [] }, vf: { items: [] }, lm: { items: [] }, ht: { items: [] } };
+    const news = (n, from) => Array.from({ length: n }, (_, i) => story({
+      src: 'ht', id: 'ht:' + (from + i), title: 'Story ' + (from + i), date: now - (from + i) * 60e3 }));
+
+    S.mode = 'home';
+    S.tab = nd.TABS.findIndex((x) => x.id === 'local');
+    S.by = Object.assign({}, empty, { ht: { items: news(6, 10) } });
+    wrap.scrollTop = 0;
+    nd.rebuild(null);
+    t.is(S.top, 'ht:10', 'at the top of the list, the top story is the mark');
+    t.is(nd.newAbove(), 0, 'and nothing has arrived above it');
+
+    // The reader goes down the page, and a refresh lands three newer stories.
+    wrap.scrollTop = 400;
+    S.by.ht.items = news(3, 1).concat(S.by.ht.items);
+    nd.rebuild(null);
+    t.is(S.top, 'ht:10', 'reading further down, the mark stays where it was');
+    t.is(nd.newAbove(), 3, 'and the three that landed above it are counted');
+    nd.paintPill();
+    t.is(doc.getElementById('newPill').textContent, '\u2191  3 new stories', 'the pill says so');
+    t.ok(/\bon\b/.test(doc.getElementById('newPill').className), 'and is on screen');
+
+    // One more lands while the pill is already up.
+    S.by.ht.items = news(1, 0).concat(S.by.ht.items);
+    nd.rebuild(null);
+    t.is(nd.newAbove(), 4, 'another one joins the count rather than replacing it');
+
+    // Tapping it goes to the top, which is what puts it away.
+    nd.showNew();
+    t.is(wrap.scrollTop, 0, 'tapping the pill goes back to the top');
+    t.is(S.top, 'ht:0', 'the newest story is the mark now');
+    t.is(nd.newAbove(), 0, 'so nothing is above it');
+    nd.paintPill();
+    t.is(doc.getElementById('newPill').className, '', 'and the pill is gone');
+
+    // One story, not "1 new stories".
+    wrap.scrollTop = 400;
+    S.by.ht.items = [story({ src: 'ht', id: 'ht:x', title: 'One more', date: now + 60e3 })].concat(S.by.ht.items);
+    nd.rebuild(null);
+    nd.paintPill();
+    t.is(doc.getElementById('newPill').textContent, '\u2191  1 new story', 'one story reads as one story');
+
+    // A story that leaves the list takes the count with it rather than guessing.
+    S.top = 'ht:gone';
+    t.is(nd.newAbove(), 0, 'a mark that has dropped out of the list counts nothing');
+
+    // Saving something is not news arriving.
+    S.top = 'ht:0';
+    S.tab = nd.TABS.findIndex((x) => x.id === 'saved');
+    t.is(nd.newAbove(), 0, 'and the Saved tab never shows it');
+
+    // Reading a story is not the moment to shout about four more.
+    S.tab = nd.TABS.findIndex((x) => x.id === 'local');
+    S.mode = 'reader';
+    nd.paintPill();
+    t.is(doc.getElementById('newPill').className, '', 'the pill stays down while a story is open');
+    S.mode = 'home';
+    wrap.scrollTop = 0;
+    S.by = empty; S.top = null;
   });
 
   suite('What you can do with a story, on a phone', (t) => {

@@ -199,21 +199,6 @@ suite('It can be installed as a web app', (t) => {
   t.ok(/caches\.delete/.test(sw), 'and an old one is thrown away');
 });
 
-suite('The published copy carries no key', (t) => {
-  const yml = 'PAGES';
-  const pages = fs.readFileSync(path.join(__dirname, '..', '.github/workflows/pages.yml'), 'utf8');
-  // The APK build injects the key from a secret. This repository is public, so the
-  // published page must not: it writes its own empty config over whatever was there.
-  t.ok(/ppqKey: ""/.test(pages), 'the publish step writes an empty key over the tarball\'s');
-  t.ok(/grep -rqiE/.test(pages) && /Refusing to publish/.test(pages),
-    'and refuses to publish at all if something key-shaped got through');
-  t.not(/on:[\s\S]{0,120}push:/.test(pages),
-    'it is not on push: going public is a decision, not a side effect of committing');
-  t.ok(/workflow_dispatch/.test(pages), 'it is run by hand from the Actions tab');
-  t.ok(/GITHUB_SHA/.test(pages), 'and stamps the worker, or a republish would never take');
-  t.ok(yml === 'PAGES', 'this suite read the workflow it is about');
-});
-
 suite('The manifest says what the app actually does', (t) => {
   const m = read('app/src/main/AndroidManifest.xml');
   ['INTERNET', 'RECEIVE_BOOT_COMPLETED', 'POST_NOTIFICATIONS'].forEach((p) => {
@@ -308,6 +293,29 @@ suite('The build stays the build we can reason about', (t) => {
   t.ok(/jvmTarget = "17"/.test(app), 'on the Java the workflow sets up');
   t.ok(/storeFile = file\("newsdesk\.keystore"\)/.test(app),
     'and signs with the fixed key, so each build installs over the last');
+});
+
+/* WebView.pauseTimers and resumeTimers are documented as application-wide: they
+   reach every WebView in the process, not the one they are called on. The app used
+   them for its own page, which meant the reader backgrounding the app froze the
+   briefing job's page mid-run, and the job waking up set the app refreshing behind
+   the reader's back. Each page now stops its own timers in JavaScript. */
+suite('No page freezes another page', (t) => {
+  // Comments stripped first: both files say in prose why they no longer call it.
+  const code = (s) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ');
+  const kt = ['MainActivity.kt', 'Briefings.kt', 'Widget.kt']
+    .filter((f) => has(KT + f)).map((f) => ({ f, src: code(read(KT + f)) }));
+  t.ok(kt.length >= 2, 'the Kotlin is where it was');
+  kt.forEach(({ f, src }) => {
+    t.not(/\b(pause|resume)Timers\s*\(/.test(src), f + ' leaves every page\'s timers alone');
+  });
+  const page = read(PAGE);
+  t.ok(/function stopTimers\s*\(/.test(page) && /function startTimers\s*\(/.test(page),
+    'and the page stops and starts its own instead');
+  t.ok(/paused:\s*function[\s\S]{0,120}stopTimers\(\)/.test(page),
+    'going off screen stops them');
+  t.ok(/resumed:\s*function[\s\S]{0,160}startTimers\(\)/.test(page),
+    'and coming back starts them again');
 });
 
 suite('No key is committed', (t) => {
