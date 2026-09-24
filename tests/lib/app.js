@@ -38,13 +38,18 @@ async function boot(opts) {
     .replace(/<link[^>]*fonts\.(googleapis|gstatic)[^>]*>/g, '');
 
   const errors = [];
-  const calls = { fetched: [], posted: [], notified: [], scraped: [], widget: [], shared: [], diaried: [] };
+  const calls = { fetched: [], posted: [], notified: [], scraped: [], widget: [], shared: [], diaried: [], themed: [] };
   let nd = null;
 
   const dom = new JSDOM(html, {
     runScripts: 'dangerously',
     pretendToBeVisual: true,
-    url: 'file:///newsdesk/index.html' + (o.search || ''),
+    // Not file://, which jsdom treats as an opaque origin and hands no localStorage
+    // to. The app keeps its cache, its seen list, its briefings, its saved stories
+    // and its theme there, all wrapped in try/catch, so under file:// every one of
+    // them silently did nothing and none of it was ever exercised. A real WebView
+    // loading from assets has working storage, so the harness should too.
+    url: 'https://newsdesk.test/index.html' + (o.search || ''),
     beforeParse(w) {
       w.__ndTestHook = (api) => { nd = api; };
       // The Citadel relays would otherwise hold a socket open for nine seconds
@@ -62,6 +67,7 @@ async function boot(opts) {
         keepAwake(on) { calls.awake = !!on; },
         exit() { calls.exited = true; },
         briefDone(wrote, edition, headline) { calls.notified.push({ wrote, edition, headline }); },
+        theme(name) { calls.themed.push(name); },
         share(title, text, url) { calls.shared.push({ title, text, url }); return true; },
         calendar(title, desc, where, start, end) {
           calls.diaried.push({ title, desc, where, start, end });

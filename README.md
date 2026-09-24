@@ -14,6 +14,7 @@ One build, two layouts. On a TV it's headlines on the left, a large preview on t
 | Kagi News | RSS per category: UK, World, Technology, Science and Bitcoin. UK stories are given priority. Summaries are licensed CC BY-NC. |
 | BBC News | A BBC topic page. Read from the schema.org listing the page publishes for search engines, which carries the headline, link, time and summary and outlives any amount of front-end rebuilding. Its links are read only if that is missing. `BB_FEEDS` takes a feed address to use in place of the page. |
 | Vegan Food & Living | The site's news feed, with its WordPress API and any feed advertised on the homepage as backup. |
+| Plant-based recipes | Six kitchens' feeds, pooled rather than tried in turn, deduped and newest first. Posts that are not recipes — giveaways, podcasts, gift guides — are filtered out, and a feed that has not moved in four months is treated as a kitchen that has closed. |
 | On this day here | Wikidata for anyone born or died here on today's date, then Wikipedia's national "on this day" sifted for local place names. Checked before it is shown: a year has to be a year and a name has to be a name. |
 | Local events | What's on in town, from the town council's `council_events` listing. Tried as the WordPress API, then the listing's feed, then the listing page itself. The listing often carries only a title and a link, so opening an event fetches its own page for the details and the date. |
 
@@ -27,6 +28,7 @@ One build, two layouts. On a TV it's headlines on the left, a large preview on t
 - **Bitcoin** — Kagi's Bitcoin category, plus anything off the wire that is about bitcoin itself.
 - **Vegan** — Vegan Food & Living.
 - **All** — everything, taking turns between sources so none of them floods the list.
+- **Recipes** — plant-based cooking, newest first, pooled from several kitchens.
 - **History** — who was born or died here on today's date, and what happened here, oldest first.
 - **Saved** — stories you kept. Only on the strip once there is something in it.
 
@@ -55,14 +57,17 @@ in a way a stale gold price is not. `WX_AT` sets the coordinates and `WX_STALE_M
 
 ## Prices
 
-Sats to the pound, gold, oil and the national debt, in a band under the tabs — the same place on
-a phone as on the TV. Each figure carries its move over the day.
+Bitcoin, gold, oil and the national debt, all in pounds, in a band under the tabs — the same
+place on a phone as on the TV, and on one line.
 
-Bitcoin is counted the way anyone holding it counts: not what a whole coin costs, but how many
-satoshis a pound buys. That moves inversely to the price, so its arrow is inverted with it —
-bitcoin up a per cent is a per cent fewer sats for your pound, and that is a fall. Every arrow in
-the band describes the figure it sits beside. The ☰ panel gives both, and so does the briefing,
-where a sentence reads better with a pound price in it.
+Five figures will not fit across a phone at a comfortable size, so the band fits itself to the
+width it has, giving up the cheapest thing first: a little size, then the percentages — keeping
+the arrows, since which way it went is most of what a glance wants and it costs a fifth of the
+width — then a little more size, down to a floor. Below that the second row comes back, because
+a band too small to read is worse than a tall one. It is measured rather than calculated, since
+the width depends on the numbers (a six-figure bitcoin price is wider than a five) and on
+whichever font the device actually loaded. A TV clears the first rung without moving.
+`MKT_COMFY_REM` and `MKT_MIN_REM` set the two floors.
 
 They used to sit in the phone's top right corner, in the room the clock gave up. That corner
 fitted four figures and no more: a fifth had nowhere to go, and a five-figure bitcoin price
@@ -108,6 +113,22 @@ to everyone. There are three ways in:
 
 If nothing clears the bar, the tab says so rather than filling up with whatever is newest.
 Both word lists sit near the top of `index.html` and are meant to be edited.
+
+## Recipes
+
+Six plant-based kitchens, pooled rather than tried in turn: one blog has a quiet fortnight, six
+between them do not. Every one of them is a plant-based kitchen, so nothing is filtered for that;
+what is filtered out is everything that is not a recipe, because even a recipe site posts about
+itself. A feed that has not moved in `RC_FRESH_DAYS` is treated as a kitchen that has closed.
+
+A row names the kitchen rather than the hour, because a recipe from last week is as good as one
+from this morning. Recipes never reach **Breaking**, and are kept out of **Today** and **All** the
+way History is.
+
+**On "trending":** none of these feeds publishes a view count or a share count, so nothing here
+can honestly rank by popularity — anything claiming to would be sorting by date and calling it
+something else. What pooling six kitchens does buy you is something new most days, newest first,
+which is what "daily" is actually worth. `RC_KITCHENS` is a plain list; add or remove to taste.
 
 ## On this day, here
 
@@ -208,6 +229,31 @@ themselves: what reaches Breaking, where a wire story lands, event dates, the de
 briefing editions and how a screen is built. Both run in CI before Gradle is asked for an APK, so a
 bad push fails in seconds. `tests/README.md` has the detail.
 
+## As a web app
+
+The same `index.html` the APK carries is also a progressive web app: a manifest, an icon and a
+service worker that keeps the shell so it opens without a network. Add it to a home screen and it
+runs without browser furniture. The news itself is never cached by the worker — the page already
+keeps its last fetch and shows that while it refreshes, so a train tunnel gets yesterday's
+headlines rather than a browser error page.
+
+One difference that matters. In the app, Kotlin does the fetching, so CORS never applies. In a
+browser it applies to everything and not one of these sources allows it, so the web version reads
+every address through a public CORS proxy — `WEB_PROXIES`, tried in turn. That means in a browser
+every address the app reads passes through a third party. The ☰ panel says so when it is running
+that way. The installed app uses none of them.
+
+### Publishing it
+
+`.github/workflows/pages.yml` publishes it to GitHub Pages. It is **not** run on push — this
+repository is public, and a published page is easier to come across than a file in a repository,
+so going live is a decision. Run it by hand from the **Actions** tab, and again whenever you want
+the page to catch up.
+
+The published copy never carries the PPQ key: the workflow writes an empty `config.js` over
+whatever the tarball had, then greps the output for anything key-shaped and refuses to publish if
+it finds any. So the web version has no AI briefing. Everything else works.
+
 ## Build
 
 The whole project is embedded in `.github/workflows/build-newsdesk.yml`, so that one file is all the repo needs. No laptop required.
@@ -305,13 +351,25 @@ The date comes from the listing's own field where it has one, and is otherwise r
 
 ## Theme
 
-White on near-black, with one accent: Bitcoin orange, `#F7931A`. Every source and every tab used
-to carry a colour of its own; they all take the accent now, and the greys are neutral rather than
-the teal-tinted ones they replace, so nothing competes with it. `ACCENT` near the top of
-`index.html` is the single place it is set.
+Two of them: white on near-black, and near-black on white. Change it under ☰ — on a phone the
+third button along the foot, on the TV press ▶ to **Light theme** / **Dark theme** and OK. It is
+remembered, and the button says where it will take you rather than where you are.
 
-Two colours are not part of the theme and stay as they are: green and red on a price's move. That
-is the one place in the app where colour is the only thing carrying the meaning.
+One accent either way: Bitcoin orange. On white that orange is too faint to read as text, so the
+light theme uses a darker one (`#B45309` against `#F7931A`) that clears 4.5:1 on its background —
+the tests check that, both ways up, for the accent and for a price's rise and fall.
+
+Every colour in the page comes from a custom property, so turning the app over is one class on
+`<html>` and nothing is redrawn. `ACCENT` is a reference rather than a colour for the same reason:
+handed to a style property it resolves to whichever theme is in force, so nothing that draws has
+to ask. Every source and every tab used to carry a colour of its own; they all take the accent now.
+
+Which way it is lit is settled in the head of the page, before the first paint, and Kotlin is told
+so the window behind the WebView and the home screen widget are painted the same way — otherwise
+each start would flash the other colour before the page caught up.
+
+Green and red on a price's move are not part of the theme, only tuned for it. That is the one
+place in the app where colour is the only thing carrying the meaning.
 
 ## Requirements
 

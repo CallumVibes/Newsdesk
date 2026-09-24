@@ -37,9 +37,9 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
   suite('The page itself', (t) => {
     t.same(errors, [], 'boots with no error on the console');
     t.same(nd.TABS.map((x) => x.id),
-      ['breaking', 'today', 'local', 'world', 'tech', 'coin', 'vegan', 'hist', 'all', 'saved'],
+      ['breaking', 'today', 'local', 'world', 'tech', 'coin', 'vegan', 'recipes', 'hist', 'all', 'saved'],
       'has its tabs, in the order the remote walks them');
-    t.same(nd.ORDER, ['cw', 'kg', 'ht', 'yh', 'bb', 'vf', 'lm', 'hh'], 'knows its sources');
+    t.same(nd.ORDER, ['cw', 'kg', 'ht', 'yh', 'bb', 'vf', 'lm', 'hh', 'rc'], 'knows its sources');
     nd.TABS.forEach((tab) => {
       t.ok(tab.srcs.every((s) => nd.ORDER.indexOf(s) >= 0),
         tab.id + ' draws only from sources that exist');
@@ -334,8 +334,7 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
       oil: { gbp: 63.42, chg: 0.0 }, debt: { gbp: 2.94e12, rate: 0, at: Date.now() }
     };
     const p = nd.briefPrices();
-    t.ok(/Bitcoin £74,211, or 1,348 sats to the pound, up 1\.2% today/.test(p),
-      'the briefing gets bitcoin both ways, since a sentence reads better with pounds');
+    t.ok(/Bitcoin £74,211, up 1\.2% today/.test(p), 'bitcoin, in pounds, with its move');
     t.ok(/gold £2,110 an ounce, down 0\.4% today/.test(p), 'gold by the ounce');
     t.ok(/oil £63\.42 a barrel/.test(p), 'oil by the barrel, keeping its pence');
     t.ok(/UK national debt £2\.940tn/.test(p), 'and the debt in trillions');
@@ -359,7 +358,10 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
 
   /* ------------------------------------------------------------- The theme */
   suite('One accent, not nine', (t) => {
-    t.is(nd.ACCENT, '#F7931A', 'the accent is the orange');
+    // A reference rather than a colour, because there are two of them: orange on
+    // black, and a darker orange on white. Handed to a style property it resolves
+    // to whichever is in force, so nothing that draws has to ask which.
+    t.is(nd.ACCENT, 'var(--accent)', 'the accent is a reference, not a fixed colour');
     // Every source and every tab used to carry a colour of its own. The theme asked
     // for is white and orange, so there is one accent and everything takes it.
     Object.keys(nd.SRC).forEach((k) => {
@@ -369,8 +371,8 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
 
     const style = window.getComputedStyle(window.document.documentElement);
     const v = (n) => style.getPropertyValue(n).trim().toUpperCase();
-    t.is(v('--text'), '#FFFFFF', 'the text is white');
-    t.is(v('--accent'), '#F7931A', 'the accent is on the palette too');
+    t.is(v('--text'), '#FFFFFF', 'the text is white in the dark');
+    t.is(v('--accent'), '#F7931A', 'the accent is on the palette');
     t.is(v('--c'), '#F7931A', 'and is what anything uncoloured falls back to');
     // The greys were teal-tinted, which competed with an orange. They are neutral now.
     ['--bg', '--bg2', '--bg3', '--line', '--soft', '--muted', '--dim'].forEach((n) => {
@@ -381,6 +383,61 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
       t.ok(Math.max(r, g, b) - Math.min(r, g, b) <= 6,
         n + ' is a neutral grey rather than a tinted one (' + hex + ')');
     });
+  });
+
+  suite('Light and dark', (t) => {
+    const doc = window.document, root = doc.documentElement;
+    const lum = (hex) => {
+      const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+        .map((x) => (x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4)));
+      return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+    };
+    const ratio = (a, b) => {
+      const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+      return (hi + 0.05) / (lo + 0.05);
+    };
+    const v = (n) => window.getComputedStyle(root).getPropertyValue(n).trim().toUpperCase();
+
+    calls.themed.length = 0;
+    nd.setTheme('dark');
+    t.is(nd.theme(), 'dark', 'it starts dark');
+    t.not(/\blight\b/.test(root.className), 'with no light class on the page');
+    t.ok(root.className.indexOf(nd.S.mode === 'x' ? '' : 'tv') >= 0,
+      'and whatever the device put there is left alone');
+
+    nd.setTheme('light');
+    t.is(nd.theme(), 'light', 'it turns over');
+    t.ok(/\blight\b/.test(root.className), 'by one class on the page');
+    t.ok(root.className.indexOf('tv') >= 0, 'still leaving the device class alone');
+    t.ok(lum(v('--bg')) > 0.8, 'the background goes light');
+    t.ok(lum(v('--text')) < 0.1, 'and the text goes dark');
+    // #F7931A on white is too faint to read, so the light accent is a darker orange.
+    t.ok(ratio(v('--accent'), v('--bg')) >= 4.5,
+      'the light accent can be read on the light background (' + v('--accent') + ')');
+    t.ok(ratio(v('--up'), v('--bg')) >= 4.5, 'and so can a rise');
+    t.ok(ratio(v('--dn'), v('--bg')) >= 4.5, 'and a fall');
+
+    nd.flipTheme();
+    t.is(nd.theme(), 'dark', 'flipping turns it back');
+    t.ok(ratio(v('--accent'), v('--bg')) >= 4.5, 'and the dark accent reads on black too');
+    t.ok(ratio(v('--text'), v('--bg')) >= 4.5, 'as does the text');
+
+    // Kotlin paints the window before this page runs, so it has to be told.
+    t.same(calls.themed, ['dark', 'light', 'dark'], 'Kotlin is told each time it changes');
+    let kept = '';
+    try { kept = JSON.parse(window.localStorage.getItem('nd.theme.v1')) || ''; } catch (e) {
+      kept = window.localStorage.getItem('nd.theme.v1');
+    }
+    t.is(kept, 'dark', 'and it is remembered for next time');
+
+    // The panel is where you change it, on either device.
+    const flip = nd.SHEET_ACTS[nd.SHEET_ACTS.length - 1];
+    t.is(typeof flip.label, 'function', 'the label changes with the state');
+    t.is(flip.label(), 'Light theme', 'and offers where it will take you, not where you are');
+    nd.setTheme('light');
+    t.is(flip.label(), 'Dark theme', 'both ways round');
+    nd.setTheme('dark');
+    calls.themed.length = 0;
   });
 
   /* ----------------------------------------------------- Briefing history */
@@ -488,32 +545,34 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     calls.widget.length = 0;
   });
 
-  /* ------------------------------------------------------- Sats to the pound */
-  suite('Counting in sats', (t) => {
-    t.is(nd.sats(63355), '1,578', 'a pound buys this many sats at that price');
-    t.is(nd.sats(100000), '1,000', 'and a round thousand at a round hundred thousand');
-    t.near(nd.satsPerPound(50000), 2000, 0.001, 'which is a hundred million over the price');
-    t.is(nd.sats(0), '0', 'with no price there is nothing to count');
-    t.is(nd.sats(-5), '0', 'and a nonsense price counts as none rather than throwing');
-
-    // The figure moves the other way to the price, so the arrow beside it must too.
-    // Bitcoin up means fewer sats for your pound, and that is a fall, not a rise.
-    t.near(nd.satsChg(1.6), -1.575, 0.01, 'bitcoin up 1.6% is 1.575% fewer sats');
-    t.near(nd.satsChg(-1.6), 1.626, 0.01, 'and bitcoin down is more sats');
-    t.is(nd.satsChg(0), 0, 'flat is flat');
-    t.ok(nd.satsChg(5) < 0, 'the sign always turns over');
-    t.ok(nd.satsChg(-5) > 0, 'both ways');
-    t.is(nd.satsChg(null), null, 'no move claimed when none is known');
-    t.is(nd.satsChg(-100), null, 'and a price that went to nothing is not divided by');
-
-    const S = nd.S, doc = window.document;
-    S.mkt = { at: Date.now(), btc: { gbp: 63355, chg: -1.6, at: Date.now(), from: 'x' } };
+  /* ------------------------------------------------------ One line of prices */
+  suite('Fitting the band on one line', (t) => {
+    const S = nd.S, doc = window.document, now = Date.now();
+    const box = doc.getElementById('mkt');
+    S.mkt = { at: now,
+      wx: { t: 14, icon: 'clear', label: 'Clear', c: '#F7931A', day: true, at: now, from: 'x' },
+      btc: { gbp: 74211, chg: 1.23, at: now, from: 'x' },
+      gold: { gbp: 2110, usd: 2653, chg: -0.42, at: now, from: 'x' },
+      oil: { gbp: 63.42, usd: 79, chg: 0.3, at: now, from: 'x' },
+      debt: { gbp: 2.94e12, rate: 4435, at: now }, rate: 0.79 };
     nd.renderMkt();
-    const row = doc.querySelector('#mkt .mk');
-    t.ok(/Sats\/£/.test(row.textContent), 'the band says what it is counting');
-    t.ok(/1,578/.test(row.textContent), 'and how many');
-    t.not(/63,355/.test(row.textContent), 'the price of a whole coin is no longer the headline');
-    t.ok(row.querySelector('.up'), 'bitcoin down means more sats, which the arrow shows as a rise');
+    t.is(box.children.length, 5, 'the weather and four figures');
+    // A move is two pieces so one can go without the other.
+    const b = box.querySelector('.mk b');
+    t.ok(b.querySelector('.ar'), 'a move carries its arrow separately');
+    t.ok(b.querySelector('.pc'), 'from its percentage');
+    t.ok(/[\u25B2\u25BC]/.test(b.querySelector('.ar').textContent), 'the arrow is an arrow');
+    t.is(b.querySelector('.pc').textContent, '1.2%', 'and the percentage a percentage');
+
+    // This boot is a television, which has room for all of it at full size.
+    t.is(box.className, '', 'a TV shows everything, full size');
+    t.is(box.style.fontSize, '', 'and is never shrunk');
+    t.is(nd.tickerFits(box), true, 'because it fits');
+
+    // The ladder gives up size first, then the percentages, then the line itself.
+    t.ok(nd.MKT_COMFY_REM > nd.MKT_MIN_REM,
+      'there is room to shrink before anything is dropped');
+    t.ok(nd.MKT_MIN_REM >= 0.5, 'and a floor below which it stops rather than becoming unreadable');
     S.mkt = {};
   });
 
@@ -865,6 +924,52 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.is(today.srcs.indexOf('hh'), -1, 'as does Today');
   });
 
+  /* --------------------------------------------------------------- Recipes */
+  suite('What counts as a recipe', (t) => {
+    const now = Date.now();
+    const ok = (title, ago) => nd.rcKeep({ title: title, date: now - (ago || 0) });
+    t.is(ok('One-pot red lentil dal'), true, 'dinner gets in');
+    t.is(ok('Vegan chocolate cake'), true, 'so does pudding: healthy is the kitchen, not the dish');
+    // A recipe site still posts about itself, and none of that is dinner.
+    t.is(ok('Win a giveaway from our friends'), false, 'a giveaway is not a recipe');
+    t.is(ok('Our new podcast is out'), false, 'nor is a podcast');
+    t.is(ok('Black Friday gift guide'), false, 'nor a gift guide');
+    t.is(ok('Subscribe to the newsletter'), false, 'nor a plea to subscribe');
+    // A feed that stopped years ago is a kitchen that closed.
+    t.is(ok('A fine old soup', 400 * DAY), false, 'and a recipe from years back is a dead feed');
+    t.is(ok('A fine recent soup', 30 * DAY), true, 'while one from last month keeps');
+    t.is(nd.rcKeep(null), false, 'nothing is not a recipe');
+    t.is(nd.rcKeep({ title: '' }), false, 'and neither is a post with no title');
+
+    t.ok(nd.RC_KITCHENS.length >= 4, 'it pools several kitchens, not one');
+    nd.RC_KITCHENS.forEach((k) => {
+      t.ok(/^https:\/\//.test(k.url), k.name + ' is fetched over https');
+      t.ok(k.name && k.name.length > 2, 'and is named, since the row shows the kitchen');
+    });
+    const urls = nd.RC_KITCHENS.map((k) => k.url);
+    t.is(new Set(urls).size, urls.length, 'and none is listed twice');
+  });
+
+  suite('A recipe row reads as a recipe', (t) => {
+    const now = Date.now();
+    const dish = story({ src: 'rc', id: 'rc:1', title: 'One-pot red lentil dal',
+                         date: now - 2 * DAY, kitchen: 'Minimalist Baker' });
+    // A recipe from last week is as good as one from this morning, so the row says
+    // where it came from rather than how long ago it was posted.
+    t.is(nd.timeLabel(dish), 'Minimalist Baker', 'the row names the kitchen, not the hour');
+    t.is(nd.isKitchen(dish), true, 'it knows it is a recipe');
+    t.is(nd.isKitchen(story({ src: 'ht' })), false, 'and the news knows it is not');
+    t.same(nd.breakingList([Object.assign({}, dish, { date: now,
+      title: 'Fire roasted red pepper soup' })]), [],
+      'a recipe never reaches Breaking, however the words read');
+    const tab = nd.TABS[nd.TABS.findIndex((x) => x.id === 'recipes')];
+    t.same(tab.srcs, ['rc'], 'the Recipes tab draws from the kitchens alone');
+    const all = nd.TABS[nd.TABS.findIndex((x) => x.id === 'all')];
+    t.is(all.srcs.indexOf('rc'), -1, 'and All leaves them out, being today\'s news');
+    const today = nd.TABS[nd.TABS.findIndex((x) => x.id === 'today')];
+    t.is(today.srcs.indexOf('rc'), -1, 'as does Today');
+  });
+
   /* ---------------------------------------------------------------- Search */
   suite('Finding a story again', (t) => {
     const S = nd.S, now = Date.now();
@@ -977,6 +1082,22 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.ok(kids.indexOf('mkt') < kids.indexOf('searchBar'),
       'above the search box, so opening search does not push the prices into the results');
     t.ok(kids.indexOf('mkt') < kids.indexOf('main'), 'and above the headlines');
+
+    // The whole point: five figures across a phone, on one line. It gets there by
+    // shrinking, and then by dropping the percentages while keeping the arrows.
+    const box = doc.getElementById('mkt');
+    const now = Date.now();
+    phone.nd.S.mkt = { at: now,
+      wx: { t: 14, icon: 'clear', label: 'Clear', c: '#F7931A', day: true, at: now, from: 'x' },
+      btc: { gbp: 74211, chg: 1.23, at: now, from: 'x' },
+      gold: { gbp: 2110, usd: 2653, chg: -0.42, at: now, from: 'x' },
+      oil: { gbp: 63.42, usd: 79, chg: 0.3, at: now, from: 'x' },
+      debt: { gbp: 2.94e12, rate: 4435, at: now }, rate: 0.79 };
+    phone.nd.renderMkt();
+    t.is(box.children.length, 5, 'all five are drawn');
+    t.ok(box.querySelector('.mk b .ar'), 'and each move keeps its arrow');
+    t.is(phone.nd.tickerFits(box), true, 'and they fit across one line');
+    phone.nd.S.mkt = {};
   });
 
   suite('What you can do with a story, on a phone', (t) => {
