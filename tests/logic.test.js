@@ -1334,6 +1334,98 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.is(nd.timers(), n, 'and coming back twice does not start a second set');
   });
 
+  /* ------------------------------------------------- The order of a list */
+  /* The sources used to take strict turns, so where a story landed depended on how
+     far down its own pile it was rather than when it happened. */
+  suite('A list reads newest first', (t) => {
+    const pile = (src, ...ages) => ages.map((h, i) => {
+      const it = story({ src, id: src + ':' + i, title: src + ' ' + h + 'h', date: Date.now() - h * HOUR });
+      it.sort = it.date;
+      return it;
+    });
+    const ages = (out) => out.map((x) => x.title);
+
+    // Two piles, one fresh and one stale. Turn-taking put the stale pile's head second.
+    t.same(ages(nd.weave([pile('ht', 0.35, 0.43), pile('yh', 22, 80)], 3)),
+      ['ht 0.35h', 'ht 0.43h', 'yh 22h', 'yh 80h'],
+      'the two fresh ones lead and the day-old ones follow');
+
+    // Interleaved ages come out in order regardless of which pile they are in.
+    t.same(ages(nd.weave([pile('ht', 1, 5), pile('yh', 3, 7), pile('bb', 2, 6)], 3)),
+      ['ht 1h', 'bb 2h', 'yh 3h', 'ht 5h', 'bb 6h', 'yh 7h'],
+      'and three piles merge strictly by age');
+
+    // What the turns were for: one source must not fill the screen.
+    const flood = nd.weave([pile('ht', 1, 2, 3, 4, 5, 6), pile('yh', 20, 30)], 3);
+    t.same(ages(flood),
+      ['ht 1h', 'ht 2h', 'ht 3h', 'yh 20h', 'ht 4h', 'ht 5h', 'ht 6h', 'yh 30h'],
+      'a pile gets three in a row, lets another in, and may then have three more');
+    t.is(flood.length, 8, 'and nothing is dropped to keep the rhythm');
+
+    t.same(ages(nd.weave([pile('ht', 1, 2, 3, 4, 5)], 3)), ['ht 1h', 'ht 2h', 'ht 3h', 'ht 4h', 'ht 5h'],
+      'one pile on its own is not broken up over nothing');
+    t.same(nd.weave([], 3), [], 'no piles is no list');
+    t.same(nd.weave([[], []], 3), [], 'and empty piles are no list either');
+    t.same(nd.weave(null, 3), [], 'nor is nothing at all');
+    t.is(nd.RUN_MAX, 3, 'three in a row is the cap');
+  });
+
+  suite('A diary is threaded through, not sunk', (t) => {
+    const news = Array.from({ length: 14 }, (_, i) => ({ id: 'n' + i, src: 'ht' }));
+    const diary = Array.from({ length: 3 }, (_, i) => ({ id: 'd' + i, src: 'lm' }));
+    const out = nd.thread(news, diary, 6);
+    t.is(out.length, 17, 'every row is still there');
+    t.same([out[6].id, out[13].id], ['d0', 'd1'], 'an event every sixth row');
+    t.same(out.slice(0, 6).map((x) => x.id), ['n0', 'n1', 'n2', 'n3', 'n4', 'n5'],
+      'with the news reading on in between');
+    t.same(out.map((x) => x.id).filter((id) => /^n/.test(id)), news.map((x) => x.id),
+      'and the news in the order it was given');
+    t.same(out.map((x) => x.id).filter((id) => /^d/.test(id)), diary.map((x) => x.id),
+      'the diary reading forwards, as a diary does');
+
+    // Whatever will not fit at that spacing follows rather than being left out.
+    const many = nd.thread(news.slice(0, 4), diary, 6);
+    t.is(many.length, 7, 'a short list still shows every event');
+    t.same(many.slice(4).map((x) => x.id), ['d0', 'd1', 'd2'], 'the rest following the news');
+
+    t.same(nd.thread(news, [], 6).map((x) => x.id), news.map((x) => x.id),
+      'no diary changes nothing');
+    t.same(nd.thread([], diary, 6).map((x) => x.id), ['d0', 'd1', 'd2'],
+      'and a diary with no news around it is still shown');
+    t.is(nd.DIARY_EVERY, 6, 'one event every six stories');
+  });
+
+  /* The screenshot, as it came off the phone: Local read 21m, 22h, 6h, an event,
+     26m, three days, 20h. Every one of those ages is real; only the order was not. */
+  suite('The Local tab, in the order it came off the phone', (t) => {
+    const S = nd.S, now = Date.now();
+    const at = (src, id, mins, extra) => story(Object.assign(
+      { src, id, title: id, date: now - mins * 60e3 }, extra || {}));
+    S.by = {
+      cw: { items: [] }, kg: { items: [] }, vf: { items: [] },
+      ht: { items: [at('ht', 'crash on the A49', 21), at('ht', 'SAS commander', 26)] },
+      yh: { items: [at('yh', 'Asda offer', 22 * 60), at('yh', 'bereavement rights', 3 * 24 * 60)] },
+      bb: { items: [at('bb', 'weekly quiz', 6 * 60), at('bb', 'military history festival', 20 * 60)] },
+      lm: { items: [at('lm', 'Victorian Women', 2 * 24 * 60, { when: now + 5 * DAY })] }
+    };
+    S.tab = nd.TABS.findIndex((x) => x.id === 'local');
+    S.mode = 'home';
+    nd.rebuild(null);
+    const ids = S.view.map((x) => x.id);
+    t.same(ids.slice(0, 6),
+      ['crash on the A49', 'SAS commander', 'weekly quiz', 'military history festival',
+       'Asda offer', 'bereavement rights'],
+      'twenty minutes old leads, and three days old is last of the news');
+    t.ok(ids.indexOf('crash on the A49') < ids.indexOf('Asda offer'),
+      'a story from this hour is never under one from yesterday');
+    t.ok(ids.indexOf('SAS commander') < ids.indexOf('military history festival'),
+      'nor is the second story of a busy source under an older one from a quiet source');
+    t.is(ids.length, 7, 'and every story is still on the list, the event included');
+    t.ok(ids.indexOf('Victorian Women') >= 0, 'with what is on in town still there');
+    S.by = { cw: { items: [] }, kg: { items: [] }, ht: { items: [] }, yh: { items: [] },
+             bb: { items: [] }, vf: { items: [] }, lm: { items: [] } };
+  });
+
   /* ------------------------------------------------------ All of it at once */
   suite('Building a screen', (t) => {
     const S = nd.S, now = Date.now();

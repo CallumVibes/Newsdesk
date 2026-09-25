@@ -27,7 +27,7 @@ One build, two layouts. On a TV it's headlines on the left, a large preview on t
 - **Tech** — Kagi's Technology and Science categories, plus anything technical off the wire.
 - **Bitcoin** — Kagi's Bitcoin category, plus anything off the wire that is about bitcoin itself.
 - **Vegan** — Vegan Food & Living.
-- **All** — everything, taking turns between sources so none of them floods the list.
+- **All** — everything, newest first, with no source allowed to run away with the list.
 - **Recipes** — plant-based cooking, newest first, pooled from several kitchens.
 - **History** — who was born or died here on today's date, what happened here, and pictures from the county archive, oldest first.
 - **Saved** — stories you kept. Only on the strip once there is something in it.
@@ -39,8 +39,23 @@ to Tech, and everything else, financial or not, to UK & World. A wire that would
 whole wire, prices and all, so it goes to UK & World rather than looking like a bitcoin story.
 `CW_TOPICS` holds the two word lists that decide it, and is meant to be edited.
 
-Every tab but Today is a flat newest-first list, taking turns between its sources. Headlines
-carry a small picture, fetched only once the row is nearly on screen.
+Every tab but Today is a flat newest-first list. Headlines carry a small picture, fetched only
+once the row is nearly on screen.
+
+**Newest first means newest first.** The sources used to take strict turns — one from each pile,
+then one from each again — so where a story landed depended on how far down its own pile it was
+rather than when it happened. A quiet source's second story could sit above a busy source's story
+from twenty minutes ago, and the list read as though it were in no order at all.
+
+What the turns were for still holds: one source should not fill the screen. So the piles are merged
+by age, and a source may have **three rows in a row** (`RUN_MAX`) before it has to let another in —
+if another has anything left to offer. Nothing is dropped to keep the rhythm; once the other sources
+are spent, the rest of a run simply follows.
+
+A diary is not news and does not compete on freshness: an exhibition announced last week is still
+what is on this week. Ordered by its posting date it would sink to the bottom and stay there, so
+it's threaded through at one event every six stories (`DIARY_EVERY`), still reading forwards, with
+anything that won't fit at that spacing following at the end.
 
 ## Weather
 
