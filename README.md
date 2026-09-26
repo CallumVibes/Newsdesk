@@ -15,7 +15,7 @@ One build, two layouts. On a TV it's headlines on the left, a large preview on t
 | BBC News | A BBC topic page. Read from the schema.org listing the page publishes for search engines, which carries the headline, link, time and summary and outlives any amount of front-end rebuilding. Its links are read only if that is missing. `BB_FEEDS` takes a feed address to use in place of the page. |
 | Vegan Food & Living | The site's news feed, with its WordPress API and any feed advertised on the homepage as backup. |
 | Plant-based recipes | Six kitchens' feeds, pooled rather than tried in turn, deduped and newest first. Posts that are not recipes — giveaways, podcasts, gift guides — are filtered out, and a feed that has not moved in four months is treated as a kitchen that has closed. |
-| On this day here | Wikidata for anyone born or died here on today's date, Wikipedia's national "on this day" sifted for local place names, and the county's own digitised archive at herefordshirehistory.org.uk. Checked before it is shown: a year has to be a year and a name has to be a name. |
+| On this day here | Wikidata for anyone born or died here on today's date, Wikipedia's national "on this day" sifted for local place names, and the county's own digitised archive at " ". Checked before it is shown: a year has to be a year and a name has to be a name. |
 | Local events | What's on in town, from the town council's `council_events` listing. Tried as the WordPress API, then the listing's feed, then the listing page itself. The listing often carries only a title and a link, so opening an event fetches its own page for the details and the date. |
 
 ## Tabs
