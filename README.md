@@ -270,6 +270,16 @@ The county's history and bitcoin's are the same question, *what happened on this
 what the tab is for. The kicker on the row says which is which, and the source is **On this day**
 rather than *On this day here*, since bitcoin's isn't.
 
+### The tab strip
+
+It scrolls when it has to and keeps the tab in use in the middle. The ends fade so a tab cut off
+there reads as more to scroll — but **only an end with something past it**. Faded at the start,
+where there is nothing to scroll back to, it simply takes the first letter off the first tab, which
+is what it did to **Today** the moment Today became the first of them.
+
+Ten tabs fit a television again now that Breaking has gone, at 720p with nothing to spare, so the
+strip is not faded there at all. A phone still overflows by a good 400px and fades its right end.
+
 ### Nothing to press
 
 A Wikipedia entry used to open showing its description — *English darts player* — and nothing else,

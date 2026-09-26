@@ -134,6 +134,9 @@ function look() {
       getComputedStyle(tabs).overflowX === 'scroll',
     tabsFaded: /gradient/.test(getComputedStyle(tabs).webkitMaskImage || '') ||
       /gradient/.test(getComputedStyle(tabs).maskImage || ''),
+    tabsOverflowPx: tabs.scrollWidth - tabs.clientWidth,
+    tabsFadeCls: tabs.className,
+    tabsFirst: tabs.children[0] ? tabs.children[0].textContent.trim() : '',
     // renderTabs pulls the tab in use towards the middle, so it is never the cut one
     tabOnCut: (() => {
       const on = tabs.querySelector('.tab.on');
@@ -597,6 +600,34 @@ async function tabMotion(browser) {
   return out;
 }
 
+/* Scrolling the strip is what puts something behind you, and only then should the
+   start be faded. */
+async function stripFade(browser) {
+  const page = await open(browser, { w: 412, h: 915 });
+  const out = await page.evaluate(async () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const tabs = document.getElementById('tabs');
+    const mask = () => getComputedStyle(tabs).maskImage || getComputedStyle(tabs).webkitMaskImage || 'none';
+    const r = { atStart: tabs.className, startMask: mask().slice(0, 30) };
+    tabs.scrollLeft = 120;
+    tabs.dispatchEvent(new Event('scroll'));
+    await wait(40);
+    r.middle = tabs.className;
+    r.middleMask = mask().slice(0, 44);
+    tabs.scrollLeft = tabs.scrollWidth;
+    tabs.dispatchEvent(new Event('scroll'));
+    await wait(40);
+    r.atEnd = tabs.className;
+    tabs.scrollLeft = 0;
+    tabs.dispatchEvent(new Event('scroll'));
+    await wait(40);
+    r.backAtStart = tabs.className;
+    return r;
+  });
+  await page.close();
+  return out;
+}
+
 (async () => {
   let chromium;
   try { chromium = require('playwright-core').chromium; } catch (e) {
@@ -631,6 +662,7 @@ async function tabMotion(browser) {
   const ph = await photoSizes(browser);
   const lz = await lens(browser);
   const tm = await tabMotion(browser);
+  const sf = await stripFade(browser);
   await browser.close();
 
   suite('The price band holds one line', (t) => {
@@ -677,14 +709,31 @@ async function tabMotion(browser) {
     t.is(seen.tvLight.tabOnCut, false, 'and the tab in use is still whole');
   });
 
-  suite('The tab strip carries more than fits', (t) => {
-    // Eleven tabs will not fit a television at a size a television is read at, so
-    // the strip scrolls rather than the tabs shrinking past legibility.
+  suite('The tab strip fades only where there is more', (t) => {
+    /* The strip scrolls rather than shrinking the tabs past legibility, and fades an
+       end so a tab cut off there reads as more to scroll. But an end with nothing
+       past it must not be faded: at the start that takes the first letter off the
+       first tab, which is what it did to Today the moment Today became the first. */
     ['tv1080', 'tv720', 'pixel', 'small'].forEach((k) => {
-      t.is(seen[k].tabsScrollable, true, k + ': the strip scrolls');
-      t.is(seen[k].tabsFaded, true, k + ': and its ends are faded, so a cut tab reads as more');
-      t.is(seen[k].tabOnCut, false, k + ': with the tab in use kept whole and in view');
+      const m = seen[k];
+      t.is(m.tabsScrollable, true, k + ': the strip can scroll');
+      t.is(m.tabOnCut, false, k + ': the tab in use is kept whole and in view');
+      t.is(m.tabsFirst, 'Today', k + ': Today is the first of them');
+      // At rest the strip is at its start, so the left end is never faded.
+      t.not(/\bfl\b/.test(m.tabsFadeCls), k + ': and its start is not faded, where there is nothing behind');
+      if (m.tabsOverflowPx > 2) {
+        t.ok(/\bfr\b/.test(m.tabsFadeCls), k + ': the end it can scroll to is faded ('
+          + m.tabsOverflowPx + 'px past it)');
+        t.is(m.tabsFaded, true, k + ': which is a real mask');
+      } else {
+        t.same(m.tabsFadeCls, '', k + ': and a strip that all fits is not faded at either end');
+        t.is(m.tabsFaded, false, k + ': with no mask on it at all');
+      }
     });
+    // Ten tabs fit a television now that there are ten rather than eleven.
+    t.is(seen.tv720.tabsOverflowPx, 0, 'a television fits them all, even at 720p');
+    t.ok(seen.pixel.tabsOverflowPx > 100, 'a phone does not, by a long way ('
+      + seen.pixel.tabsOverflowPx + 'px)');
   });
 
   suite('Everything the panel offers can be reached', (t) => {
@@ -861,6 +910,23 @@ async function tabMotion(browser) {
     t.is(tm.restarted, true, 'a second swipe starts a new animation, not the old one');
     t.ok(tm.secondAt >= 0 && tm.secondAt < 25,
       'which begins at the beginning (' + tm.secondAt + 'ms in)');
+  });
+
+  suite('Scrolling the strip is what fades its start', (t) => {
+    t.not(/\bfl\b/.test(sf.atStart), 'at the start, nothing behind, so no fade there');
+    t.ok(/\bfr\b/.test(sf.atStart), 'but plenty ahead, so that end is faded');
+    t.ok(/^linear-gradient\(90deg, rgb/.test(sf.startMask),
+      'and the mask begins solid rather than transparent');
+
+    t.ok(/\bfl\b/.test(sf.middle), 'scrolled along, the start is faded');
+    t.ok(/\bfr\b/.test(sf.middle), 'and so is the end');
+    t.ok(/^linear-gradient\(90deg, rgba\(0, 0, 0, 0\)/.test(sf.middleMask),
+      'the mask now beginning transparent');
+
+    t.ok(/\bfl\b/.test(sf.atEnd), 'at the end, the start is faded');
+    t.not(/\bfr\b/.test(sf.atEnd), 'and the end is not, there being nothing past it');
+
+    t.not(/\bfl\b/.test(sf.backAtStart), 'and coming back unfades the start again');
   });
 
   return run('Newsdesk layout');
