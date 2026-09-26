@@ -53,6 +53,7 @@ const STUB = `
     device: () => (__TV__ ? 'tv' : 'touch'), version: () => 'layout test',
     keepAwake() {}, exit() {}, briefDone() {}, briefSave() {},
     share() { return true; }, calendar() { return true; },
+    speak() { return true; }, hush() {}, haptic() {}, theme() {},
     scrape() { setTimeout(() => window.__scrapeDone('[]', '[]'), 1); },
     fetch(id) { setTimeout(() => window.__nativeResolve(id, false, 599, ''), 1); },
     post(id) { setTimeout(() => window.__nativeResolve(id, false, 599, ''), 1); }
@@ -454,6 +455,63 @@ async function recipeCard(browser, opts) {
   return out;
 }
 
+/* The reader's action strip. A diary event carries the most of them there can be - the full
+   story, saving, being read to, sharing, and the calendar - and only a browser can say
+   whether five of them fit across a phone. They did not: at their full length Add to
+   calendar sat thirty pixels past the right of a Pixel, where nothing could press it. */
+async function actionStrip(browser, opts) {
+  const page = await open(browser, opts);
+  const out = await page.evaluate(async () => {
+    const nd = window.ndApi, S = nd.S;
+    const ev = { id: 'lm:1', src: 'lm', title: 'Christmas Fayre in the square',
+      summary: 'In the square, all day.', when: Date.now() + 86400000,
+      link: 'https://example.com/e', image: '', html: '', date: Date.now(), order: 0,
+      fetched: Date.now() };
+    S.view = [ev];
+    S.idx = 0;
+    nd.openReader(ev);
+    await new Promise((r) => requestAnimationFrame(() => r()));
+
+    const acts = document.getElementById('rdActs');
+    const foot = document.getElementById('rdFoot');
+    const scroll = document.getElementById('rdScroll');
+    const inner = document.getElementById('rdInner');
+    const btns = [...acts.children];
+    const vw = document.documentElement.clientWidth;
+    const vh = document.documentElement.clientHeight;
+    const rects = btns.map((n) => n.getBoundingClientRect());
+
+    // Scrolled to the very bottom, is the end of the story clear of the foot?
+    scroll.scrollTop = scroll.scrollHeight;
+    await new Promise((r) => requestAnimationFrame(() => r()));
+    const end = document.getElementById('rdEnd') || inner.lastElementChild;
+    const endBottom = end ? end.getBoundingClientRect().bottom : 0;
+    const footTop = foot.getBoundingClientRect().top;
+
+    return {
+      labels: btns.map((n) => n.textContent),
+      ids: nd.readerActions(ev).map((a) => a.id),
+      offScreen: btns.filter((n, i) => rects[i].right > vw + 1 || rects[i].left < -1)
+        .map((n) => n.textContent),
+      /* Against a collapsed button rather than against a standard: .ract has been 28px
+         tall on touch since long before this, and changing that is not this change's to
+         make. */
+      tooShort: btns.filter((n, i) => rects[i].height < 24 || rects[i].width < 40)
+        .map((n) => n.textContent),
+      shortest: Math.round(Math.min.apply(null, rects.map((r) => r.height))),
+      rows: new Set(rects.map((r) => Math.round(r.top))).size,
+      footH: Math.round(foot.getBoundingClientRect().height),
+      footWithin: footTop >= 0 && Math.round(foot.getBoundingClientRect().bottom) <= vh + 1,
+      // A foot taller than the room left for it sits on top of the end of the story.
+      endClear: endBottom <= footTop + 1,
+      pad: Math.round(parseFloat(getComputedStyle(inner).paddingBottom)),
+      pageOverflow: document.documentElement.scrollWidth > vw + 1
+    };
+  });
+  await page.close();
+  return out;
+}
+
 /* A phone shows nine rows and the list is a hundred and twenty long. Drawing the lot
    before the first one appears is most of what a rebuild costs, and only a browser
    with real heights can say whether the rest arrives before anyone reaches it. */
@@ -815,6 +873,9 @@ async function stripFade(browser) {
   const ru = await reuse(browser);
   const rcPhone = await recipeCard(browser, { w: 412, h: 915 });
   const rcTv = await recipeCard(browser, { w: 1920, h: 1080, tv: true });
+  const stripPixel = await actionStrip(browser, { w: 412, h: 915 });
+  const stripSmall = await actionStrip(browser, { w: 360, h: 780 });
+  const stripTiny = await actionStrip(browser, { w: 320, h: 640 });
   await browser.close();
 
   suite('The price band holds one line', (t) => {
@@ -983,6 +1044,28 @@ async function stripFade(browser) {
     t.is(ru.newRows, 12, 'stories that really are new are still drawn');
     t.is(ru.newIds, true, 'and they are the new ones');
     t.same(ru.newLit, [100, 100, 100, 100, 100], 'with their own pictures faded in');
+  });
+
+  suite('Every action can be reached on a phone', (t) => {
+    [['pixel', stripPixel], ['small', stripSmall], ['tiny', stripTiny]].forEach(([name, r]) => {
+      t.same(r.ids, ['full', 'save', 'read', 'share', 'cal'],
+        name + ': a diary event carries all five actions');
+      t.same(r.offScreen, [], name + ': and not one of them is off the edge of the screen');
+      t.same(r.tooShort, [], name + ': each big enough to press');
+      t.is(r.footWithin, true, name + ': with the whole strip on the screen');
+      t.is(r.pageOverflow, false, name + ': and nothing pushing the page sideways');
+      /* Wrapping is the safety net, and a wrapped foot is taller - so the room left under
+         the story has to follow it, or the last of the story hides behind it. */
+      t.ok(r.pad >= r.footH, name + ': the story leaves room for the foot ('
+        + r.pad + 'px under a ' + r.footH + 'px foot)');
+      t.is(r.endClear, true, name + ': so the end of the story can be read clear of it');
+    });
+    // Short labels on a phone; the television has room for the full words.
+    t.ok(stripPixel.labels.indexOf('Listen') >= 0, 'a phone says Listen rather than Read aloud');
+    t.ok(stripPixel.labels.indexOf('Calendar') >= 0, 'and Calendar rather than Add to calendar');
+    t.is(stripPixel.rows, 1, 'which is what lets all five sit on one row of a Pixel');
+    t.ok(stripSmall.rows >= 1, 'a narrower phone wraps them rather than losing one ('
+      + stripSmall.rows + ' rows)');
   });
 
   suite('A recipe reads as a recipe, not as an article', (t) => {

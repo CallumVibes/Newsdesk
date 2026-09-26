@@ -997,16 +997,19 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
                          link: 'https://example.com/a' });
     const ids = (it) => { S.reader = { item: it, full: false, loading: false, y: 0, act: -1, acts: [] };
                           return nd.readerActions(it).map((a) => a.id); };
-    // This boot is a television: it has nothing to share to and no calendar.
-    t.same(ids(news), ['full', 'save'], 'a TV is offered the full story and saving, and no more');
-    t.same(ids(ev), ['full', 'save'], 'an event too');
+    /* This boot is a television: it has nothing to share to and no calendar. It does have
+       a voice, though, and a television is the device you are least likely to be holding,
+       so being read to is offered there as much as on a phone. */
+    t.same(ids(news), ['full', 'save', 'read'],
+      'a TV is offered the full story, saving and being read to, and no more');
+    t.same(ids(ev), ['full', 'save', 'read'], 'an event too');
     S.reader = { item: news, full: true, loading: false, y: 0, act: -1, acts: [] };
-    t.same(nd.readerActions(news).map((a) => a.id), ['save'],
+    t.same(nd.readerActions(news).map((a) => a.id), ['save', 'read'],
       'and the full story drops off the strip once it has been loaded');
     const brief = { src: 'ai', id: 'brief:1', title: 'H', link: '', summary: 'x' };
     S.reader = { item: brief, full: true, loading: false, y: 0, act: -1, acts: [] };
-    t.same(nd.readerActions(brief).map((a) => a.id), ['save'],
-      'a briefing has no page to fetch, so it is only ever saved');
+    t.same(nd.readerActions(brief).map((a) => a.id), ['save', 'read'],
+      'a briefing has no page to fetch, so it is saved or read out');
     S.reader = null; S.saved = [];
   });
 
@@ -2519,11 +2522,11 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
       S.reader = { item: it, full: !!full, loading: false, y: 0, act: -1, acts: [] };
       return phone.nd.readerActions(it).map((a) => a.id);
     };
-    t.same(ids(news), ['full', 'save', 'share'], 'a phone can share a story');
-    t.same(ids(ev), ['full', 'save', 'share', 'cal'],
+    t.same(ids(news), ['full', 'save', 'read', 'share'], 'a phone can share a story');
+    t.same(ids(ev), ['full', 'save', 'read', 'share', 'cal'],
       'and put an event in the calendar, since it knows when it is');
     const undated = Object.assign({}, ev, { when: 0 });
-    t.same(ids(undated), ['full', 'save', 'share'],
+    t.same(ids(undated), ['full', 'save', 'read', 'share'],
       'but not one whose date could not be read, which would only guess');
     S.reader = null; S.saved = [];
   });
@@ -2804,10 +2807,10 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     const rc = halfDown.nd.S.by.rc || {};
     t.ok(/1 of 6 kitchens/.test(rc.method || ''), 'one kitchen served dinner');
     const rcQuiet = halfDown.nd.quietReqs(rc).map((x) => halfDown.nd.reqLine(x));
-    t.ok(rcQuiet.some((l) => /deliciouslyella\.com\/feed\/ - answered with nothing/.test(l)),
-      'and the one with nothing but a giveaway on it says so');
+    t.ok(rcQuiet.some((l) => /deliciouslyella\.com\/feed\/ - 1 in it, none of them recipes/.test(l)),
+      'and the one with nothing but a giveaway on it says that is what was on it');
     t.not(rcQuiet.some((l) => /minimalistbaker/.test(l)), 'while the one that worked does not');
-    t.ok(/deliciouslyella\.com\/feed\/ - answered with nothing/.test(panel),
+    t.ok(/deliciouslyella\.com\/feed\/ - 1 in it, none of them recipes/.test(panel),
       'which reaches the panel as well as the state behind it');
     halfDown.window.nd.key('menu');
   });
@@ -2855,6 +2858,72 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.not((hh.requests || []).some((r) => /bitcoin|btc/i.test(r.url)),
       'and the History source asked for nothing to put it there');
     t.ok((hh.requests || []).length > 0, 'though it did ask the routes that need asking');
+  });
+
+  /* Three different faults came out as one phrase, "answered with nothing": a path that
+     does not exist but answers 200 with the site's home page, a feed nobody has posted to,
+     and a feed full of recipes older than the window keeps. They want opposite answers -
+     a new address, or nothing, or a wider window - so the panel has to tell them apart. */
+  suite('The panel says which kind of nothing came back', (t) => {
+    const line = nd.reqLine;
+    t.is(line({ url: 'https://a.test/feed/', ok: false, status: 404 }),
+      'a.test/feed/ - HTTP 404', 'a 404 is a 404');
+    t.is(line({ url: 'https://a.test/feed/', ok: false, status: 0, error: 'Timed out' }),
+      'a.test/feed/ - Timed out', 'and an error says what it was');
+    t.is(line({ url: 'https://a.test/feed/', ok: true, feed: false, had: 0, got: 0 }),
+      'a.test/feed/ - answered with a page, not a feed',
+      'a path that answers with the home page is named as the wrong address');
+    t.is(line({ url: 'https://a.test/feed/', ok: true, feed: true, had: 0, got: 0 }),
+      'a.test/feed/ - a feed with nothing in it', 'an empty feed is named as an empty feed');
+    t.is(line({ url: 'https://a.test/feed/', ok: true, feed: true, had: 12, got: 0, old: 12 }),
+      'a.test/feed/ - 12 in it, all older than ' + nd.RC_FRESH_DAYS + ' days',
+      'a kitchen that has closed says how many it had and that they were old');
+    t.is(line({ url: 'https://a.test/feed/', ok: true, feed: true, had: 3, got: 0, notRecipe: 3 }),
+      'a.test/feed/ - 3 in it, none of them recipes',
+      'and one writing about itself says that instead, which wants no fixing at all');
+    t.is(line({ url: 'https://a.test/feed/', ok: true, feed: true, had: 12, got: 0, old: 9, notRecipe: 3 }),
+      'a.test/feed/ - 12 in it, 9 too old and 3 not recipes', 'and a mix of both says both');
+    t.is(line({ url: 'https://a.test/feed/', ok: true, feed: true, had: 4, got: 0 }),
+      'a.test/feed/ - 4 in it, none kept',
+      'with no tally at all it says only what it can stand behind');
+    t.is(line({ url: 'https://a.test/feed/', ok: true, feed: true, had: 12, got: 3 }),
+      'a.test/feed/ - answered with nothing',
+      'a feed that did serve something is not in this list at all, so the old words will do');
+    t.is(line({ url: 'https://a.test/', ok: true, got: 0, note: 'asked, and it named no feed at all' }),
+      'a.test/ - asked, and it named no feed at all', 'and the page fallback says what it said');
+    // Sources that record nothing beyond ok are left reading as they did.
+    t.is(line({ url: 'https://a.test/x', ok: true, got: 0 }),
+      'a.test/x - answered with nothing', 'a route that counts nothing reads as before');
+    t.is(line('a plain line'), 'a plain line', 'and a line already in words is left alone');
+  });
+
+  /* A body that is a feed, as against one that is a page pretending the address exists. */
+  suite('A page is not a feed', (t) => {
+    t.is(nd.feedish('<?xml version="1.0"?><rss version="2.0"><channel></channel></rss>'), true,
+      'RSS is a feed');
+    t.is(nd.feedish('<feed xmlns="http://www.w3.org/2005/Atom"></feed>'), true, 'Atom is a feed');
+    t.is(nd.feedish('<rdf:RDF xmlns="x"></rdf:RDF>'), true, 'and RDF is a feed');
+    t.is(nd.feedish('{"items":[]}'), true, 'so is a JSON feed');
+    t.is(nd.feedish('<!doctype html><html><body><h1>Home</h1></body></html>'), false,
+      'a home page is not, however happily it answered');
+    t.is(nd.feedish(''), false, 'and nothing is not');
+    t.is(nd.feedish(null), false, 'nor null');
+
+    /* And the test is what stops the junk. parseFeed reads any XML it is handed and takes
+       whatever <item> or <entry> tags are in it, so an error served as XML - which is how
+       a good many APIs answer - was read as a recipe. "Service unavailable right now" sat
+       in the Recipes tab looking like dinner. */
+    const notFeed = '<?xml version="1.0"?><data><item><title>Service unavailable right now'
+      + '</title><link>https://x.test/i</link></item></data>';
+    t.is(nd.feedish(notFeed), false, 'XML that is not a feed is not a feed');
+    t.is(nd.parseAny(notFeed, 'rc').length, 0, 'and nothing is taken out of it');
+    const atomish = '<?xml version="1.0"?><results><entry><title>An error occurred</title>'
+      + '<link>https://x.test/e</link></entry></results>';
+    t.is(nd.parseAny(atomish, 'rc').length, 0, 'nor out of one with entry tags in it');
+    // While a real feed is still read.
+    t.is(nd.parseAny('<?xml version="1.0"?><rss version="2.0"><channel><item>'
+      + '<title>A soup that is good</title><link>https://x.test/s</link></item>'
+      + '</channel></rss>', 'rc').length, 1, 'and a real feed still gives up its items');
   });
 
   /* A recipe is not an article. The generic reader looks for the densest run of
@@ -3016,6 +3085,39 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     // Nothing answers at all, and every URL tried is on the record.
     delete RC_REPLY[vfl.page];
     rc.silent = await ask(vfl);
+
+    /* The three shapes a reader actually reported, each of which read as "answered with
+       nothing" and wanted a different answer. */
+    const stale = { name: 'Gone quiet', feeds: ['https://quiet.test/feed/'], page: 'https://quiet.test/' };
+    const oldDate = new Date(Date.now() - 400 * 24 * 3600e3).toUTCString();
+    RC_REPLY['https://quiet.test/feed/'] = { ok: true, body:
+      '<?xml version="1.0"?><rss version="2.0"><channel>'
+      + '<item><title>A fine old soup</title><link>https://quiet.test/soup</link>'
+      + '<pubDate>' + oldDate + '</pubDate><description>Once.</description></item>'
+      + '<item><title>An older stew</title><link>https://quiet.test/stew</link>'
+      + '<pubDate>' + oldDate + '</pubDate><description>Once.</description></item>'
+      + '</channel></rss>' };
+    RC_REPLY['https://quiet.test/'] = { ok: true, body: '<html><head></head><body></body></html>' };
+    rc.stale = await ask(stale);
+
+    // A path that does not exist, answering 200 with the site's home page.
+    const soft = { name: 'Soft 404', feeds: ['https://soft.test/recipes/feed/'], page: 'https://soft.test/recipes/' };
+    RC_REPLY['https://soft.test/recipes/feed/'] = { ok: true, body:
+      '<!doctype html><html><body><h1>Welcome</h1><p>Our recipes.</p></body></html>' };
+    RC_REPLY['https://soft.test/recipes/'] = { ok: true, body: '<html><head></head><body></body></html>' };
+    rc.soft = await ask(soft);
+
+    /* A 404 on /feed/, which is what a site that is not WordPress gives - and what a
+       WordPress site with its feed permalinks off gives too, so the query form is tried. */
+    const q404 = { name: 'Query form', feeds: ['https://q.test/feed/'], page: 'https://q.test/' };
+    RC_REPLY['https://q.test/feed/'] = { ok: false, status: 404, body: '' };
+    RC_REPLY['https://q.test/'] = { ok: true, body: '<html><head></head><body></body></html>' };
+    RC_REPLY['https://q.test/?feed=rss2'] = { ok: true, body:
+      '<?xml version="1.0"?><rss version="2.0"><channel>'
+      + '<item><title>Charred hispi cabbage</title><link>https://q.test/cabbage</link>'
+      + '<pubDate>' + new Date(Date.now() - HOUR).toUTCString() + '</pubDate>'
+      + '<description>With a dressing.</description></item></channel></rss>' };
+    rc.queryForm = await ask(q404);
 
     /* A page whose feed advertises another page, on and on. Bounded, or one kitchen
        could spend a refresh chasing its own tail. */
@@ -3179,6 +3281,7 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
 
   suite('A kitchen whose feed has moved is still found', (t) => {
     const nd2RcTries = kitchen.nd.RC_TRIES;
+    const nd2Line = kitchen.nd.reqLine;
     t.is(rc.first.items.length, 1, 'the feed asked for serves the recipes');
     t.is(rc.first.items[0].title, 'Smoky butter bean stew', 'which is what comes back');
     t.is(rc.first.reqs.length, 1, 'and nothing else is asked, since it answered');
@@ -3196,12 +3299,37 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
 
     t.is(rc.wrongFeed.items.length, 0,
       'a page offering the site-wide feed is not taken up on it');
-    t.not(rc.wrongFeed.reqs.some((r) => /\.com\/feed\//.test(r.url)),
+    t.not(rc.wrongFeed.reqs.some((r) => /\.com\/feed\/\?/.test(r.url) || /\.com\/feed\/$/.test(r.url)),
       'the newsroom feed is never even fetched, so it cannot leak into the dinners');
+    const why = rc.wrongFeed.reqs.filter((r) => r.note)[0];
+    t.ok(why && /belong to the whole site/.test(why.note),
+      'and the panel says why it was passed over (' + (why && why.note) + ')');
 
     t.is(rc.silent.items.length, 0, 'a kitchen that cannot be read anywhere serves nothing');
-    t.is(rc.silent.reqs.length, 2, 'having said which two feeds it tried');
-    t.ok(rc.silent.reqs.every((r) => r.url && !r.ok), 'and that neither of them answered');
+    const tried = rc.silent.reqs.filter((r) => !r.note);
+    t.ok(tried.length >= 2, 'having said which feeds it tried (' + tried.length + ')');
+    t.ok(tried.every((r) => r.url), 'each of them named');
+    /* And that it asked the page. Without this record the panel showed a kitchen's dead
+       feeds and nothing about the fallback, so there was no telling whether it ran. */
+    const asked = rc.silent.reqs.filter((r) => r.note);
+    t.is(asked.length, 1, 'and that it asked the page what its feed was');
+    t.ok(/asked/.test(asked[0].note), 'saying so in words (' + asked[0].note + ')');
+
+    /* The three a reader reported. Each served nothing, and the panel now says which
+       kind of nothing, because each wants a different answer. */
+    const said = (r, re) => r.reqs.map((x) => nd2Line(x)).some((l) => re.test(l));
+    t.is(rc.stale.items.length, 0, 'a kitchen that has not posted in a year serves nothing');
+    t.is(said(rc.stale, /2 in it, all older than/), true,
+      'and says its feed is full of old recipes rather than blaming the address');
+    t.is(rc.soft.items.length, 0, 'a path that does not exist serves nothing');
+    t.is(said(rc.soft, /answered with a page, not a feed/), true,
+      'and says the address is wrong, which is the opposite fix');
+    t.not(said(rc.soft, /older than/), 'never blaming the recipes for the address');
+
+    t.is(rc.queryForm.items.length, 1, 'a 404 on /feed/ falls through to the query form');
+    t.is(rc.queryForm.items[0].title, 'Charred hispi cabbage', 'which serves the recipes');
+    t.ok(rc.queryForm.reqs.some((r) => /\?feed=rss2/.test(r.url)),
+      'the platform\'s own form being tried last of all');
 
     t.is(rc.bounded.items.length, 0, 'a page offering forty dead feeds still serves nothing');
     /* Against a fixed number, not against RC_TRIES: measuring the limit with the limit
@@ -3218,7 +3346,117 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
        page then offers is not tried at all, because the page fetch counted too. */
     t.is(rc.tightFetches, nd2RcTries,
       'a kitchen costs no more than its limit, the page fetch included (' + rc.tightFetches + ')');
-    t.is(rc.tight.reqs.length, 5, 'so the five feeds are tried and the five offered are not');
+    t.is(rc.tight.reqs.filter((r) => !r.note).length, 5,
+      'so the five feeds are tried and the five offered are not');
+  });
+
+  /* A story read out loud. What is read is taken off the screen, so it is always what you
+     are looking at - the summary before the article has been fetched, the article after,
+     and a recipe's ingredients and method in the order you would cook them. */
+  const voice = {};
+  {
+    const nd2 = kitchen.nd, S2 = nd2.S, doc = kitchen.window.document, c = kitchen.calls;
+    const dish = { id: 'rc:stew2', src: 'rc', kitchen: 'A Kitchen', title: 'Smoky butter bean stew',
+      summary: 'A stew for a Tuesday.', link: 'https://kitchen.test/stew2', image: '', html: '',
+      date: Date.now(), when: 0, order: 0, fetched: Date.now() };
+    RC_REPLY['https://kitchen.test/stew2'] = { ok: true, body: readFixture('recipe-graph.html') };
+    S2.view = [dish];
+    S2.idx = 0;
+    nd2.openReader(dish);
+    await new Promise((r) => setTimeout(r, 200));
+
+    voice.offered = nd2.readerActions(dish).map((a) => a.id);
+    voice.text = nd2.spokenText();
+    c.spoken.length = 0;
+    c.hushed = 0;
+    nd2.readAloud();
+    voice.sent = c.spoken.slice();
+    voice.speakingAfter = !!S2.speaking;
+    // Defensively: an action strip with no read button should fail a line, not throw and
+    // take the rest of the run with it.
+    const readAct = () => nd2.readerActions(dish).filter((a) => a.id === 'read')[0] || {};
+    voice.labelWhile = readAct().label;
+
+    // Pressing it again stops it.
+    nd2.readAloud();
+    voice.hushedByPress = c.hushed;
+    voice.speakingAfterStop = !!S2.speaking;
+    voice.labelAfter = readAct().label;
+
+    // Kotlin saying it has finished puts the button back on its own.
+    nd2.readAloud();
+    kitchen.window.__spoke(true);
+    voice.speakingAfterDone = !!S2.speaking;
+
+    // A device with no voice says so rather than leaving it reading for ever.
+    nd2.readAloud();
+    kitchen.window.__spoke(false);
+    voice.speakingAfterFail = !!S2.speaking;
+    voice.failNote = doc.getElementById('rdNote').textContent;
+
+    // Leaving the story stops it, and so does opening another.
+    nd2.readAloud();
+    c.hushed = 0;
+    nd2.closeReader();
+    voice.hushedByClose = c.hushed;
+    voice.speakingAfterClose = !!S2.speaking;
+
+    nd2.openReader(dish);
+    await new Promise((r) => setTimeout(r, 200));
+    nd2.readAloud();
+    c.hushed = 0;
+    nd2.openReader(Object.assign({}, dish, { id: 'rc:other', title: 'Another dish entirely' }));
+    voice.hushedByNext = c.hushed;
+    voice.speakingAfterNext = !!S2.speaking;
+
+    // And the app going off screen.
+    nd2.readAloud();
+    c.hushed = 0;
+    kitchen.window.nd.paused();
+    voice.hushedByPause = c.hushed;
+    voice.speakingAfterPause = !!S2.speaking;
+    nd2.startTimers();
+    nd2.closeReader();
+    S2.view = [];
+  }
+
+  suite('A story can be read out loud', (t) => {
+    t.ok(voice.offered.indexOf('read') >= 0, 'the reader offers to read it out');
+
+    /* Taken off the screen, so it is what you are looking at. A recipe reads its times,
+       then its ingredients, then its method - in the order you would cook it. */
+    const lines = voice.text.split('\n');
+    t.is(lines[0], 'Smoky butter bean stew', 'it starts with the headline');
+    t.ok(/50 min/.test(lines[1]), 'then how long it takes, which is the next thing on screen');
+    t.ok(lines.indexOf('Ingredients') > 0, 'the headings are read too, so you know where you are');
+    t.ok(lines.indexOf('2 tbsp olive oil') > 0, 'every ingredient is read');
+    t.ok(lines.some((l) => /^1\. Warm the oil/.test(l)),
+      'and a step is read with its number, which the list draws and the words do not carry');
+    t.ok(lines.some((l) => /^5\. Simmer/.test(l)), 'up to the last of them');
+    t.is(lines.filter((l) => /^\d+\. /.test(l)).length, 5, 'five steps, numbered one to five');
+
+    t.is(voice.sent.length, 1, 'pressing it hands the words over once');
+    t.is(voice.sent[0], voice.text, 'and hands over exactly what is on the screen');
+    t.is(voice.speakingAfter, true, 'the app knows it is reading');
+    t.is(voice.labelWhile, 'Stop reading', 'and the button offers to stop');
+
+    t.is(voice.hushedByPress, 1, 'pressing it again stops the voice');
+    t.is(voice.speakingAfterStop, false, 'and the app knows it has stopped');
+    t.is(voice.labelAfter, 'Read aloud', 'with the button back to offering to read');
+
+    t.is(voice.speakingAfterDone, false, 'reaching the end puts the button back by itself');
+    t.is(voice.speakingAfterFail, false, 'and so does a device that has no voice');
+    t.ok(/no voice to read with/.test(voice.failNote),
+      'which says so rather than leaving it reading for ever');
+
+    /* Every way you stop listening. A voice carrying on from the last article while you
+       read the next is worse than no voice at all. */
+    t.is(voice.hushedByClose, 1, 'leaving the story stops it');
+    t.is(voice.speakingAfterClose, false, 'and it is not left marked as reading');
+    t.is(voice.hushedByNext, 1, 'opening another story stops it');
+    t.is(voice.speakingAfterNext, false, 'rather than reading the last one over the new one');
+    t.is(voice.hushedByPause, 1, 'and the app going off screen stops it');
+    t.is(voice.speakingAfterPause, false, 'with nothing left speaking to an empty room');
   });
 
   /* The evening edition repeated the morning's news. Four editions a day, and each was
