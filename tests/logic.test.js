@@ -2154,6 +2154,262 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     ol.innerHTML = '';
   });
 
+  /* Nine sources land within a few seconds of a cold start and each landing rebuilt
+     the list from nothing: every row thrown away and built again, so every thumbnail
+     went back to opacity zero and faded in once more. The whole screen blinked three
+     or four times on opening the app, and again on every refresh and every minute the
+     ages were redrawn. The rows are kept and moved instead. */
+  suite('A rebuild keeps the rows it already has', (t) => {
+    const nd = phone.nd, S = nd.S, doc = phone.window.document;
+    const ol = doc.getElementById('list');
+    S.mode = 'home';
+    S.tab = nd.TABS.findIndex((x) => x.id === 'all');
+    S.sections = [];
+    // Fresh objects with the same ids each time, which is what a loader hands back.
+    const pics = (ids) => ids.map((n) => story({
+      src: 'kg', id: 'p' + n, title: 'Story ' + n, image: 'https://pics.test/' + n + '.jpg' }));
+    const imgs = () => [].slice.call(ol.querySelectorAll('.thumb img'));
+    const ids = () => [].map.call(ol.querySelectorAll('li.row'), (li) => li.getAttribute('data-id'));
+
+    S.view = pics([0, 1, 2, 3]);
+    nd.renderListRows(false);
+    // The pictures arrive, as they do once the row is near the screen.
+    imgs().forEach((img) => {
+      img.src = img.getAttribute('data-src');
+      img.removeAttribute('data-src');
+      img.className = 'ld';
+    });
+    const before = imgs();
+    t.is(before.length, 4, 'four rows, four pictures');
+
+    S.view = pics([0, 1, 2, 3]);
+    nd.renderListRows(false);
+    const after = imgs();
+    t.is(after.length, 4, 'a landing that adds nothing still shows four pictures');
+    t.is(after.every((img, i) => img === before[i]), true,
+      'and they are the very same elements, so none of them loaded or faded again');
+    t.is(after.every((img) => img.className === 'ld'), true,
+      'still shown rather than back to transparent');
+    t.is(after.every((img) => !img.hasAttribute('data-src')), true,
+      'and none of them waiting to be fetched a second time');
+
+    // A refresh that reorders the list moves the rows rather than redrawing them.
+    S.view = pics([2, 0, 3, 1]);
+    nd.renderListRows(false);
+    t.same(ids(), ['p2', 'p0', 'p3', 'p1'], 'reordered, the list is in its new order');
+    t.is(imgs()[0], before[2], 'and a story that moved took its own picture with it');
+    t.same([].map.call(ol.querySelectorAll('li.row'), (li) => li.getAttribute('data-i')),
+      ['0', '1', '2', '3'], 'each row numbered where it now sits');
+
+    // One story goes, one arrives: the one that arrives is built, the rest are kept.
+    S.view = pics([2, 0, 4]);
+    nd.renderListRows(false);
+    t.same(ids(), ['p2', 'p0', 'p4'], 'a story leaving and another arriving are both drawn');
+    t.is(imgs()[0], before[2], 'the story that stayed kept its picture');
+    t.is(imgs()[2] === before[0] || imgs()[2] === before[1] || imgs()[2] === before[3], false,
+      'and the new one got a picture of its own rather than a dead row');
+    t.is(imgs()[2].getAttribute('data-src'), 'https://pics.test/4.jpg',
+      'pointed at its own photograph');
+
+    // The parts that go out of date are the parts brought up to date.
+    const kept = ol.querySelector('li.row');
+    S.fresh.p2 = 1;
+    const renamed = pics([2, 0, 4]);
+    renamed[0].title = 'Story 2, as it now reads';
+    S.view = renamed;
+    nd.renderListRows(false);
+    t.is(ol.querySelector('li.row'), kept, 'the row for a story is still the same row');
+    t.is(kept.querySelector('.ttl').textContent, 'Story 2, as it now reads',
+      'with a headline that has been rewritten since');
+    t.ok(kept.querySelector('.newtag'), 'and its New tag');
+    delete S.fresh.p2;
+    S.view = pics([2, 0, 4]);
+    nd.renderListRows(false);
+    t.is(kept.querySelector('.newtag'), null, 'which goes once it has been read');
+    t.is(ol.querySelector('li.row'), kept, 'the row itself outliving the tag');
+
+    // The cursor's own class is dropped, as building the row afresh used to drop it.
+    kept.classList.add('on');
+    S.view = pics([2, 0, 4]);
+    nd.renderListRows(false);
+    t.is(/\bon\b/.test(kept.className), false, 'a kept row does not keep the cursor');
+
+    /* An archive photograph gets a bigger thumbnail than a headline does, and which it
+       is depends on the story having a picture at all - which for the archive is
+       something that arrives after the row has been drawn. */
+    S.tab = nd.TABS.findIndex((x) => x.id === 'hist');
+    const shot = (img) => [story({ src: 'hh', id: 'hh:a1', title: 'Church Street, 1903',
+      kicker: 'Archive', image: img })];
+    S.view = shot('');
+    nd.renderListRows(false);
+    const hrow = ol.querySelector('li.row');
+    t.is(/\bpic\b/.test(hrow.className), false, 'an archive story with no photograph yet is a plain row');
+    S.view = shot('https://pics.test/a1.jpg');
+    nd.renderListRows(false);
+    t.is(ol.querySelector('li.row'), hrow, 'the photograph arriving keeps the row');
+    t.is(/\bpic\b/.test(hrow.className), true, 'and turns it into a photograph row');
+    S.view = shot('');
+    nd.renderListRows(false);
+    t.is(/\bpic\b/.test(hrow.className), false, 'and losing it turns it back');
+    S.tab = nd.TABS.findIndex((x) => x.id === 'all');
+
+    /* Two rows for one story - Today can put a headline in a section and in the list
+       under it - and one node cannot be in two places, so the second needs its own.
+       The first has to be one the pool is holding, which is the case that goes wrong. */
+    const twice = pics([0]);
+    S.view = [twice[0]];
+    nd.renderListRows(false);
+    const only = ol.querySelector('li.row');
+    S.view = [twice[0], twice[0]];
+    nd.renderListRows(false);
+    t.is(ol.querySelectorAll('li.row').length, 2, 'a story listed twice gets two rows');
+    t.is(ol.querySelectorAll('li.row')[0], only, 'the first of them being the row already there');
+    t.same([].map.call(ol.querySelectorAll('li.row'), (li) => li.getAttribute('data-i')),
+      ['0', '1'], 'each knowing which of them it is');
+
+    // A story whose picture has changed gets the new one.
+    const moved = pics([2, 0, 4]);
+    moved[1].image = 'https://pics.test/0-new.jpg';
+    S.view = moved;
+    nd.renderListRows(false);
+    t.is(imgs()[1].getAttribute('data-src') || imgs()[1].getAttribute('src'),
+      'https://pics.test/0-new.jpg', 'a new photograph for the story replaces the old one');
+    // And a story that has lost its picture loses the space it took.
+    const bare = pics([2, 0, 4]);
+    bare[1].image = '';
+    S.view = bare;
+    nd.renderListRows(false);
+    t.is(ol.querySelectorAll('li.row')[1].querySelector('.thumb'), null,
+      'and a story with no picture left keeps no room for one');
+
+    S.view = [];
+    S.sections = [];
+    ol.innerHTML = '';
+  });
+
+  /* The placeholders shimmer while you wait. Building them again restarts that from
+     nothing, and a cold start builds them once per source. */
+  suite('The placeholders are not started again while you wait', (t) => {
+    const nd = phone.nd, S = nd.S, doc = phone.window.document;
+    const ol = doc.getElementById('list');
+    S.mode = 'home';
+    S.view = [];
+    S.sections = [];
+    S.tab = nd.TABS.findIndex((x) => x.id === 'local');
+    const srcs = nd.TABS[S.tab].srcs;
+    srcs.forEach((s) => { S.busy[s] = true; });
+    ol.innerHTML = '';
+    nd.renderListRows(false);
+    const ghosts = [].slice.call(ol.querySelectorAll('li.ghost'));
+    t.ok(ghosts.length > 0, 'a tab still loading shows placeholders (' + ghosts.length + ')');
+    t.is(nd.onlyGhosts(ol), true, 'and nothing else');
+
+    nd.renderListRows(false);
+    const again = [].slice.call(ol.querySelectorAll('li.ghost'));
+    t.is(again.length, ghosts.length, 'drawn again, there are no more of them');
+    t.is(again.every((g, i) => g === ghosts[i]), true,
+      'and they are the same ones, so the shimmer carries on rather than starting over');
+
+    /* Placeholders with nothing behind them any more. They are only kept while there
+       is still something to wait for, or a source that answers with nothing would
+       leave the app shimmering at you for ever instead of saying so. */
+    srcs.forEach((s) => { S.busy[s] = false; });
+    nd.renderListRows(false);
+    t.is(ol.querySelectorAll('li.ghost').length, 0, 'once nothing is loading they go');
+    t.ok(ol.querySelector('.empty-note'), 'replaced by a note saying there is nothing to show');
+
+    // And stories landing replace them too.
+    srcs.forEach((s) => { S.busy[s] = true; });
+    S.view = [];
+    nd.renderListRows(false);
+    t.ok(ol.querySelector('li.ghost'), 'placeholders again while it loads');
+    S.view = [story({ src: 'ht', id: 'g1', title: 'The first story to land' })];
+    nd.renderListRows(false);
+    t.is(ol.querySelectorAll('li.ghost').length, 0, 'the stories replace them when they land');
+    t.is(ol.querySelectorAll('li.row').length, 1, 'with the story in their place');
+
+    S.view = [];
+    srcs.forEach((s) => { S.busy[s] = false; });
+    nd.renderListRows(false);
+    ol.innerHTML = '';
+  });
+
+  /* The rows a rebuild dropped are held while the tail of the list is still being
+     drawn, because the tail may yet want them. Once it is down they are a hundred and
+     twenty detached rows, pictures and all, and a stick has better uses for that. */
+  suite('The rows a rebuild dropped are let go', (t) => {
+    const nd = phone.nd, S = nd.S, doc = phone.window.document;
+    const ol = doc.getElementById('list');
+    S.mode = 'home';
+    S.sections = [];
+    S.tab = nd.TABS.findIndex((x) => x.id === 'all');
+    S.view = Array.from({ length: nd.FIRST_ROWS + 6 }, (_, i) =>
+      story({ src: 'kg', id: 'q' + i, title: 'Story ' + i }));
+    nd.renderListRows(false);
+    t.is(nd.pooling(), false, 'a list drawn in one go holds nothing afterwards');
+
+    nd.renderListRows(true);
+    t.is(nd.pooling(), true, 'a list with a tail still to come keeps them for it');
+    nd.drawTail();
+    t.is(nd.pooling(), false, 'and lets them go once the tail is down');
+
+    // A tab whose stories all go while the tail is still pending: the tail is called
+    // off, so nothing is left that could want the rows it was holding.
+    nd.renderListRows(true);
+    t.is(nd.pooling(), true, 'held again, with a tail pending');
+    S.view = [];
+    nd.renderListRows(false);
+    t.is(nd.pooling(), false, 'a list that empties lets them go rather than holding them');
+    ol.innerHTML = '';
+  });
+
+  /* Every landing and every rebuild came through renderTabs, which threw the strip
+     away and built it again - restarting the loading dot's pulse and snapping the
+     strip back to the current tab from wherever it had been scrolled. */
+  suite('The tab strip is drawn again only when it changes', (t) => {
+    const nd = phone.nd, S = nd.S, doc = phone.window.document;
+    const nav = doc.getElementById('tabs');
+    S.mode = 'home';
+    S.tab = nd.TABS.findIndex((x) => x.id === 'local');
+    S.unseen = {};
+    nd.renderTabs();
+    const tabs = [].slice.call(nav.querySelectorAll('.tab'));
+    t.ok(tabs.length > 0, 'the strip has its tabs (' + tabs.length + ')');
+
+    nd.renderTabs();
+    t.is([].slice.call(nav.querySelectorAll('.tab')).every((d, i) => d === tabs[i]), true,
+      'drawn again with nothing changed, it is the same strip - the dot keeps pulsing');
+
+    const mark = nd.tabsMark();
+    S.busy[nd.TABS[S.tab].srcs[0]] = true;
+    t.ok(nd.tabsMark() !== mark, 'a source starting to load is a change');
+    nd.renderTabs();
+    t.is(nav.querySelector('.tab') === tabs[0], false, 'so the strip is drawn again');
+    S.busy[nd.TABS[S.tab].srcs[0]] = false;
+    nd.renderTabs();
+
+    const counted = nd.tabsMark();
+    S.unseen = { world: 3 };
+    t.ok(nd.tabsMark() !== counted, 'a count appearing is a change');
+    const was = nav.querySelector('.tab');
+    nd.renderTabs();
+    t.is(nav.querySelector('.tab') === was, false, 'and brings the strip back');
+
+    const here = nd.tabsMark();
+    S.tab = nd.TABS.findIndex((x) => x.id === 'world');
+    t.ok(nd.tabsMark() !== here, 'and so is changing tab, which has to move the strip');
+
+    // Whatever the mark says, an empty strip is filled: nothing else would fill it.
+    nd.renderTabs();
+    nav.innerHTML = '';
+    nd.renderTabs();
+    t.ok(nav.querySelector('.tab'), 'an emptied strip is always drawn again');
+
+    S.unseen = {};
+    S.tab = nd.TABS.findIndex((x) => x.id === 'local');
+    nd.renderTabs();
+  });
+
   /* A Wikipedia entry opened showing "English darts player" and nothing else, with
      the article one tap away behind a button. An archive item had the same button,
      and behind that one there was nothing to read at all. */

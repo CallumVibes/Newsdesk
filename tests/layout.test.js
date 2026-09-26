@@ -305,6 +305,66 @@ async function pullAndPill(browser) {
   return out;
 }
 
+/* The flicker. Every thumbnail starts transparent and fades in over three tenths of a
+   second, and a rebuild used to throw the row away and build it again - so a picture
+   already on the screen went back to nothing and faded in from the start. Nine sources
+   landing over a cold start meant the list blinking three or four times, and a refresh
+   meant it once more. Only a browser can be asked what opacity a picture is actually
+   at; jsdom has no such answer. */
+async function reuse(browser) {
+  const page = await open(browser, { w: 412, h: 915 });
+  const out = await page.evaluate(async () => {
+    const nd = window.ndApi, S = nd.S;
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const frame = () => new Promise((r) => requestAnimationFrame(() => r()));
+    const ol = document.getElementById('list');
+    // A picture that loads without a network: a single transparent pixel.
+    const pic = 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACwAAAAAAQABAAACAkQBADs=';
+    const feed = (n, from) => ({ items: Array.from({ length: n }, (_, i) => ({
+      id: 'ht:' + (from + i), src: 'ht', kicker: '', title: 'A headline for story ' + (from + i),
+      summary: 'Summary.', link: 'https://example.com/' + (from + i), image: pic, html: '',
+      date: Date.now() - (from + i) * 60000, when: 0, order: from + i, fetched: Date.now() })) });
+    const shots = () => [].slice.call(ol.querySelectorAll('.thumb img')).slice(0, 5);
+    const lit = (ns) => ns.map((n) => Math.round(parseFloat(getComputedStyle(n).opacity) * 100));
+
+    S.tab = nd.TABS.findIndex((x) => x.id === 'local');
+    S.mode = 'home';
+    S.by.ht = feed(12, 0);
+    nd.rebuild(null);
+    await wait(700);                       // the pictures load and finish fading in
+    const before = shots();
+    const r = { pics: before.length, lit: lit(before) };
+
+    // A source landing with the same stories on it, which is most of a refresh.
+    const tabs = document.getElementById('tabs');
+    const tabWas = [].slice.call(tabs.querySelectorAll('.tab'));
+    S.by.ht = feed(12, 0);
+    nd.rebuild(null);
+    /* Read before the browser has had the chance to paint: this is the frame the
+       flicker was visible in. */
+    const after = shots();
+    r.same = after.length === before.length && after.every((n, i) => n === before[i]);
+    r.straightAfter = lit(after);
+    await frame();
+    r.nextFrame = lit(shots());
+    await wait(400);                       // longer than the fade would have taken
+    r.settled = lit(shots());
+    r.tabsSame = [].slice.call(tabs.querySelectorAll('.tab')).every((d, i) => d === tabWas[i]);
+
+    // And a landing that really does bring new stories still draws them.
+    S.by.ht = feed(12, 100);
+    nd.rebuild(null);
+    const rows = [].slice.call(ol.querySelectorAll('li.row'));
+    r.newRows = rows.length;
+    r.newIds = rows.every((li) => /^ht:1\d\d$/.test(li.getAttribute('data-id')));
+    await wait(700);
+    r.newLit = lit(shots());
+    return r;
+  });
+  await page.close();
+  return out;
+}
+
 /* A phone shows nine rows and the list is a hundred and twenty long. Drawing the lot
    before the first one appears is most of what a rebuild costs, and only a browser
    with real heights can say whether the rest arrives before anyone reaches it. */
@@ -663,6 +723,7 @@ async function stripFade(browser) {
   const lz = await lens(browser);
   const tm = await tabMotion(browser);
   const sf = await stripFade(browser);
+  const ru = await reuse(browser);
   await browser.close();
 
   suite('The price band holds one line', (t) => {
@@ -817,6 +878,20 @@ async function stripFade(browser) {
     t.is(rd.sections, rd.sectionsUnique, 'each of them drawn once, not again on the tail');
     t.ok(rd.sectionsFirst <= rd.sections, 'some of them arriving with the first screenful');
     t.is(rd.noTrailingHeader, true, 'and no header is left with nothing under it');
+  });
+
+  suite('A rebuild does not blink the pictures', (t) => {
+    t.is(ru.pics, 5, 'five pictures to watch');
+    t.same(ru.lit, [100, 100, 100, 100, 100], 'all of them faded in and fully there');
+    t.is(ru.same, true, 'a rebuild leaves the very same picture elements in place');
+    t.same(ru.straightAfter, [100, 100, 100, 100, 100],
+      'and in the frame the rebuild happened in they are still fully there');
+    t.same(ru.nextFrame, [100, 100, 100, 100, 100], 'still, on the frame after it');
+    t.same(ru.settled, [100, 100, 100, 100, 100], 'and no fade ever ran');
+    t.is(ru.tabsSame, true, 'the tab strip is left alone too, so its loading dot keeps pulsing');
+    t.is(ru.newRows, 12, 'stories that really are new are still drawn');
+    t.is(ru.newIds, true, 'and they are the new ones');
+    t.same(ru.newLit, [100, 100, 100, 100, 100], 'with their own pictures faded in');
   });
 
   suite('An archive photograph is shown whole, and large', (t) => {
