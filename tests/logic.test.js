@@ -2857,6 +2857,115 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.ok((hh.requests || []).length > 0, 'though it did ask the routes that need asking');
   });
 
+  /* A recipe is not an article. The generic reader looks for the densest run of
+     paragraphs, and a recipe's substance is two lists - collectBlocks even drops list
+     items under twenty characters, and "2 tbsp olive oil" is sixteen, so the ingredients
+     were thrown away by design. schema.org/Recipe is what the kitchens all publish,
+     because it is what puts a recipe card in a search result.
+
+     The fixtures here are constructed from that specification and from the shapes the
+     common WordPress recipe plugins write, NOT captured from the kitchens - this
+     environment cannot reach them. They cover the four documented ways a method can
+     arrive and the awkward ways the other fields do. */
+  suite('A recipe is read as a recipe', (t) => {
+    const graph = nd.recipeFrom(readFixture('recipe-graph.html'));
+    t.ok(graph, 'a Recipe inside a @graph is found among the page\'s other objects');
+    t.is(graph.ingredients.length, 7, 'with all seven ingredients');
+    t.is(graph.ingredients[0], '2 tbsp olive oil',
+      'including the short ones the article reader throws away');
+    t.is(graph.steps.length, 5, 'and the method as five steps');
+    t.is(graph.steps[0], 'Warm the oil in a wide pan over a low heat.', 'in the order given');
+    t.is(graph.total, 50, 'the total time read from an ISO duration');
+    t.is(graph.prep, 15, 'and the prep');
+    t.is(graph.cook, 35, 'and the cooking');
+    t.is(graph.serves, '4', 'and how many it feeds');
+    t.is(graph.image, 'https://pics.test/stew-1200.jpg', 'taking the first of the pictures');
+
+    // The same thing written every awkward way at once.
+    const html = nd.recipeFrom(readFixture('recipe-html.html'));
+    t.ok(html, 'a Recipe at the top level is found too');
+    t.is(html.ingredients.length, 6, 'ingredients given as one string, a line each, are split');
+    t.is(html.ingredients[0], '250g red lentils', 'the first of them read whole');
+    t.is(html.ingredients[5], 'Salt & pepper', 'and an entity decoded rather than shown raw');
+    t.is(html.steps.length, 4, 'a method given as one blob of HTML is split on its list items');
+    t.ok(/thirty seconds/.test(html.steps[1]), 'with the markup inside a step taken out');
+    t.not(/<strong>/.test(html.steps[1]), 'and no tags left in the words');
+    t.ok(/doesn\u2019t catch/.test(html.steps[3]), 'and a curly apostrophe decoded');
+    t.is(html.total, 45, 'a duration written the long way round still reads (P0DT0H45M)');
+    t.is(html.serves, 'Serves 6 generously', 'and a yield that is already a sentence is left alone');
+    t.is(html.image, 'https://pics.test/dal.jpg', 'a picture given as an object is unwrapped');
+
+    /* A recipe in parts. Each HowToSection holds its own steps, so anything that looks
+       only one level down finds no method at all. */
+    const secs = nd.recipeFrom(readFixture('recipe-sections.html'));
+    t.ok(secs, 'a Recipe reached through mainEntity is found');
+    t.is(secs.steps.length, 5, 'the steps inside both HowToSections are gathered (3 + 2)');
+    t.is(secs.steps[0], 'Cover the dates with boiling water and leave them to soften.',
+      'the first section first');
+    t.is(secs.steps[4], 'Let it bubble until it coats the back of a spoon.', 'and the second after it');
+    t.is(secs.ingredients.length, 6, 'with its ingredients');
+    t.is(secs.total, 0, 'no total time is given');
+    t.is(secs.serves, '8', 'and a yield given as a list reads as its first entry');
+
+    /* A round-up is not a recipe, and neither is a Recipe object with nothing in it.
+       Both have to come back as nothing, or the reader shows an empty Ingredients
+       heading where the article should be. */
+    t.is(nd.recipeFrom(readFixture('recipe-none.html')), null,
+      'a round-up post with no recipe in it is not made into one');
+    t.is(nd.recipeFrom('<html><body><p>Nothing at all.</p></body></html>'), null,
+      'nor is a page with no JSON-LD');
+    t.is(nd.recipeFrom(''), null, 'nor nothing');
+  });
+
+  suite('The times a recipe gives are read to the letter', (t) => {
+    t.is(nd.ldMinutes('PT30M'), 30, 'PT30M is half an hour');
+    t.is(nd.ldMinutes('PT1H'), 60, 'PT1H is an hour');
+    t.is(nd.ldMinutes('PT1H15M'), 75, 'PT1H15M is an hour and a quarter');
+    t.is(nd.ldMinutes('P0DT0H30M'), 30, 'and the long way round is still half an hour');
+    t.is(nd.ldMinutes('PT2H30M15S'), 150, 'seconds are ignored rather than refused');
+    t.is(nd.ldMinutes('P1D'), 1440, 'a whole day reads as one');
+    /* A bare number is not a duration. It might be minutes and it might be seconds, and
+       a wrong time on the page is worse than no time at all. */
+    t.is(nd.ldMinutes('30'), 0, 'a bare number is not read as anything');
+    t.is(nd.ldMinutes('half an hour'), 0, 'nor are words');
+    t.is(nd.ldMinutes(''), 0, 'nor nothing');
+    t.is(nd.ldMinutes(null), 0, 'nor null');
+    t.is(nd.ldMinutes('PT'), 0, 'nor a duration with no duration in it');
+
+    // How a cook says it, rather than how JSON does.
+    t.is(nd.timeWords(25), '25 min', 'under an hour is minutes');
+    t.is(nd.timeWords(60), '1 hr', 'an hour is an hour');
+    t.is(nd.timeWords(90), '1 hr 30 min', 'and ninety minutes is an hour and a half');
+    t.is(nd.timeWords(150), '2 hrs 30 min', 'two hours takes the plural');
+    t.is(nd.timeWords(120), '2 hrs', 'with nothing after it when it is round');
+    t.is(nd.timeWords(0), '', 'and no time says nothing rather than "0 min"');
+  });
+
+  /* What the reader is given to draw: how long and how many first, because that is what
+     decides whether you are cooking it tonight. */
+  suite('The recipe card leads with what you decide on', (t) => {
+    const blocks = nd.recipeBlocks(nd.recipeFrom(readFixture('recipe-graph.html')));
+    t.is(blocks[0].k, 'meta', 'the times come first');
+    t.ok(/50 min/.test(blocks[0].t), 'saying how long it all takes');
+    t.ok(/15 min prep, 35 min cooking/.test(blocks[0].t), 'and how that splits');
+    t.ok(/Serves 4/.test(blocks[0].t), 'and how many it feeds');
+    const kinds = blocks.map((b) => b.k);
+    t.is(kinds.indexOf('sec') , 1, 'then a heading');
+    t.is(blocks[1].t, 'Ingredients', 'which is the ingredients');
+    t.is(kinds.filter((k) => k === 'ing').length, 7, 'then every ingredient, as its own block');
+    t.is(blocks[kinds.indexOf('step') - 1].t, 'Method', 'then a heading for the method');
+    t.is(kinds.filter((k) => k === 'step').length, 5, 'then every step');
+
+    // A recipe with a yield that already reads as a sentence is not given another.
+    const dal = nd.recipeBlocks(nd.recipeFrom(readFixture('recipe-html.html')));
+    t.ok(/Serves 6 generously/.test(dal[0].t), 'a yield that says "serves" is left as it is');
+    t.not(/Serves Serves/.test(dal[0].t), 'rather than having the word put on twice');
+
+    // Only prep and cook given, so the total is added up rather than left out.
+    const stp = nd.recipeBlocks(nd.recipeFrom(readFixture('recipe-sections.html')));
+    t.ok(/1 hr 30 min/.test(stp[0].t), 'with no total given, prep and cooking are added up');
+  });
+
   /* The recipes were the one source fetched with a single URL and nothing behind it.
      Every other source in the app tries the feeds it knows, then asks the site. A feed
      path is a thing a site moves without telling anybody, and a kitchen whose path had
@@ -2950,6 +3059,123 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     rc.tight = await ask(tight);
     rc.tightFetches = kitchen.calls.fetched.length;
   }
+
+  /* The parser is only worth having if opening a recipe reaches it. A recipe's feed entry
+     is a sentence of description - the ingredients and the method are on the page - so it
+     is fetched on opening rather than hidden behind a Full story button. */
+  {
+    const nd2 = kitchen.nd, S2 = nd2.S, doc = kitchen.window.document;
+    const dish = { id: 'rc:stew', src: 'rc', kitchen: 'A Kitchen', title: 'Smoky butter bean stew',
+      summary: 'A stew for a Tuesday.', link: 'https://kitchen.test/stew', image: '', html: '',
+      date: Date.now(), when: 0, order: 0, fetched: Date.now() };
+    RC_REPLY['https://kitchen.test/stew'] = { ok: true, body: readFixture('recipe-graph.html') };
+    rc.auto = nd2.autoFull(dish);
+    rc.autoNoLink = nd2.autoFull(Object.assign({}, dish, { link: '' }));
+    S2.view = [dish];
+    S2.idx = 0;
+    kitchen.calls.fetched.length = 0;
+    nd2.openReader(dish);
+    rc.askedOnOpen = kitchen.calls.fetched.slice();
+    await new Promise((r) => setTimeout(r, 200));
+    const body = doc.getElementById('rdBody');
+    rc.openIngs = [].map.call(body.querySelectorAll('ul.ings li'), (n) => n.textContent);
+    rc.openSteps = body.querySelectorAll('ol.steps li').length;
+    rc.openMeta = (body.querySelector('p.rd-meta') || {}).textContent || '';
+    rc.openHeads = [].map.call(body.querySelectorAll('h3'), (n) => n.textContent);
+    rc.fullAction = nd2.readerActions(dish).map((a) => a.id);
+
+    /* A kitchen also posts round-ups, which have no Recipe in them. Those must fall
+       through to the article reader rather than showing an empty Ingredients heading. */
+    const roundup = Object.assign({}, dish, { id: 'rc:ten', link: 'https://kitchen.test/ten',
+      title: 'Ten things to cook this autumn' });
+    RC_REPLY['https://kitchen.test/ten'] = { ok: true, body: readFixture('recipe-none.html') };
+    S2.view = [roundup];
+    S2.idx = 0;
+    nd2.openReader(roundup);
+    await new Promise((r) => setTimeout(r, 200));
+    rc.roundupIngs = body.querySelectorAll('ul.ings li').length;
+    rc.roundupParas = body.querySelectorAll('p').length;
+    rc.roundupText = body.textContent;
+    nd2.closeReader();
+    S2.view = [];
+  }
+
+  suite('Opening a recipe puts the recipe on the screen', (t) => {
+    t.is(rc.auto, true, 'a recipe is fetched on opening, not offered behind a button');
+    t.is(rc.autoNoLink, false, 'unless there is no page to fetch');
+    t.ok(rc.askedOnOpen.indexOf('https://kitchen.test/stew') >= 0,
+      'so opening one asks for its page straight away');
+    t.not(rc.fullAction.indexOf('full') >= 0 && rc.openIngs.length > 0,
+      'and there is no Full story button left to press');
+
+    t.is(rc.openIngs.length, 7, 'the ingredients are on the screen');
+    t.is(rc.openIngs[0], '2 tbsp olive oil', 'the short ones included');
+    t.is(rc.openSteps, 5, 'and the method, as numbered steps');
+    t.same(rc.openHeads, ['Ingredients', 'Method'], 'under their own headings');
+    t.ok(/50 min/.test(rc.openMeta), 'with how long it takes above them');
+    t.ok(/Serves 4/.test(rc.openMeta), 'and how many it feeds');
+
+    // A round-up is read as what it is.
+    t.is(rc.roundupIngs, 0, 'a round-up post grows no ingredients list');
+    t.ok(rc.roundupParas >= 2, 'it is read as the article it is (' + rc.roundupParas + ' paragraphs)');
+    t.ok(/squashes are in/.test(rc.roundupText), 'with the words that were actually on the page');
+  });
+
+  /* Ticking an ingredient off. A hand covered in flour has better things to do than keep
+     its place in a list, so the strike-through is remembered - per recipe, and keyed on
+     the words rather than the position, since a kitchen that reorders its list would
+     otherwise strike the wrong things through. */
+  suite('An ingredient stays ticked off', (t) => {
+    const nd2 = kitchen.nd, S2 = nd2.S, ls = kitchen.window.localStorage;
+    const dal = { id: 'rc:dal' }, stew = { id: 'rc:stew' };
+    S2.ticked = {};
+    ls.removeItem(nd2.TICK_KEY);
+
+    t.same(nd2.ticksFor(dal), {}, 'nothing is ticked to begin with');
+    t.is(nd2.toggleTick(dal, '250g red lentils'), true, 'tapping one ticks it off');
+    t.is(nd2.toggleTick(dal, '250g red lentils'), false, 'and tapping it again puts it back');
+    t.is(nd2.toggleTick(dal, '250g red lentils'), true, 'and again ticks it once more');
+
+    // Each ingredient on its own, or ticking one would strike the lot through.
+    nd2.toggleTick(dal, '1 tbsp coconut oil');
+    t.is(Object.keys(nd2.ticksFor(dal)).length, 2, 'two ticked means two remembered');
+    // Separate marks: unticking one has to leave the other struck through.
+    t.is(nd2.toggleTick(dal, '1 tbsp coconut oil'), false, 'unticking one of them');
+    t.is(Object.keys(nd2.ticksFor(dal)).length, 1, 'leaves the other ticked');
+    nd2.toggleTick(dal, '1 tbsp coconut oil');
+
+    // And per recipe: tomorrow's dinner does not start half struck through.
+    t.same(nd2.ticksFor(stew), {}, 'another recipe is untouched by it');
+    nd2.toggleTick(stew, '2 tbsp olive oil');
+    t.is(Object.keys(nd2.ticksFor(stew)).length, 1, 'and keeps its own');
+    t.is(Object.keys(nd2.ticksFor(dal)).length, 2, 'while the first keeps its two');
+
+    // Written down, or the app closing loses the shop.
+    const held = JSON.parse(ls.getItem(nd2.TICK_KEY) || 'null');
+    t.ok(held && held['rc:dal'] && held['rc:stew'], 'both are written to storage');
+    S2.ticked = {};
+    nd2.loadTicks();
+    t.is(Object.keys(nd2.ticksFor(dal)).length, 2, 'and read back when the app opens');
+
+    // Untick everything and the recipe drops out rather than leaving an empty record.
+    Object.keys(nd2.ticksFor(stew)).length && nd2.toggleTick(stew, '2 tbsp olive oil');
+    t.same(nd2.ticksFor(stew), {}, 'unticking the last one leaves nothing behind');
+    t.not(!!(JSON.parse(ls.getItem(nd2.TICK_KEY) || '{}')['rc:stew']),
+      'and the recipe is not kept as an empty record');
+
+    /* A dozen recipes is plenty; the rest are meals already cooked, and this shares a
+       storage quota with the briefings, which cannot be fetched again. */
+    for (let n = 0; n < nd2.TICK_KEEP + 6; n++) nd2.toggleTick({ id: 'rc:m' + n }, 'an ingredient');
+    t.ok(Object.keys(S2.ticked).length <= nd2.TICK_KEEP,
+      'no more than ' + nd2.TICK_KEEP + ' recipes are kept (' + Object.keys(S2.ticked).length + ')');
+    t.is(Object.keys(nd2.ticksFor({ id: 'rc:m' + (nd2.TICK_KEEP + 5) })).length, 1,
+      'the most recent being one of them');
+
+    t.is(nd2.toggleTick(null, 'x'), false, 'nothing is not a recipe to tick');
+    t.is(nd2.toggleTick({}, 'x'), false, 'and neither is one with no id');
+    S2.ticked = {};
+    ls.removeItem(nd2.TICK_KEY);
+  });
 
   suite('A kitchen whose feed has moved is still found', (t) => {
     const nd2RcTries = kitchen.nd.RC_TRIES;
