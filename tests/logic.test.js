@@ -2831,6 +2831,68 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.ok((hh.requests || []).length > 0, 'though it did ask the routes that need asking');
   });
 
+  /* refresh() clears S.busy[s] when the source's promise settles, and only then. So a
+     promise nobody ever answers leaves that source reading "Updating…" for the life of
+     the app and never refreshed again. There was one slot to be answered in, with no
+     deadline on it, and a second scrape simply overwrote it. */
+  const scrapes = {};
+  {
+    const nd2 = phone.nd, w = phone.window;
+    const real = w.Native.scrape;
+    /* Bounded, because the fault being checked for is a promise that never settles:
+       awaiting one of those hangs the whole run instead of failing a line of it. */
+    const ran = (p) => {
+      let bell;
+      const rung = new Promise((r) => { bell = setTimeout(() => r({ failed: 'never settled' }), 2000); });
+      return Promise.race([p.then((r) => ({ got: r }), (e) => ({ failed: (e && e.message) || String(e) })), rung])
+        .then((r) => { clearTimeout(bell); return r; });
+    };
+
+    // A page that is read normally still comes back with what was on it.
+    scrapes.normal = await ran(nd2.scrapeRendered('https://example.com/one'));
+
+    // Nothing answers, and a second read starts. The first has to be told.
+    w.Native.scrape = function () {};
+    scrapes.afterNormal = nd2.scrapeState();
+    const first = ran(nd2.scrapeRendered('https://example.com/first'));
+    scrapes.waiting = nd2.scrapeState();
+    const second = ran(nd2.scrapeRendered('https://example.com/second'));
+    scrapes.first = await first;
+    scrapes.stillWaiting = nd2.scrapeState();
+    // And that second one is the one __scrapeDone answers.
+    w.__scrapeDone('[{"title":"A wire off the live page","link":"https://example.com/w"}]', '[]');
+    scrapes.second = await second;
+    scrapes.settled = nd2.scrapeState();
+    w.Native.scrape = real;
+  }
+
+  suite('A page that is never read still answers', (t) => {
+    const nd2 = phone.nd;
+    t.ok(scrapes.normal.got, 'a page read normally comes back');
+    t.ok(Array.isArray(scrapes.normal.got.items), 'with the items off it');
+
+    t.same(scrapes.afterNormal, { slot: false, armed: false },
+      'and leaves nothing waiting and no deadline running behind it');
+    t.same(scrapes.waiting, { slot: true, armed: true },
+      'a read nothing has answered is waiting, with a deadline of its own');
+    t.is(scrapes.first.failed, 'Another page was read instead',
+      'and a second read tells the first rather than dropping it');
+    t.same(scrapes.stillWaiting, { slot: true, armed: true },
+      'the second one now being the one waiting');
+    t.ok(scrapes.second.got, 'which is the one that is answered');
+    t.is(scrapes.second.got.items.length, 1, 'with what was on that page');
+    /* The slot is let go and the deadline disarmed. A deadline left running belongs to
+       a read that is over, and forty-five seconds later it would reject whichever read
+       happened to be in the slot by then. */
+    t.same(scrapes.settled, { slot: false, armed: false },
+      'and afterwards there is nothing waiting and no deadline left running');
+
+    // The deadline only exists for the case where Kotlin says nothing at all, so it has
+    // to be longer than the time Kotlin allows itself to answer in.
+    t.ok(nd2.SCRAPE_WAIT_MS > 35000,
+      'the page waits longer than the app allows itself (' + nd2.SCRAPE_WAIT_MS + 'ms)');
+  });
+
   /* Saving the cache waits a second and a half for the quiet, because nine sources
      landing means nine saves and eight are thrown away. Going off screen is not the
      quiet: Android can reclaim the process without running another line, so a refresh

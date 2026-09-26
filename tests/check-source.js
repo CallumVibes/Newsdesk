@@ -355,6 +355,24 @@ suite('The share the page composes is the share Kotlin sends', (t) => {
     'and hands over the headline, that body, and the address');
 });
 
+/* Reading a rendered page is Kotlin's job and the page waits to be told. Both sides
+   have a deadline, and the page's has to be the later of the two: it exists only for
+   the case where Kotlin says nothing at all, and a page that gave up first would have
+   its source marked busy when the real answer arrived. */
+suite('The page waits longer than the app takes', (t) => {
+  const kt = read(KT + 'MainActivity.kt'), page = read(PAGE);
+  const ktMs = (kt.match(/SCRAPE_TIMEOUT_MS\s*=\s*([\d_]+)L/) || [])[1];
+  const jsMs = (page.match(/var SCRAPE_WAIT_MS\s*=\s*(\d+)/) || [])[1];
+  t.ok(ktMs, 'the app gives itself a time to answer in (' + ktMs + ')');
+  t.ok(jsMs, 'and the page gives itself a time to be answered in (' + jsMs + ')');
+  const kn = parseInt(String(ktMs).replace(/_/g, ''), 10), jn = parseInt(jsMs, 10);
+  t.ok(jn > kn, 'the page waits the longer of the two (' + jn + ' > ' + kn + ')');
+  // And it settles either way, or the source it belongs to stays busy for ever.
+  const fn = page.slice(page.indexOf('function scrapeRendered'), page.indexOf('window.__scrapeDone'));
+  t.ok(/setTimeout/.test(fn), 'the page arms that deadline rather than waiting for ever');
+  t.ok(/w\.rej\(/.test(fn), 'and a read that is replaced is told, not dropped');
+});
+
 /* The window behind the page and the bars around it are painted by Kotlin, before a
    line of that page has run. So the two colours are written twice, in two languages,
    and a page that turned white while Kotlin still painted black would open with a
