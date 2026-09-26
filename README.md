@@ -248,6 +248,19 @@ menu marked up as plain headings, which no link rule can.
 The first is for a short menu of two or three, under the run rule's line. The second is for a menu
 that isn't linked at all. Neither covers the other.
 
+### Nothing to press
+
+A Wikipedia entry used to open showing its description — *English darts player* — and nothing else,
+with the article one tap away behind **Full story**. There was nothing else on the screen to read,
+so the tap asked a question with only one answer. Where an entry opens with too little to read and
+there is an article to fetch, it is fetched on opening. That already happened for the local paper
+and the diary; history entries join them.
+
+An archive item goes the other way. Its page on the library's site is their own picture viewer, and
+behind it there is nothing to read but *"Scroll the mousewheel to zoom"* and a note about colour
+accuracy — checked against the real page. The photograph **is** the story and it is already on the
+screen, so no full story is offered, because there is none.
+
 ### Looking properly at a photograph
 
 A picture of Church Street in 1969 has shop signs in it, and the way to read them is to get closer.

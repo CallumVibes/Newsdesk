@@ -2141,6 +2141,78 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     ol.innerHTML = '';
   });
 
+  /* A Wikipedia entry opened showing "English darts player" and nothing else, with
+     the article one tap away behind a button. An archive item had the same button,
+     and behind that one there was nothing to read at all. */
+  suite('Fetch what is worth reading, ask about nothing', (t) => {
+    const nd = phone.nd, S = nd.S, c = phone.calls;
+    const wiki = story({ src: 'hh', id: 'hh:1963:Terry Jenkins', title: 'Terry Jenkins',
+      kicker: 'Born', summary: 'English darts player',
+      link: 'https://en.wikipedia.org/wiki/Terry_Jenkins' });
+    const archive = story({ src: 'hh', id: 'hh:a146705', title: 'Church Street, barge boards, 1903',
+      kicker: 'Archive', summary: '', image: 'https://herefordshirehistory.org.uk/img/x',
+      link: 'https://herefordshirehistory.org.uk/archive/hereford-images/church-street-hereford/146705-church-street-barge-boards-1903' });
+    archive.ref = '146705';
+
+    // The Wikipedia one: there is an article, so it is fetched rather than offered.
+    t.is(nd.canLoadFull(wiki), true, 'there is an article behind a Wikipedia entry');
+    t.is(nd.autoFull(wiki), true, 'so it is fetched on opening');
+    c.fetched.length = 0;
+    nd.openReader(wiki);
+    t.ok(c.fetched.some((u) => /Terry_Jenkins/.test(u)),
+      'opening it asks for the article without being told to');
+    t.not(nd.readerActions(wiki).some((a) => a.id === 'full' && !a.off),
+      'and the button is not sitting there waiting to be pressed');
+    nd.closeReader();
+
+    /* The archive one: its page is the library's picture viewer, and all that is on
+       it is "Scroll the mousewheel to zoom". The photograph is the story, and it is
+       already on the screen. */
+    t.is(nd.canLoadFull(archive), false, 'an archive item has no article behind it');
+    t.is(nd.autoFull(archive), false, 'so nothing is fetched');
+    c.fetched.length = 0;
+    nd.openReader(archive);
+    t.same(c.fetched.filter((u) => /herefordshirehistory/.test(u)), [],
+      'opening it asks for nothing');
+    t.not(nd.readerActions(archive).some((a) => a.id === 'full'),
+      'and offers no Full story button, since there is no full story');
+    nd.closeReader();
+
+    // The rules it already had are untouched.
+    const ht = story({ src: 'ht', id: 'ht:1', title: 'A local story',
+      summary: 'A line.', link: 'https://www.herefordtimes.com/news/1' });
+    t.is(nd.autoFull(ht), true, 'the local paper is still fetched on opening');
+    const ev = story({ src: 'lm', id: 'lm:1', title: 'Christmas Fayre', summary: 'In the square.',
+      when: Date.now() + DAY, link: 'https://example.com/e' });
+    t.is(nd.autoFull(ev), true, 'and so is a diary entry');
+    const kg = story({ src: 'kg', id: 'kg:1', title: 'A wire story',
+      summary: 'A summary of a decent length, which is the point of the wire.',
+      link: 'https://example.com/k' });
+    t.is(nd.autoFull(kg), false, 'a wire story that came with its summary is not');
+    t.is(nd.canLoadFull(kg), true, 'but can still be asked for');
+
+    /* And through the loader that actually builds them, rather than by hand: the
+       catalogue number has to survive the trip from the page to the row, or the
+       reader cannot tell a photograph from an article. */
+    const built = nd.hhItems([
+      { title: 'Church Street, barge boards, 1903', summary: '', year: 1903, kicker: 'Archive',
+        ref: '146705', image: 'https://herefordshirehistory.org.uk/img/x',
+        link: 'https://herefordshirehistory.org.uk/archive/a/b/146705-church-street' },
+      { title: 'Terry Jenkins', summary: 'English darts player', year: 1963, kicker: 'Born',
+        link: 'https://en.wikipedia.org/wiki/Terry_Jenkins' }
+    ]);
+    t.is(built[0].ref, '146705', 'an archive row carries its catalogue number');
+    t.is(built[1].ref, '', 'and a Wikipedia row carries none');
+    t.is(nd.canLoadFull(built[0]), false, 'so the photograph is offered no full story');
+    t.is(nd.autoFull(built[1]), true, 'while the article is fetched on opening');
+
+    // Nothing to link to, nothing to fetch.
+    t.is(nd.autoFull(story({ src: 'hh', id: 'x', title: 'No link', link: '' })), false,
+      'an entry with nowhere to go fetches nothing');
+    t.is(nd.autoFull(null), false, 'and nothing fetches nothing');
+    c.fetched.length = 0;
+  });
+
   suite('What you can do with a story, on a phone', (t) => {
     const S = phone.nd.S;
     S.saved = [];
