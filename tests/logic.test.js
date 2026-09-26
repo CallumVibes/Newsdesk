@@ -2831,6 +2831,122 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.ok((hh.requests || []).length > 0, 'though it did ask the routes that need asking');
   });
 
+  /* The evening edition repeated the morning's news. Four editions a day, and each was
+     shown the one before it and nothing else - so the evening one was told what midday
+     said, knew nothing of the morning, and with no new news retold the morning's
+     stories as though they had just happened. The vegan section holds forty-eight
+     hours of stories, which is why it read the same twice in one day. */
+  const HOUR_MS = 3600e3;
+  // Pinned to the afternoon so every edition time below lands on the same local day,
+  // whatever the machine's clock is set to.
+  const AFTERNOON = new Date(2026, 4, 14, 17, 3, 0).getTime();
+  const evening = await boot({ settle: 400, device: 'touch', now: AFTERNOON });
+  const brief = {};
+  {
+    const nd2 = evening.nd, S2 = nd2.S, w = evening.window;
+    const edition = (name, hoursAgo, headline, para) => ({
+      headline: headline, paragraphs: [para], at: AFTERNOON - hoursAgo * HOUR_MS,
+      slotName: name, slotKey: '2026-05-14|' + name.toLowerCase(), model: 'test'
+    });
+    const morning = edition('Morning', 12, 'A quiet start',
+      'Michelle Farnham has completed twenty-one days inside a pig farrowing crate.');
+    const midday = edition('Midday', 5, 'Little has moved',
+      'Whitworths has launched a meat-free mince in 900 Tesco stores.');
+
+    /* Yesterday's editions are kept for days, and they are not what this edition is
+       carrying on from - the whole point of the block is what has been said today. */
+    const lastNight = edition('Night', 20, 'Yesterday drawing to a close',
+      'The bridge at Whitney-on-Wye reopened to traffic yesterday evening.');
+
+    /* The morning one is only in storage, never in this page's memory - which is the
+       state a page open since breakfast is in when the background job writes an
+       edition in a WebView of its own. */
+    S2.briefs = [midday];
+    w.localStorage.setItem(nd2.BRIEFS_KEY, JSON.stringify([morning, lastNight]));
+
+    const at = (hoursAgo) => AFTERNOON - hoursAgo * HOUR_MS;
+    const news = (src, id, title, hoursAgo, kicker) => story({
+      src: src, id: src + ':' + id, title: title, kicker: kicker || 'UK',
+      summary: 'What happened, in a sentence.', date: at(hoursAgo),
+      link: 'https://example.com/' + id });
+    const all = [
+      news('kg', 'k1', 'Something that happened this afternoon', 1),
+      news('kg', 'k2', 'Something that happened before breakfast', 14),
+      news('kg', 'k3', 'Something from yesterday evening', 20),
+      news('vf', 'v1', 'Activist completes twenty-one days in a farrowing crate', 30),
+      news('vf', 'v2', 'Whitworths meat-free mince reaches 900 Tesco stores', 40),
+      news('ht', 'h1', 'A council decision in Hereford', 2)
+    ];
+    brief.said = nd2.briefsToday(AFTERNOON);
+    const t = nd2.buildToday(all, true);
+    brief.input = nd2.briefInput(t, nd2.briefSlot(AFTERNOON).slot);
+    brief.system = nd2.BRIEF_SYSTEM;
+    brief.fresh = all.map((it) => [it.id, nd2.isNewsSince(it, AFTERNOON - 5 * HOUR_MS)]);
+
+    // And the same day with nothing at all having come in since midday.
+    const stale = all.filter((it) => it.date < AFTERNOON - 5 * HOUR_MS);
+    brief.quiet = nd2.briefInput(nd2.buildToday(stale, true), nd2.briefSlot(AFTERNOON).slot);
+
+    // A day with no earlier edition asks for nothing to be carried on from.
+    S2.briefs = [];
+    w.localStorage.removeItem(nd2.BRIEFS_KEY);
+    brief.first = nd2.briefInput(nd2.buildToday(all, true), nd2.briefSlot(AFTERNOON).slot);
+  }
+
+  suite('An edition carries on from the day, not from the last edition', (t) => {
+    t.is(brief.said.length, 2, 'both of today\'s editions are found');
+    t.same(brief.said.map((b) => b.slotName), ['Morning', 'Midday'],
+      'oldest first, so the day reads in order');
+    t.not(/Whitney-on-Wye/.test(brief.input),
+      'and last night\'s edition is left out: this is what has been said today');
+    t.ok(/Michelle Farnham/.test(brief.input),
+      'the morning edition is put in front of the writer, though only storage had it');
+    t.ok(/Whitworths has launched/.test(brief.input), 'and the midday one with it');
+    t.ok(/ALREADY SAID EARLIER TODAY/.test(brief.input), 'under a heading that says what they are');
+    t.ok(/Do not say any of it again/.test(brief.input), 'and tells the writer not to say it again');
+
+    // What has come in since midday, and what has not.
+    const marked = brief.input.split('\n').filter((l) => /^- \[/.test(l));
+    const isNew = (bit) => marked.some((l) => l.indexOf(bit) >= 0 && /\[NEW\]/.test(l));
+    t.is(isNew('this afternoon'), true, 'a story from this afternoon is marked new');
+    t.is(isNew('A council decision'), true, 'and so is the local one from an hour ago');
+    t.is(isNew('before breakfast'), false, 'one from before the midday edition is not');
+    t.is(isNew('farrowing crate'), false, 'nor is the vegan story the morning already told');
+    t.ok(/SINCE YOUR LAST EDITION/.test(brief.input), 'the writer is told what the mark means');
+    t.ok(/Lead with those/.test(brief.input), 'and to lead with them');
+
+    // The case the reader saw: nothing new, and nothing to pad it out with.
+    t.ok(/Nothing above is new/.test(brief.quiet), 'a quiet afternoon is described as one');
+    t.ok(/short edition/.test(brief.quiet), 'and a short edition asked for');
+    t.not(/\[NEW\]/.test(brief.quiet), 'with nothing marked new, because nothing is');
+
+    // The first edition of the day has nothing to carry on from and is not told it has.
+    t.not(/ALREADY SAID EARLIER TODAY/.test(brief.first), 'the first edition of a day carries on from nothing');
+    t.not(/SINCE YOUR LAST EDITION/.test(brief.first), 'and is asked nothing about what is new');
+    t.not(/\[NEW\]/.test(brief.first), 'so nothing is marked on it');
+
+    // The rules the input leans on have to be in the rules.
+    t.ok(/every edition you have written today/.test(brief.system),
+      'the writer is told the block holds the whole day');
+    t.ok(/\[NEW\]/.test(brief.system), 'and what the mark on a story means');
+    t.ok(/fewer paragraphs/.test(brief.system), 'and that a quiet day is a shorter briefing');
+
+    // Story by story, against the midday edition.
+    t.same(brief.fresh, [['kg:k1', true], ['kg:k2', false], ['kg:k3', false],
+                         ['vf:v1', false], ['vf:v2', false], ['ht:h1', true]],
+      'only the two that came in after midday count as new');
+
+    const since = AFTERNOON - 5 * HOUR_MS;
+    const asks = (o) => evening.nd.isNewsSince(story(o), since);
+    t.is(asks({ src: 'lm', id: 'lm:1', title: 'A market day', date: AFTERNOON,
+                when: AFTERNOON + 48 * HOUR_MS }), false,
+      'a diary entry is never new: it is something coming up, not something that happened');
+    t.is(asks({ src: 'kg', id: 'kg:n', title: 'No date', date: 0 }), false,
+      'and a story with no date is not called new on a guess');
+    t.is(evening.nd.isNewsSince(story({ src: 'kg', id: 'kg:m', title: 'Now', date: AFTERNOON }), 0),
+      false, 'nor is anything at all when there is no earlier edition to be new since');
+  });
+
   /* refresh() clears S.busy[s] when the source's promise settles, and only then. So a
      promise nobody ever answers leaves that source reading "Updating…" for the life of
      the app and never refreshed again. There was one slot to be answered in, with no
@@ -3083,6 +3199,7 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     pizzaDay.close();
     halfDown.close();
     mkt.close();
+    evening.close();
   });
 }).catch((e) => {
   console.error(e && e.stack || e);
