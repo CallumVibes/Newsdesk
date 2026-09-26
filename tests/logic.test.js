@@ -2831,12 +2831,143 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.ok((hh.requests || []).length > 0, 'though it did ask the routes that need asking');
   });
 
+  /* The minute tick exists so the ages can go stale without the list being rebuilt for
+     it - the words are the only part that changed. Nothing checked that it updates the
+     words, or that it leaves the pictures alone. */
+  suite('The ages go stale without the list being redrawn', (t) => {
+    const nd = phone.nd, S = nd.S, doc = phone.window.document;
+    const ol = doc.getElementById('list');
+    S.mode = 'home';
+    S.sections = [];
+    S.tab = nd.TABS.findIndex((x) => x.id === 'all');
+    const at = (mins) => story({ src: 'kg', id: 'a' + mins, title: 'Story from ' + mins,
+      image: 'https://pics.test/' + mins + '.jpg', date: Date.now() - mins * 60e3 });
+    S.view = [at(2), at(240)];
+    nd.renderListRows(false);
+    const whens = () => [].map.call(ol.querySelectorAll('.meta .when'), (n) => n.textContent);
+    const imgs = () => [].slice.call(ol.querySelectorAll('.thumb img'));
+    const before = imgs();
+    t.same(whens(), ['2m ago', '4h ago'], 'the ages as they are now');
+    t.is(before.length, 2, 'with a picture on each row');
+
+    // An hour goes by without a rebuild.
+    S.view.forEach((it) => { it.date -= 60 * 60e3; });
+    nd.renderListAgesOnly();
+    t.same(whens(), ['1h ago', '5h ago'], 'an hour later the ages have moved on');
+    t.is(imgs().every((n, i) => n === before[i]), true,
+      'and the pictures are the same elements, never redrawn');
+    t.is(ol.querySelectorAll('li.row').length, 2, 'as are the rows they sit in');
+
+    // A list only half drawn is not walked past its end.
+    S.view = Array.from({ length: 4 }, (_, i) => at(i + 1));
+    ol.innerHTML = '';
+    nd.drawRows(ol, 0, 2);
+    let threw = false;
+    try { nd.renderListAgesOnly(); } catch (e) { threw = true; }
+    t.is(threw, false, 'a half-drawn list is safe to walk');
+    t.is(whens().length, 2, 'and only the rows that exist are touched');
+    S.view = [];
+    ol.innerHTML = '';
+  });
+
+  /* A picture that 404s used to be asked for again on every rebuild: the handler took
+     the row's thumbnail away but nothing remembered why, so the next rebuild put it
+     back and fetched the same dead address. */
+  suite('A picture that is not there is asked for once', (t) => {
+    const nd = phone.nd, S = nd.S, doc = phone.window.document;
+    const ol = doc.getElementById('list');
+    S.mode = 'home';
+    S.sections = [];
+    S.tab = nd.TABS.findIndex((x) => x.id === 'all');
+    const it = story({ src: 'kg', id: 'd1', title: 'A story with a dead picture',
+      image: 'https://pics.test/gone.jpg' });
+    S.view = [it];
+    nd.renderListRows(false);
+    const img = ol.querySelector('.thumb img');
+    t.ok(img, 'the row is drawn with a picture to load');
+    // jsdom loads no images, so the handler is called the way a 404 would call it.
+    img.onerror();
+    t.is(ol.querySelector('.thumb'), null, 'a picture that fails takes its space with it');
+    t.is(it.image, '', 'and the story remembers there is none');
+
+    nd.renderListRows(false);
+    t.is(ol.querySelector('.thumb'), null, 'so a rebuild does not put it back');
+    t.is(ol.querySelectorAll('li.row').length, 1, 'the row itself staying where it is');
+    S.view = [];
+    ol.innerHTML = '';
+  });
+
+  /* tryChain takes the first provider that answers, so what counts as an answer is
+     the whole of its meaning. A reader that handed back { gbp: undefined } from JSON
+     of the right shape and no price in it ended the chain there - and Coinbase and
+     blockchain.info, both working, were never asked. */
+  const REPLY = {};
+  const mkt = await boot({ settle: 400, reply: (u) => REPLY[u] || null });
+  const priceChain = {};
+  {
+    const nd2 = mkt.nd;
+    const answer = (list, i, body) => { REPLY[list[i].url] = { ok: true, body: body }; };
+    const B = nd2.BTC_SOURCES, R = nd2.RATE_SOURCES;
+    const ran = (p) => p.then((r) => r, (e) => ({ failed: String((e && e.message) || e) }));
+
+    // The right shape with nothing in it, then a provider that has the price.
+    answer(B, 0, '{"bitcoin":{}}');
+    answer(B, 1, '{"data":{"amount":"51234.50"}}');
+    priceChain.past = await ran(nd2.tryChain(B));
+    // The first one working is still the one used.
+    answer(B, 0, '{"bitcoin":{"gbp":49000,"gbp_24h_change":-1.5}}');
+    priceChain.first = await ran(nd2.tryChain(B));
+    // A price of zero is not a price either.
+    answer(B, 0, '{"bitcoin":{"gbp":0}}');
+    priceChain.zero = await ran(nd2.tryChain(B));
+    // Nor is one that is not a number at all.
+    answer(B, 0, '{"bitcoin":{"gbp":"n/a"}}');
+    priceChain.words = await ran(nd2.tryChain(B));
+    // And with every provider answering emptily the chain fails rather than inventing.
+    answer(B, 0, '{"bitcoin":{}}');
+    answer(B, 1, '{"data":{}}');
+    answer(B, 2, '{"GBP":{}}');
+    priceChain.none = await ran(nd2.tryChain(B));
+    /* The dollar rate reads a bare number rather than an object. A missing one is
+       undefined, which tryChain rejects on its own; a zero is a number, and without the
+       same rule it would be taken as the rate - which is gold and oil gone, since both
+       are priced through it. */
+    answer(R, 0, '{"rates":{}}');
+    answer(R, 1, '{"rates":{"GBP":0.79}}');
+    priceChain.rate = await ran(nd2.tryChain(R));
+    answer(R, 0, '{"rates":{"GBP":0}}');
+    priceChain.zeroRate = await ran(nd2.tryChain(R));
+  }
+
+  suite('One source answering with nothing does not take the price down', (t) => {
+    const nd2 = mkt.nd;
+    t.is(nd2.priced('51234.50'), 51234.5, 'a figure reads as a number');
+    ['', null, undefined, 0, -1, 'n/a', {}].forEach((bad) => {
+      let threw = false;
+      try { nd2.priced(bad); } catch (e) { threw = true; }
+      t.is(threw, true, JSON.stringify(bad) + ' is not a price and says so');
+    });
+
+    t.is(priceChain.past.v && priceChain.past.v.gbp, 51234.5,
+      'a provider with no price in its answer is passed over for one that has it');
+    t.is(priceChain.past.from, 'api.coinbase.com', 'which is the next in the chain');
+    t.is(priceChain.first.v && priceChain.first.v.gbp, 49000,
+      'and the first one is still used when it does answer');
+    t.is(priceChain.first.v.chg, -1.5, 'with the change it came with');
+    t.is(priceChain.zero.v && priceChain.zero.v.gbp, 51234.5, 'a price of zero is passed over');
+    t.is(priceChain.words.v && priceChain.words.v.gbp, 51234.5, 'so is one that is not a number');
+    t.ok(priceChain.none.failed, 'every provider answering emptily fails the chain');
+    t.is(priceChain.rate.v, 0.79, 'and the dollar rate is read the same way');
+    t.is(priceChain.zeroRate.v, 0.79, 'a rate of zero passed over rather than taken');
+  });
+
   return run('Newsdesk logic').then(() => {
     close();                       // stop the page's clock, or node never gets to exit
     phone.close();
     hist.close();
     pizzaDay.close();
     halfDown.close();
+    mkt.close();
   });
 }).catch((e) => {
   console.error(e && e.stack || e);
