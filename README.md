@@ -216,6 +216,27 @@ So every route now counts what it got, and the ☰ panel lists any that failed o
 under **Nothing came from:**, with the address and the reason — `HTTP 404`, `Timed out`, or
 `answered with nothing`. A route that worked is not listed; there is nothing to say about it.
 
+### A photograph is the story
+
+An archive item is a photograph with a caption; the picture *is* the thing, not an illustration
+beside an article. It used to be drawn in the same fixed strip a news story's picture gets, which
+cropped the top off a street and left half the screen empty below the caption because there was no
+article to fill it. A history item now gets its own shape: as much width as the screen allows,
+its own height, nothing cropped, capped so the caption stays on screen. Its row in the list carries
+a bigger thumbnail too.
+
+### A menu is not the start of the article
+
+**Full story** on a Hereford Times piece used to begin with the paper's section menu — featured,
+News, Sport, Letters, Hereford FC, E-editions — as though the article opened with a list of the rest
+of the website. The menu is marked up as headings that are links, outside any `<nav>`, and inside
+the same container as the story, which is how it got through: the container holding the paragraphs
+is the one that wins, and the menu was in it.
+
+A heading that is *nothing but* a link is somewhere to go, not something to read. A heading in an
+article is words on the page; a heading you can click is a menu, whatever it is wrapped in. One that
+merely contains a link is still a heading.
+
 ## Search
 
 Searches what the app already has — every story its sources last gave it, everything saved, and

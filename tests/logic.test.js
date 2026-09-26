@@ -832,6 +832,58 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
   });
 
   /* -------------------------------------------------------- Reading a page */
+  /* The paper's section menu arrived at the top of every story it fetched in full -
+     featured, News, Sport, Letters, Hereford FC, E-editions - as though the article
+     began with a list of the rest of the website. */
+  suite('A menu is not the start of the article', (t) => {
+    // The shape it came in: headings that are links, outside any <nav>.
+    /* The menu sits inside the same container as the story, which is the whole
+       reason it got through: the container holding the paragraphs is the one that
+       wins, and the menu was in it. A menu in a box of its own was never a problem,
+       because a box with no paragraphs in it never wins. */
+    const page = `<html><body><div class="article-content">
+        <div class="menu-wrap">
+          ${['featured','News','Sport','Letters','Hereford FC','E-editions',
+             "What's On",'Notices','Awards','Young Reporter']
+            .map((x) => `<h3><a href="/${x}">${x}</a></h3>`).join('')}
+        </div>
+        <h1>Hay-on-Wye to become UK's first Fungi Town</h1>
+        <p>Hay-on-Wye is set to transform into the UK's first Fungi Town with a
+           three-day celebration dedicated to the wonders of the mushroom kingdom.</p>
+        <h2>What is on</h2>
+        <p>The festival will run across three days in the town's castle grounds, with
+           foraging walks and talks from mycologists through the weekend.</p>
+      </div></body></html>`;
+    const got = nd.extractArticle(page);
+    const text = got.blocks.map((b) => b.t);
+    t.not(text.some((x) => /^(News|Sport|Letters|Notices|Awards|featured)$/.test(x)),
+      'not one of the section names is in the article');
+    t.not(text.some((x) => /Hereford FC|E-editions|Young Reporter/.test(x)),
+      'nor any of the rest of the menu');
+    t.ok(text.some((x) => /mushroom kingdom/.test(x)), 'while the story itself is there');
+    t.ok(text.some((x) => /foraging walks/.test(x)), 'all of it');
+    t.is(got.blocks[0].t.slice(0, 20), 'Hay-on-Wye is set to', 'and it starts at the start');
+
+    // A real subheading stays, because it is words rather than somewhere to go.
+    t.ok(text.indexOf('What is on') >= 0, 'a heading in the article is kept');
+    t.is(got.blocks.filter((b) => b.k === 'h').length, 1, 'and it is the only heading');
+
+    // A heading that merely contains a link is still a heading.
+    const withLink = nd.extractArticle(`<html><body><div class="article-content">
+      <h2>The <a href="/x">mushroom festival</a> in full</h2>
+      <p>A paragraph long enough to be counted as the body of the article, which this
+         one certainly is, with room to spare.</p></div></body></html>`);
+    t.ok(withLink.blocks.some((b) => b.k === 'h' && /in full/.test(b.t)),
+      'a heading with a link inside it is not a menu item');
+
+    // And a menu marked up properly was already going; it still is.
+    const inNav = nd.extractArticle(`<html><body><div class="article-content">
+      <nav><h3><a href="/sport">Sport</a></h3></nav>
+      <p>A paragraph long enough to be counted as the body of the article, which this
+         one certainly is, with room to spare.</p></div></body></html>`);
+    t.not(inNav.blocks.some((b) => /Sport/.test(b.t)), 'a menu inside a nav is still dropped');
+  });
+
   suite('Reading a page the publisher meant for search engines', (t) => {
     const out = [];
     nd.ldItems({

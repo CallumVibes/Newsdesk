@@ -377,6 +377,65 @@ async function rowDrawing(browser) {
   return out;
 }
 
+/* An archive photograph is the story rather than a picture beside one, and only a
+   browser can say how much of it is on the screen and how much was cropped off. */
+async function photoSizes(browser) {
+  const page = await open(browser, { w: 412, h: 915 });
+  const out = await page.evaluate(async () => {
+    const nd = window.ndApi, S = nd.S;
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    // A landscape photograph, 300x200, so the shape it should keep is known.
+    const pic = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200">'
+      + '<rect width="300" height="200" fill="#888"/></svg>');
+    const mk = (src, id, extra) => Object.assign({
+      id, src, kicker: '', title: 'Church Street Hereford, 1969', summary: '',
+      link: 'https://example.com/' + id, image: pic, html: '',
+      date: Date.now(), when: 0, order: 0, fetched: Date.now() }, extra || {});
+
+    S.by.hh = { items: [mk('hh', 'h1', { year: 1969 })] };
+    S.by.ht = { items: [mk('ht', 'n1', { title: 'A news story with a picture' })] };
+
+    const shot = async (tab, item) => {
+      S.tab = nd.TABS.findIndex((x) => x.id === tab);
+      S.mode = 'home';
+      nd.rebuild(null);
+      await wait(60);
+      const row = document.querySelector('#list li.row');
+      const thumb = row && row.querySelector('.thumb');
+      const tr = thumb ? thumb.getBoundingClientRect() : { width: 0, height: 0 };
+      nd.openReader(item);
+      await wait(200);
+      const box = document.getElementById('rdImgBox');
+      const img = document.getElementById('rdImg');
+      const br = box.getBoundingClientRect(), ir = img.getBoundingClientRect();
+      const wrap = document.getElementById('rdScroll').getBoundingClientRect();
+      const r = {
+        rowThumbW: Math.round(tr.width), rowThumbH: Math.round(tr.height),
+        boxH: Math.round(br.height), imgW: Math.round(ir.width), imgH: Math.round(ir.height),
+        natural: img.naturalWidth + 'x' + img.naturalHeight,
+        fit: getComputedStyle(img).objectFit,
+        whole: /\bwhole\b/.test(box.className),
+        screenH: Math.round(wrap.height)
+      };
+      nd.closeReader();
+      await wait(60);
+      return r;
+    };
+    const hist = await shot('hist', S.by.hh.items[0]);
+    const news = await shot('local', S.by.ht.items[0]);
+    // A tall photograph at full width would run off the screen; the cap is for it.
+    const tall = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="600">'
+      + '<rect width="200" height="600" fill="#888"/></svg>');
+    S.by.hh = { items: [mk('hh', 'h2', { image: tall, title: 'A tall one' })] };
+    const portrait = await shot('hist', S.by.hh.items[0]);
+    return { hist, news, portrait };
+  });
+  await page.close();
+  return out;
+}
+
 (async () => {
   let chromium;
   try { chromium = require('playwright-core').chromium; } catch (e) {
@@ -408,6 +467,7 @@ async function rowDrawing(browser) {
   }
   const pp = await pullAndPill(browser);
   const rd = await rowDrawing(browser);
+  const ph = await photoSizes(browser);
   await browser.close();
 
   suite('The price band holds one line', (t) => {
@@ -545,6 +605,47 @@ async function rowDrawing(browser) {
     t.is(rd.sections, rd.sectionsUnique, 'each of them drawn once, not again on the tail');
     t.ok(rd.sectionsFirst <= rd.sections, 'some of them arriving with the first screenful');
     t.is(rd.noTrailingHeader, true, 'and no header is left with nothing under it');
+  });
+
+  suite('An archive photograph is shown whole, and large', (t) => {
+    const h = ph.hist, n = ph.news;
+    t.is(h.natural, '300x200', 'the photograph is a landscape one');
+
+    // The reader: all of it, and enough of the screen to be worth looking at.
+    t.is(h.whole, true, 'a history item is drawn as a photograph rather than a strip');
+    t.is(h.fit, 'contain', 'so none of it is cropped away');
+    t.ok(h.boxH > 220, 'and it is given real room (' + h.boxH + 'px)');
+    t.ok(h.boxH > n.boxH * 1.4, 'more than a news story\'s picture gets ('
+      + h.boxH + 'px against ' + n.boxH + 'px)');
+    t.ok(h.boxH < h.screenH, 'while still leaving the caption on the screen');
+    // Full width, so a landscape photograph is as big as the screen allows.
+    t.ok(h.imgW > 340, 'across the whole width it is given (' + h.imgW + 'px)');
+    // Whole means whole: the shape on screen is the shape it was taken in.
+    const ratio = h.imgW / h.imgH;
+    t.ok(Math.abs(ratio - 1.5) < 0.06,
+      'shown in the shape it was taken in, 3:2 (' + ratio.toFixed(2) + ')');
+
+    // A news story is unchanged: a strip beside the words it illustrates.
+    t.is(n.whole, false, 'a news story still gets a picture, not a photograph');
+    t.is(n.fit, 'cover', 'filling its strip');
+    t.ok(Math.abs(n.imgH - n.boxH) < 2, 'which is a fixed height');
+
+    // The list: a row about a photograph shows more of the photograph.
+    t.ok(h.rowThumbW > n.rowThumbW, 'a history row carries a bigger thumbnail ('
+      + h.rowThumbW + 'px against ' + n.rowThumbW + 'px)');
+    t.ok(h.rowThumbW >= n.rowThumbW * 1.4, 'meaningfully bigger, not a nudge');
+    t.ok(h.rowThumbH > n.rowThumbH, 'in both directions');
+
+    // A tall photograph is capped rather than pushing the caption off the bottom.
+    const p = ph.portrait;
+    t.is(p.whole, true, 'a portrait photograph is shown whole too');
+    t.ok(p.boxH < p.screenH, 'but never taller than the screen it is on ('
+      + p.boxH + 'px of ' + p.screenH + 'px)');
+    /* contain fits the picture inside that box and pads the sides, so the picture
+       keeps its shape while the element is wider than it. Nothing is cut off, which
+       is the part that matters and the part cover got wrong. */
+    t.is(p.fit, 'contain', 'with none of it cropped away, only padded at the sides');
+    t.ok(p.boxH > 400, 'and it is given nearly the whole screen (' + p.boxH + 'px)');
   });
 
   return run('Newsdesk layout');
