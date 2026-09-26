@@ -222,11 +222,34 @@ reader is looking at an empty screen — and the eight behind it are gathered in
 (`REBUILD_GAP`). The last landing always gets its redraw, or the stories that arrived with it would
 wait for the next refresh.
 
+**The first screenful goes down first.** A phone shows nine rows and the list is 120 long —
+fourteen screens of it — and drawing the lot before the first one appeared was most of what a
+rebuild cost. `FIRST_ROWS` are drawn now and the rest follows a tick later, before a thumb could
+have moved far enough to want it. Time to the first rows on screen: **10.2ms to 3.0ms**, and
+**21.3ms to 3.0ms** counting the listener change above.
+
+Only from the top, though. A reader who has scrolled needs every row to exist for the list to keep
+the height it had, so there the lot is drawn at once. And whatever moves the cursor past the
+screenful — a refresh keeping your place deep in the list — draws that far first.
+
 **The cache stopped keeping page text.** It was 82% of the cache, and it is the one thing in there
 that can be had again for the asking: a story opened without it offers **Full story** and fetches
 it, exactly as a story that never had any already does. A briefing cannot be refetched, and the two
 were competing for the same 5MB. The cache went from **0.64MB to 0.11MB**. Saved stories still keep
 their text, so they read offline.
+
+### Unread
+
+Breaking had the whole machinery — a list of what you've seen, a **New** tag on the row, a tab that
+pulses — and it was the only tab that used any of it. Every tab counts now: the strip carries a
+number for each tab with stories you haven't looked at, looking at a tab reads it, and **Mark all
+read** in the ☰ panel answers the lot. That button only appears when there's something to answer;
+a foot of four buttons wraps onto a second row on a narrow phone.
+
+One bug came out of it. The seen list was pruned by keeping only the list just marked, so reading
+one long tab threw away the record of every other one and stories you'd already read came back as
+unread. It prunes to what the app is actually holding now — anything not in the pool has left the
+feeds and will never be asked about again.
 
 ### When a route goes quiet
 
@@ -306,6 +329,12 @@ At the top of the list, keep pulling: past about two thirds of an inch the ring 
 letting go refreshes every source. It's deliberately hard to do by accident — the travel is
 resisted, and the gesture has to be going more down than along, or a flick across for the next
 tab that drifted a little would refresh the app every time.
+
+### Pull down in the reader too
+
+The same gesture inside a story, where *again* means this story rather than every source: it
+re-fetches the full text. The reader is a page of its own over the top of everything, so it has an
+indicator of its own inside it — the list's would be underneath.
 
 ### "4 new stories"
 

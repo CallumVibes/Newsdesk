@@ -475,8 +475,11 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     }
     t.is(kept, 'dark', 'and it is remembered for next time');
 
-    // The panel is where you change it, on either device.
-    const flip = nd.SHEET_ACTS[nd.SHEET_ACTS.length - 1];
+    // The panel is where you change it, on either device. Found by what it says
+    // rather than where it sits, since the foot has gained a button since.
+    const flip = nd.SHEET_ACTS.filter((a) => typeof a.label === 'function'
+      && /theme/i.test(a.label()))[0];
+    t.ok(flip, 'the theme is one of the panel\'s actions');
     t.is(typeof flip.label, 'function', 'the label changes with the state');
     t.is(flip.label(), 'Light theme', 'and offers where it will take you, not where you are');
     nd.setTheme('light');
@@ -1727,6 +1730,192 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.same(nd.forCache({ ht: null }), { ht: null }, 'and a source that has never answered is left alone');
     S.by = { cw:{items:[]}, kg:{items:[]}, ht:{items:[]}, yh:{items:[]},
              bb:{items:[]}, vf:{items:[]}, lm:{items:[]} };
+  });
+
+  /* A story shares as a headline, a taste and a link to the rest. A briefing has no
+     link and no rest - it is the whole thing - so four hundred characters of it
+     arrived halfway through a sentence with nowhere to go and read the end. */
+  suite('A briefing shares whole', (t) => {
+    const nd = phone.nd, S = nd.S, c = phone.calls;
+    const paras = Array.from({ length: 5 }, (_, i) =>
+      'Paragraph ' + (i + 1) + ' of the briefing, which runs to a couple of sentences. '.repeat(3));
+    const b = { headline: 'A quiet start, with rain on the way', at: Date.now(),
+                slotName: 'Morning briefing', slotKey: 'k', paragraphs: paras };
+    const item = nd.briefAsItem(b, 0);
+    t.ok(paras.join(' ').length > 400, 'the briefing is longer than a story summary is allowed to be');
+    t.is(nd.shareText(item), paras.join('\n\n'), 'all of it goes, in the paragraphs it was written in');
+
+    c.shared.length = 0;
+    S.reader = { item, full: false, loading: false, y: 0, act: -1, acts: [] };
+    nd.readerActions(item).filter((a) => a.id === 'share')[0].run();
+    t.is(c.shared.length, 1, 'sharing it hands it over once');
+    t.is(c.shared[0].title, b.headline, 'with the headline as the subject');
+    t.is(c.shared[0].text, paras.join('\n\n'), 'and every paragraph of it');
+    t.ok(c.shared[0].text.length > 400, 'rather than the first four hundred characters');
+    t.ok(/Paragraph 5 /.test(c.shared[0].text), 'the last paragraph included');
+
+    // A story is unchanged: it still shares a taste and a link to the rest.
+    const long = story({ src: 'ht', id: 's', title: 'A story',
+      summary: 'x'.repeat(900), link: 'https://example.com/s' });
+    t.is(nd.shareText(long).length, 400, 'a story still shares a taste of itself');
+    c.shared.length = 0;
+    S.reader = { item: long, full: false, loading: false, y: 0, act: -1, acts: [] };
+    nd.readerActions(long).filter((a) => a.id === 'share')[0].run();
+    t.is(c.shared[0].url, 'https://example.com/s', 'and the link to the rest of it');
+    t.is(nd.shareText(null), '', 'nothing shares as nothing');
+    t.is(nd.shareText({ brief: { paragraphs: [] }, summary: 'fallback' }), 'fallback',
+      'and a briefing with no paragraphs falls back to what it has');
+    S.reader = null; c.shared.length = 0;
+  });
+
+  /* Breaking had the whole machinery - a seen list, a New tag, a tab that pulses -
+     and it was the only tab that used any of it. */
+  suite('Every tab counts what you have not read', (t) => {
+    const nd = phone.nd, S = nd.S, doc = phone.window.document, now = Date.now();
+    const news = (src, n, from) => Array.from({ length: n }, (_, i) => story({
+      src, id: src + ':' + (from + i), title: src + ' story ' + (from + i),
+      date: now - (from + i) * 60e3 }));
+    const base = { cw:{items:[]}, kg:{items:[]}, yh:{items:[]}, bb:{items:[]},
+                   vf:{items:[]}, lm:{items:[]}, hh:{items:[]}, rc:{items:[]} };
+    const idx = (id) => nd.TABS.findIndex((x) => x.id === id);
+
+    // Everything already read, so the counts start from nothing.
+    S.mode = 'home';
+    S.by = Object.assign({}, base, { ht: { items: news('ht', 4, 0) }, vf: { items: news('vf', 3, 0) } });
+    S.tab = idx('local');
+    nd.rebuild(null);
+    nd.markAllRead();
+    t.is(nd.unseenTotal(), 0, 'with everything read, nothing is counted');
+
+    // Four local stories and two vegan ones arrive.
+    S.by.ht.items = news('ht', 4, 100).concat(S.by.ht.items);
+    S.by.vf.items = news('vf', 2, 100).concat(S.by.vf.items);
+    S.tab = idx('vegan');                      // looking at Vegan, so Vegan is read
+    nd.rebuild(null);
+    t.is((S.unseen || {}).local, 4, 'Local counts the four that landed on it');
+    t.is((S.unseen || {}).vegan, undefined, 'the tab being looked at counts nothing');
+    t.ok(nd.unseenTotal() >= 4, 'and the total has them in it');
+
+    // The strip says so, on the tabs you are not on. rebuild has just drawn it.
+    const strip = [].map.call(doc.querySelectorAll('#tabs .tab'), (n) => n.textContent).join(' | ');
+    t.ok(/Local\s*4/.test(strip), 'the Local tab carries a 4');
+    t.ok(doc.querySelectorAll('#tabs .tab .cnt').length >= 1, 'drawn as a count beside the name');
+    const onTab = doc.querySelector('#tabs .tab.on');
+    t.is(onTab && onTab.querySelector('.cnt'), null, 'and the tab in use carries no number');
+
+    // Going to Local reads it.
+    S.tab = idx('local');
+    nd.rebuild(null);
+    t.is((S.unseen || {}).local, undefined, 'looking at a tab is reading it');
+    t.is(doc.querySelectorAll('#list .newtag').length, 4,
+      'and the four that were new say so on the row, on a tab that is not Breaking');
+
+    // Moving on clears the New tags, which belonged to the tab you were on.
+    nd.switchTab(1);
+    t.same(S.fresh, {}, 'the New tags belong to the tab you were on');
+
+    // Mark all read answers the lot.
+    S.by.ht.items = news('ht', 5, 200).concat(S.by.ht.items);
+    S.tab = idx('vegan');
+    nd.rebuild(null);
+    t.ok(nd.unseenTotal() > 0, 'more arrives and is counted');
+    nd.markAllRead();
+    t.is(nd.unseenTotal(), 0, 'and one button answers all of it');
+    t.same(S.fresh, {}, 'taking the New tags with it');
+
+    // The button is only offered when there is something to answer.
+    const has = () => nd.sheetActs().some((a) => /mark all read/i.test(
+      typeof a.label === 'function' ? a.label() : a.label));
+    t.not(has(), 'with nothing unread, the panel does not offer to mark it');
+    S.by.ht.items = news('ht', 3, 300).concat(S.by.ht.items);
+    S.tab = idx('vegan');
+    nd.rebuild(null);
+    t.ok(has(), 'and offers it as soon as there is something');
+    nd.markAllRead();
+
+    /* A tab draws 120 rows but may match more than that, so its count can be more
+       than nothing even while you are looking at it. It still does not badge the tab
+       you are looking at. */
+    S.by.ht.items = news('ht', 400, 1000);
+    S.tab = idx('local');
+    nd.rebuild(null);
+    const localTab = [].filter.call(doc.querySelectorAll('#tabs .tab'),
+      (n) => /Local/.test(n.textContent))[0];
+    t.ok(localTab && /\bon\b/.test(localTab.className), 'Local is the tab in use');
+    t.is((S.unseen || {}).local, undefined,
+      'looking at a tab reads all of it, not just the rows it drew');
+    t.is(localTab.querySelector('.cnt'), null, 'so it carries no count');
+    nd.markAllRead();
+    S.by = base;
+  });
+
+  /* The prune kept only the list it had just marked, so one long tab wiped the
+     record of every other one and stories you had read came back as unread. */
+  suite('Reading one long tab does not forget the others', (t) => {
+    const nd = phone.nd, S = nd.S, now = Date.now();
+    const many = (src, n) => Array.from({ length: n }, (_, i) => story({
+      src, id: src + ':p' + i, title: src + ' ' + i, date: now - i * 60e3 }));
+    S.by = { cw:{items:[]}, kg:{items:many('kg', 400)}, ht:{items:many('ht', 400)},
+             yh:{items:[]}, bb:{items:[]}, vf:{items:[]}, lm:{items:[]}, hh:{items:[]}, rc:{items:[]} };
+    S.seen = {};
+    nd.markSeen(nd.getAll());
+    t.ok(Object.keys(S.seen).length > nd.SEEN_MAX, 'more has been read than the cap holds');
+
+    // Now read one tab's worth, which is what used to trigger the prune.
+    nd.markSeen(S.by.ht.items);
+    t.ok(Object.keys(S.seen).length <= nd.SEEN_MAX + S.by.ht.items.length,
+      'the record is pruned rather than growing for ever');
+    const keptOther = S.by.kg.items.filter((it) => S.seen[it.id]).length;
+    t.ok(keptOther > 0, 'and the other tab keeps its record (' + keptOther + ' of 400)');
+    t.is(S.by.ht.items.filter((it) => !S.seen[it.id]).length, 0,
+      'while everything just read stays read');
+    S.by = { cw:{items:[]}, kg:{items:[]}, ht:{items:[]}, yh:{items:[]},
+             bb:{items:[]}, vf:{items:[]}, lm:{items:[]}, hh:{items:[]}, rc:{items:[]} };
+    S.seen = {};
+  });
+
+  /* The list is drawn in two goes - a screenful now, the rest a tick later - and a
+     section header belongs to the row it starts at. Resuming part way has to know
+     which headers are already behind it, or every one of them lands again on top of
+     the tail. Today's sections all start inside the first screenful, so the only way
+     to prove the resume is to ask for it. */
+  suite('Drawing a list in two goes puts each header once', (t) => {
+    const nd = phone.nd, S = nd.S, doc = phone.window.document;
+    const ol = doc.getElementById('list');
+    S.mode = 'home';
+    S.tab = nd.TABS.findIndex((x) => x.id === 'today');
+    S.view = Array.from({ length: 12 }, (_, i) => story({ src: 'ht', id: 'v' + i, title: 'Story ' + i }));
+    S.sections = [{ start: 0, title: 'First' }, { start: 4, title: 'Second' },
+                  { start: 9, title: 'Third', note: 'a note' }];
+
+    const draw = (splits) => {
+      ol.innerHTML = '';
+      let from = 0;
+      splits.concat([S.view.length]).forEach((to) => { nd.drawRows(ol, from, to); from = to; });
+      return [].map.call(ol.children, (n) => n.className.split(' ')[0] + ':' +
+        (/\bsec\b/.test(n.className) ? n.querySelector('.sec-t').textContent : n.getAttribute('data-i')));
+    };
+
+    const whole = draw([]);
+    t.same(whole.filter((x) => /^sec:/.test(x)), ['sec:First', 'sec:Second', 'sec:Third'],
+      'drawn in one go, each header appears once');
+
+    // The same list drawn in two goes, split in the middle of a section.
+    t.same(draw([6]), whole, 'split part way through a section, it comes out identical');
+    // And split exactly on a header, which is the case that could draw it twice.
+    t.same(draw([4]), whole, 'split exactly where a header starts, still identical');
+    t.same(draw([9]), whole, 'and on the last header too');
+    // Split more than once, since a slow list could be filled in several passes.
+    t.same(draw([3, 7, 10]), whole, 'and in four goes it is still the same list');
+
+    // The headers really are where they belong: immediately above their row.
+    const at = whole.indexOf('sec:Second');
+    t.is(whole[at + 1], 'row:4', 'a header sits directly above the row it names');
+    t.is(whole.filter((x) => /^row:/.test(x)).length, 12, 'and every row is drawn once');
+
+    S.sections = [];
+    S.view = [];
+    ol.innerHTML = '';
   });
 
   suite('What you can do with a story, on a phone', (t) => {
