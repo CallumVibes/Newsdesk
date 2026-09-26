@@ -468,7 +468,11 @@ suite('The voice does not read a field its own constructor has not set yet', (t)
   t.ok(/com\.android\.settings\.TTS_SETTINGS/.test(kt), 'which is where a voice is chosen');
   const page0 = read(PAGE);
   t.ok(/noengine:/.test(page0), 'and the page has words for a phone with no engine');
-  t.ok(/RHVoice|Speech Services/.test(page0), 'naming something that would do the job');
+  /* Named engines, not a shrug. Both open source and both read without the network,
+     which is the point of naming them rather than sending someone searching. */
+  t.ok(/RHVoice/.test(page0) && /SherpaTTS/.test(page0),
+    'naming two engines that would do the job');
+  t.ok(/F-Droid/.test(page0), 'and where to get them');
 
   /* A voice reading to a muted phone is the same nothing as no voice, and likelier. The
      two are told apart before a word is queued. */

@@ -3499,8 +3499,9 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
        is a dead end, so it becomes the way to the settings where a voice is chosen. */
     t.ok(/No speech engine is installed/.test(voice.noEngineNote),
       'a phone with no engine is told so plainly');
-    t.ok(/RHVoice|Speech Services/.test(voice.noEngineNote),
+    t.ok(/RHVoice/.test(voice.noEngineNote) && /SherpaTTS/.test(voice.noEngineNote),
       'and told what would do the job (' + voice.noEngineNote + ')');
+    t.ok(/F-Droid/.test(voice.noEngineNote), 'and where to get it');
     t.ok(voice.afterNoEngine.indexOf('voice') >= 0, 'the button becomes Voice settings');
     t.not(voice.afterNoEngine.indexOf('read') >= 0, 'rather than offering the same no again');
     t.is(voice.voiceLabel, 'Voice settings', 'saying so on a television');
