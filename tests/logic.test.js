@@ -2831,6 +2831,59 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.ok((hh.requests || []).length > 0, 'though it did ask the routes that need asking');
   });
 
+  /* Saving the cache waits a second and a half for the quiet, because nine sources
+     landing means nine saves and eight are thrown away. Going off screen is not the
+     quiet: Android can reclaim the process without running another line, so a refresh
+     that had just landed was lost and the app opened on the cache before it. */
+  suite('News that has landed is not lost to the app going away', (t) => {
+    const nd = phone.nd, S = nd.S, ls = phone.window.localStorage;
+    S.by.ht = { items: [story({ src: 'ht', id: 'f1', title: 'A headline that has just landed' })],
+                method: 'test', requests: [], at: Date.now(), error: '' };
+    S.lastRefresh = Date.now();
+    ls.removeItem(nd.CACHE_KEY);
+    nd.save();
+    t.is(nd.savePending(), true, 'a save is waiting for the quiet');
+    t.is(ls.getItem(nd.CACHE_KEY), null, 'and nothing is written yet');
+
+    nd.flushSave();
+    t.is(nd.savePending(), false, 'going off screen stops the waiting');
+    const held = JSON.parse(ls.getItem(nd.CACHE_KEY) || 'null');
+    t.ok(held && held.by && held.by.ht, 'and writes what had landed');
+    t.is(held.by.ht.items[0].title, 'A headline that has just landed', 'the story itself');
+
+    // Nothing waiting means nothing to do, and nothing written over.
+    ls.setItem(nd.CACHE_KEY, '{"by":{},"at":1}');
+    nd.flushSave();
+    t.is(ls.getItem(nd.CACHE_KEY), '{"by":{},"at":1}',
+      'with no save waiting it leaves the cache alone');
+
+    // The page is told by the bridge on a Fire TV, and notices for itself in a browser.
+    ls.removeItem(nd.CACHE_KEY);
+    nd.save();
+    phone.window.nd.paused();
+    t.ok(ls.getItem(nd.CACHE_KEY), 'the bridge telling it to pause writes it');
+    phone.nd.startTimers();
+
+    ls.removeItem(nd.CACHE_KEY);
+    nd.save();
+    const doc = phone.window.document;
+    // jsdom has no window to hide, so say so the way a browser would.
+    Object.defineProperty(doc, 'visibilityState', { value: 'hidden', configurable: true });
+    doc.dispatchEvent(new phone.window.Event('visibilitychange'));
+    t.ok(ls.getItem(nd.CACHE_KEY), 'and so does the page being hidden, which is all a browser gives it');
+
+    // Coming back into view is not a reason to write anything.
+    Object.defineProperty(doc, 'visibilityState', { value: 'visible', configurable: true });
+    ls.setItem(nd.CACHE_KEY, '{"by":{},"at":2}');
+    nd.save();
+    doc.dispatchEvent(new phone.window.Event('visibilitychange'));
+    t.is(ls.getItem(nd.CACHE_KEY), '{"by":{},"at":2}', 'coming back into view writes nothing');
+    nd.flushSave();
+
+    S.by.ht = { items: [] };
+    ls.removeItem(nd.CACHE_KEY);
+  });
+
   /* The minute tick exists so the ages can go stale without the list being rebuilt for
      it - the words are the only part that changed. Nothing checked that it updates the
      words, or that it leaves the pictures alone. */
