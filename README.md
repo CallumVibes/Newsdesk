@@ -27,7 +27,7 @@ One build, two layouts. On a TV it's headlines on the left, a large preview on t
 - **Tech** — Kagi's Technology and Science categories, plus anything technical off the wire.
 - **Bitcoin** — Kagi's Bitcoin category, plus anything off the wire that is about bitcoin itself.
 - **Vegan** — Vegan Food & Living.
-- **All** — everything, taking turns between sources so none of them floods the list.
+- **All** — everything, newest first, with no source allowed to run away with the list.
 - **Recipes** — plant-based cooking, newest first, pooled from several kitchens.
 - **History** — who was born or died here on today's date, what happened here, and pictures from the county archive, oldest first.
 - **Saved** — stories you kept. Only on the strip once there is something in it.
@@ -39,8 +39,23 @@ to Tech, and everything else, financial or not, to UK & World. A wire that would
 whole wire, prices and all, so it goes to UK & World rather than looking like a bitcoin story.
 `CW_TOPICS` holds the two word lists that decide it, and is meant to be edited.
 
-Every tab but Today is a flat newest-first list, taking turns between its sources. Headlines
-carry a small picture, fetched only once the row is nearly on screen.
+Every tab but Today is a flat newest-first list. Headlines carry a small picture, fetched only
+once the row is nearly on screen.
+
+**Newest first means newest first.** The sources used to take strict turns — one from each pile,
+then one from each again — so where a story landed depended on how far down its own pile it was
+rather than when it happened. A quiet source's second story could sit above a busy source's story
+from twenty minutes ago, and the list read as though it were in no order at all.
+
+What the turns were for still holds: one source should not fill the screen. So the piles are merged
+by age, and a source may have **three rows in a row** (`RUN_MAX`) before it has to let another in —
+if another has anything left to offer. Nothing is dropped to keep the rhythm; once the other sources
+are spent, the rest of a run simply follows.
+
+A diary is not news and does not compete on freshness: an exhibition announced last week is still
+what is on this week. Ordered by its posting date it would sink to the bottom and stay there, so
+it's threaded through at one event every six stories (`DIARY_EVERY`), still reading forwards, with
+anything that won't fit at that spacing following at the end.
 
 ## Weather
 
@@ -193,6 +208,49 @@ Breaking whatever words are in it. It is kept out of **Today** and **All**, wher
 among the morning's headlines would read as a mistake, but it is fetched, cached and searched like
 any other source.
 
+### Keeping it quick
+
+Three things were measured on a full load — 254 stories, every source answering — and fixed:
+
+**One listener, not one per row.** A rebuild drew 120 rows and hung a tap handler on every one,
+then threw all 120 away when the next source landed. Nine sources land per refresh. The list
+outlives the rows, so the listener lives there and each row just records which row it is. Rebuild
+went from **21.3ms to 8.9ms**.
+
+**One redraw per landing became one every 300ms.** The first source to land draws at once — the
+reader is looking at an empty screen — and the eight behind it are gathered into one more
+(`REBUILD_GAP`). The last landing always gets its redraw, or the stories that arrived with it would
+wait for the next refresh.
+
+**The first screenful goes down first.** A phone shows nine rows and the list is 120 long —
+fourteen screens of it — and drawing the lot before the first one appeared was most of what a
+rebuild cost. `FIRST_ROWS` are drawn now and the rest follows a tick later, before a thumb could
+have moved far enough to want it. Time to the first rows on screen: **10.2ms to 3.0ms**, and
+**21.3ms to 3.0ms** counting the listener change above.
+
+Only from the top, though. A reader who has scrolled needs every row to exist for the list to keep
+the height it had, so there the lot is drawn at once. And whatever moves the cursor past the
+screenful — a refresh keeping your place deep in the list — draws that far first.
+
+**The cache stopped keeping page text.** It was 82% of the cache, and it is the one thing in there
+that can be had again for the asking: a story opened without it offers **Full story** and fetches
+it, exactly as a story that never had any already does. A briefing cannot be refetched, and the two
+were competing for the same 5MB. The cache went from **0.64MB to 0.11MB**. Saved stories still keep
+their text, so they read offline.
+
+### Unread
+
+Breaking had the whole machinery — a list of what you've seen, a **New** tag on the row, a tab that
+pulses — and it was the only tab that used any of it. Every tab counts now: the strip carries a
+number for each tab with stories you haven't looked at, looking at a tab reads it, and **Mark all
+read** in the ☰ panel answers the lot. That button only appears when there's something to answer;
+a foot of four buttons wraps onto a second row on a narrow phone.
+
+One bug came out of it. The seen list was pruned by keeping only the list just marked, so reading
+one long tab threw away the record of every other one and stories you'd already read came back as
+unread. It prunes to what the app is actually holding now — anything not in the pool has left the
+feeds and will never be asked about again.
+
 ### When a route goes quiet
 
 A source with three routes behind it can lose two of them and still look perfectly well: the tab
@@ -228,6 +286,13 @@ buttons; on a television, press ▼ once you have read to the bottom and the str
   something in it. What is kept is a copy, so a saved story still opens and reads after its source
   has dropped it from the feed — which all of them do within days.
 - **Share** hands it to whatever the phone has: messages, mail, a notes app.
+
+  A news story is somebody else's article, and what is worth sending is the article — so it goes as
+  **the headline, a blank line, and the link**. It used to send 400 characters of the app's own
+  summary, cut off mid-sentence, with the link at the 402nd character and the headline nowhere in
+  the message at all (it was the subject line, which most messaging apps throw away). A briefing is
+  the exception: it has no link and no rest, so all of it goes, in its paragraphs. A story with
+  nothing to link to sends the words it has.
 - **Add to calendar** opens your calendar's own new-event screen, filled in, for an event whose
   date could be read. Nothing is written to your calendar by the app; you save it, or you don't.
 
@@ -271,6 +336,12 @@ At the top of the list, keep pulling: past about two thirds of an inch the ring 
 letting go refreshes every source. It's deliberately hard to do by accident — the travel is
 resisted, and the gesture has to be going more down than along, or a flick across for the next
 tab that drifted a little would refresh the app every time.
+
+### Pull down in the reader too
+
+The same gesture inside a story, where *again* means this story rather than every source: it
+re-fetches the full text. The reader is a page of its own over the top of everything, so it has an
+indicator of its own inside it — the list's would be underneath.
 
 ### "4 new stories"
 

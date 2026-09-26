@@ -475,8 +475,11 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     }
     t.is(kept, 'dark', 'and it is remembered for next time');
 
-    // The panel is where you change it, on either device.
-    const flip = nd.SHEET_ACTS[nd.SHEET_ACTS.length - 1];
+    // The panel is where you change it, on either device. Found by what it says
+    // rather than where it sits, since the foot has gained a button since.
+    const flip = nd.SHEET_ACTS.filter((a) => typeof a.label === 'function'
+      && /theme/i.test(a.label()))[0];
+    t.ok(flip, 'the theme is one of the panel\'s actions');
     t.is(typeof flip.label, 'function', 'the label changes with the state');
     t.is(flip.label(), 'Light theme', 'and offers where it will take you, not where you are');
     nd.setTheme('light');
@@ -1334,6 +1337,98 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.is(nd.timers(), n, 'and coming back twice does not start a second set');
   });
 
+  /* ------------------------------------------------- The order of a list */
+  /* The sources used to take strict turns, so where a story landed depended on how
+     far down its own pile it was rather than when it happened. */
+  suite('A list reads newest first', (t) => {
+    const pile = (src, ...ages) => ages.map((h, i) => {
+      const it = story({ src, id: src + ':' + i, title: src + ' ' + h + 'h', date: Date.now() - h * HOUR });
+      it.sort = it.date;
+      return it;
+    });
+    const ages = (out) => out.map((x) => x.title);
+
+    // Two piles, one fresh and one stale. Turn-taking put the stale pile's head second.
+    t.same(ages(nd.weave([pile('ht', 0.35, 0.43), pile('yh', 22, 80)], 3)),
+      ['ht 0.35h', 'ht 0.43h', 'yh 22h', 'yh 80h'],
+      'the two fresh ones lead and the day-old ones follow');
+
+    // Interleaved ages come out in order regardless of which pile they are in.
+    t.same(ages(nd.weave([pile('ht', 1, 5), pile('yh', 3, 7), pile('bb', 2, 6)], 3)),
+      ['ht 1h', 'bb 2h', 'yh 3h', 'ht 5h', 'bb 6h', 'yh 7h'],
+      'and three piles merge strictly by age');
+
+    // What the turns were for: one source must not fill the screen.
+    const flood = nd.weave([pile('ht', 1, 2, 3, 4, 5, 6), pile('yh', 20, 30)], 3);
+    t.same(ages(flood),
+      ['ht 1h', 'ht 2h', 'ht 3h', 'yh 20h', 'ht 4h', 'ht 5h', 'ht 6h', 'yh 30h'],
+      'a pile gets three in a row, lets another in, and may then have three more');
+    t.is(flood.length, 8, 'and nothing is dropped to keep the rhythm');
+
+    t.same(ages(nd.weave([pile('ht', 1, 2, 3, 4, 5)], 3)), ['ht 1h', 'ht 2h', 'ht 3h', 'ht 4h', 'ht 5h'],
+      'one pile on its own is not broken up over nothing');
+    t.same(nd.weave([], 3), [], 'no piles is no list');
+    t.same(nd.weave([[], []], 3), [], 'and empty piles are no list either');
+    t.same(nd.weave(null, 3), [], 'nor is nothing at all');
+    t.is(nd.RUN_MAX, 3, 'three in a row is the cap');
+  });
+
+  suite('A diary is threaded through, not sunk', (t) => {
+    const news = Array.from({ length: 14 }, (_, i) => ({ id: 'n' + i, src: 'ht' }));
+    const diary = Array.from({ length: 3 }, (_, i) => ({ id: 'd' + i, src: 'lm' }));
+    const out = nd.thread(news, diary, 6);
+    t.is(out.length, 17, 'every row is still there');
+    t.same([out[6].id, out[13].id], ['d0', 'd1'], 'an event every sixth row');
+    t.same(out.slice(0, 6).map((x) => x.id), ['n0', 'n1', 'n2', 'n3', 'n4', 'n5'],
+      'with the news reading on in between');
+    t.same(out.map((x) => x.id).filter((id) => /^n/.test(id)), news.map((x) => x.id),
+      'and the news in the order it was given');
+    t.same(out.map((x) => x.id).filter((id) => /^d/.test(id)), diary.map((x) => x.id),
+      'the diary reading forwards, as a diary does');
+
+    // Whatever will not fit at that spacing follows rather than being left out.
+    const many = nd.thread(news.slice(0, 4), diary, 6);
+    t.is(many.length, 7, 'a short list still shows every event');
+    t.same(many.slice(4).map((x) => x.id), ['d0', 'd1', 'd2'], 'the rest following the news');
+
+    t.same(nd.thread(news, [], 6).map((x) => x.id), news.map((x) => x.id),
+      'no diary changes nothing');
+    t.same(nd.thread([], diary, 6).map((x) => x.id), ['d0', 'd1', 'd2'],
+      'and a diary with no news around it is still shown');
+    t.is(nd.DIARY_EVERY, 6, 'one event every six stories');
+  });
+
+  /* The screenshot, as it came off the phone: Local read 21m, 22h, 6h, an event,
+     26m, three days, 20h. Every one of those ages is real; only the order was not. */
+  suite('The Local tab, in the order it came off the phone', (t) => {
+    const S = nd.S, now = Date.now();
+    const at = (src, id, mins, extra) => story(Object.assign(
+      { src, id, title: id, date: now - mins * 60e3 }, extra || {}));
+    S.by = {
+      cw: { items: [] }, kg: { items: [] }, vf: { items: [] },
+      ht: { items: [at('ht', 'crash on the A49', 21), at('ht', 'SAS commander', 26)] },
+      yh: { items: [at('yh', 'Asda offer', 22 * 60), at('yh', 'bereavement rights', 3 * 24 * 60)] },
+      bb: { items: [at('bb', 'weekly quiz', 6 * 60), at('bb', 'military history festival', 20 * 60)] },
+      lm: { items: [at('lm', 'Victorian Women', 2 * 24 * 60, { when: now + 5 * DAY })] }
+    };
+    S.tab = nd.TABS.findIndex((x) => x.id === 'local');
+    S.mode = 'home';
+    nd.rebuild(null);
+    const ids = S.view.map((x) => x.id);
+    t.same(ids.slice(0, 6),
+      ['crash on the A49', 'SAS commander', 'weekly quiz', 'military history festival',
+       'Asda offer', 'bereavement rights'],
+      'twenty minutes old leads, and three days old is last of the news');
+    t.ok(ids.indexOf('crash on the A49') < ids.indexOf('Asda offer'),
+      'a story from this hour is never under one from yesterday');
+    t.ok(ids.indexOf('SAS commander') < ids.indexOf('military history festival'),
+      'nor is the second story of a busy source under an older one from a quiet source');
+    t.is(ids.length, 7, 'and every story is still on the list, the event included');
+    t.ok(ids.indexOf('Victorian Women') >= 0, 'with what is on in town still there');
+    S.by = { cw: { items: [] }, kg: { items: [] }, ht: { items: [] }, yh: { items: [] },
+             bb: { items: [] }, vf: { items: [] }, lm: { items: [] } };
+  });
+
   /* ------------------------------------------------------ All of it at once */
   suite('Building a screen', (t) => {
     const S = nd.S, now = Date.now();
@@ -1504,6 +1599,372 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     S.mode = 'home';
     wrap.scrollTop = 0;
     S.by = empty; S.top = null;
+  });
+
+  /* A rebuild drew a hundred and twenty rows and hung a tap handler on every one,
+     then threw them all away when the next source landed - nine times over a
+     refresh. The list outlives the rows, so the listener lives there instead. */
+  suite('One listener for the list, not one per row', (t) => {
+    const nd = phone.nd, S = nd.S, doc = phone.window.document, now = Date.now();
+    const empty = { cw:{items:[]}, kg:{items:[]}, yh:{items:[]}, bb:{items:[]},
+                    vf:{items:[]}, lm:{items:[]} };
+    S.mode = 'home';
+    S.tab = nd.TABS.findIndex((x) => x.id === 'local');
+    S.by = Object.assign({}, empty, { ht: { items: [
+      story({ src:'ht', id:'a', title:'The first story', date: now }),
+      story({ src:'ht', id:'b', title:'The second story', date: now - 60e3 }),
+      story({ src:'ht', id:'c', title:'The third story', date: now - 120e3 }) ] } });
+    nd.rebuild(null);
+
+    const rows = doc.querySelectorAll('#list li.row');
+    t.is(rows.length, 3, 'three rows are drawn');
+    t.same([].map.call(rows, (r) => r.getAttribute('data-i')), ['0', '1', '2'],
+      'each says which row of the list it is');
+
+    // A tap lands on the words inside a row, not the row itself.
+    const title = rows[1].querySelector('.ttl');
+    title.dispatchEvent(new phone.window.MouseEvent('click', { bubbles: true, cancelable: true }));
+    t.is(S.mode, 'reader', 'tapping a headline opens the reader');
+    t.is(S.reader && S.reader.item.id, 'b', 'on the story that was tapped, not another');
+    t.is(S.idx, 1, 'and the list remembers where you were');
+    nd.closeReader();
+
+    // rowOf is what finds the row from whatever was actually touched.
+    t.is(nd.rowOf(title), rows[1], 'the row is found from the words inside it');
+    t.is(nd.rowOf(rows[2]), rows[2], 'and from the row itself');
+    t.is(nd.rowOf(doc.getElementById('list')), null, 'the list is not a row');
+    t.is(nd.rowOf(null), null, 'and nothing is not a row');
+
+    // A tap on the list but not on a story must not open the last thing tapped.
+    S.mode = 'home';
+    doc.getElementById('list').dispatchEvent(
+      new phone.window.MouseEvent('click', { bubbles: true, cancelable: true }));
+    t.is(S.mode, 'home', 'tapping the list itself opens nothing');
+
+    // A row left over from a longer list must not open a story that is no longer there.
+    S.by.ht.items = S.by.ht.items.slice(0, 1);
+    nd.rebuild(null);
+    const stale = doc.createElement('li');
+    stale.className = 'row';
+    stale.setAttribute('data-i', '9');
+    doc.getElementById('list').appendChild(stale);
+    S.idx = 0;
+    stale.dispatchEvent(new phone.window.MouseEvent('click', { bubbles: true, cancelable: true }));
+    t.is(S.mode, 'home', 'a row pointing past the end of the list opens nothing');
+    // openReader would refuse the story anyway; what it would not undo is the cursor
+    // being moved to a row that is not there, which every later redraw reads.
+    t.is(S.idx, 0, 'and does not leave the cursor pointing past the end either');
+    S.by = empty;
+  });
+
+  /* Nine sources land within a few seconds of each other, and each landing rebuilt
+     and redrew the whole list. */
+  suite('A refresh redraws the list a few times, not nine', (t) => {
+    const nd = phone.nd, doc = phone.window.document;
+    const list = doc.getElementById('list');
+    // The first landing has to reach the screen at once: the reader is looking at an
+    // empty list and wants something on it. rebuild is synchronous, so this is too.
+    nd.S.by.ht = { items: [story({ src: 'ht', id: 'first', title: 'The first to land' })] };
+    list.innerHTML = '';
+    nd.rebuildSoon(null);
+    t.is(list.querySelectorAll('li.row').length, 1, 'the first landing draws at once');
+
+    let draws = 0;
+    const obs = new phone.window.MutationObserver(() => { draws++; });
+    obs.observe(list, { childList: true });
+    // Eight more landings inside the same gap, the way a cold start delivers them.
+    for (let i = 0; i < 8; i++) nd.rebuildSoon(null);
+    t.is(list.querySelectorAll('li.row').length, 1,
+      'and the eight behind it do not each redraw on the spot');
+
+    return new Promise((done) => {
+      setTimeout(() => {
+        obs.disconnect();
+        /* innerHTML = '' plus the rows appended is a couple of batches per redraw, so
+           this counts redraws generously and still has to be far short of nine. */
+        t.ok(draws > 0, 'the gathered ones do land, rather than being lost');
+        t.ok(draws <= 6, 'as one redraw rather than eight (' + draws + ' batches)');
+        t.is(nd.REBUILD_GAP, 300, 'gathered over three tenths of a second');
+        done();
+      }, nd.REBUILD_GAP + 220);
+    });
+  });
+
+  /* Everything the app keeps shares one origin quota, and the page text was four
+     fifths of the cache. It is also the one thing in there that can be had again for
+     the asking, which a briefing cannot. */
+  suite('The cache keeps what cannot be fetched again', (t) => {
+    const nd = phone.nd, S = nd.S, ls = phone.window.localStorage;
+    const big = '<p>' + 'Recipe step text. '.repeat(900) + '</p>';
+    S.by = {
+      rc: { items: [story({ src: 'rc', id: 'r1', title: 'A dhal', html: big, image: 'https://x/i.jpg' })],
+            method: '2 of 6 kitchens', at: 123, error: '', requests: [{ url: 'u', ok: true, got: 1 }] },
+      ht: { items: [story({ src: 'ht', id: 'h1', title: 'A story with no page text' })] }
+    };
+    const kept = nd.forCache(S.by);
+    t.is('html' in kept.rc.items[0], false, 'the page text is not written down');
+    t.is(kept.rc.items[0].title, 'A dhal', 'everything else about the story is');
+    t.is(kept.rc.items[0].image, 'https://x/i.jpg', 'the picture included, which the list needs');
+    t.is(kept.rc.method, '2 of 6 kitchens', 'and what the panel says about the source');
+    t.same(kept.rc.requests, [{ url: 'u', ok: true, got: 1 }], 'and what it tried');
+    t.is(kept.rc.at, 123, 'and when it answered');
+    t.is(kept.ht.items[0].id, 'h1', 'a story that never had page text is untouched');
+
+    // The original is not damaged: the reader is still holding it in memory.
+    t.is(S.by.rc.items[0].html, big, 'and the story in hand keeps its text to read');
+
+    // A story without page text is not a dead end: it offers to go and get it.
+    t.is(nd.canLoadFull(kept.rc.items[0].link ? kept.rc.items[0] : { link: 'https://example.com/x' }), true,
+      'a story with no text still offers the full story');
+
+    // What actually reaches storage.
+    nd.saveNow();
+    let raw = '';
+    try { raw = ls.getItem(nd.CACHE_KEY) || ''; } catch (e) {}
+    t.ok(raw.length > 0, 'the cache is written');
+    t.not(/Recipe step text/.test(raw), 'with none of the page text in it');
+    t.ok(/A dhal/.test(raw), 'and the headlines still there');
+    t.ok(raw.length < big.length, 'so the whole cache is smaller than the one recipe was');
+
+    t.same(nd.forCache(null), {}, 'nothing to keep is nothing written');
+    t.same(nd.forCache({ ht: null }), { ht: null }, 'and a source that has never answered is left alone');
+    S.by = { cw:{items:[]}, kg:{items:[]}, ht:{items:[]}, yh:{items:[]},
+             bb:{items:[]}, vf:{items:[]}, lm:{items:[]} };
+  });
+
+  /* A story shares as a headline, a taste and a link to the rest. A briefing has no
+     link and no rest - it is the whole thing - so four hundred characters of it
+     arrived halfway through a sentence with nowhere to go and read the end. */
+  suite('A briefing shares whole', (t) => {
+    const nd = phone.nd, S = nd.S, c = phone.calls;
+    const paras = Array.from({ length: 5 }, (_, i) =>
+      'Paragraph ' + (i + 1) + ' of the briefing, which runs to a couple of sentences. '.repeat(3));
+    const b = { headline: 'A quiet start, with rain on the way', at: Date.now(),
+                slotName: 'Morning briefing', slotKey: 'k', paragraphs: paras };
+    const item = nd.briefAsItem(b, 0);
+    t.ok(paras.join(' ').length > 400, 'the briefing is longer than a story summary is allowed to be');
+    t.is(nd.shareText(item), paras.join('\n\n'), 'all of it goes, in the paragraphs it was written in');
+
+    c.shared.length = 0;
+    S.reader = { item, full: false, loading: false, y: 0, act: -1, acts: [] };
+    nd.readerActions(item).filter((a) => a.id === 'share')[0].run();
+    t.is(c.shared.length, 1, 'sharing it hands it over once');
+    t.is(c.shared[0].title, b.headline, 'with the headline as the subject');
+    t.is(c.shared[0].text, paras.join('\n\n'), 'and every paragraph of it');
+    t.ok(c.shared[0].text.length > 400, 'rather than the first four hundred characters');
+    t.ok(/Paragraph 5 /.test(c.shared[0].text), 'the last paragraph included');
+
+    t.is(nd.shareText(null), '', 'nothing shares as nothing');
+    t.is(nd.shareText({ brief: { paragraphs: [] }, title: 'A story', summary: 'fallback' }),
+      'A story\n\nfallback', 'and a briefing with no paragraphs falls back to what it has');
+    S.reader = null; c.shared.length = 0;
+  });
+
+  /* What Kotlin makes of the three things it is handed, copied from MainActivity so
+     the message a person actually receives is what is being checked here rather than
+     the arguments on the way to it. */
+  function shareBody(title, text, url) {
+    return ((text === '' ? title : text) + (url === '' ? '' : '\n\n' + url)).trim();
+  }
+
+  suite('A news article shares as the article', (t) => {
+    const nd = phone.nd, S = nd.S, c = phone.calls;
+    const send = (it) => {
+      c.shared.length = 0;
+      S.reader = { item: it, full: false, loading: false, y: 0, act: -1, acts: [] };
+      nd.readerActions(it).filter((a) => a.id === 'share')[0].run();
+      const s = c.shared[0];
+      return { subject: s.title, url: s.url, body: shareBody(s.title, s.text, s.url) };
+    };
+
+    const it = story({ src: 'ht', id: 'a',
+      title: 'Woman taken to hospital after car crashes into bridge on A49',
+      summary: 'Police say the road was shut for several hours. '.repeat(12),
+      link: 'https://www.herefordtimes.com/news/12345.a49-crash/' });
+    t.ok(it.summary.length > 400, 'the summary is longer than the message used to be');
+
+    const sent = send(it);
+    t.is(sent.body, it.title + '\n\n' + it.link,
+      'the headline, a blank line, and the address - and nothing else');
+    t.ok(sent.body.indexOf(it.link) < 70,
+      'so the link is near the top rather than past four hundred characters');
+    t.not(/Police say the road/.test(sent.body),
+      'the app\'s copy of the opening of somebody else\'s article does not go');
+    t.is(sent.subject, it.title, 'the headline is still the subject line as well');
+    t.is(sent.url, it.link, 'and the address is handed over as the address');
+
+    // A diary entry is a story with a link like any other.
+    const ev = story({ src: 'lm', id: 'e', title: 'Christmas Fayre',
+      summary: 'In the square.', when: Date.now() + DAY, link: 'https://example.com/e' });
+    t.is(send(ev).body, 'Christmas Fayre\n\nhttps://example.com/e',
+      'and so does an event');
+
+    // Nothing to link to: the words are all there is, so they go.
+    const noLink = story({ src: 'hh', id: 'h', title: 'A picture of Broad Street, 1904',
+      summary: 'From the county archive.', link: '' });
+    t.is(send(noLink).body, 'A picture of Broad Street, 1904\n\nFrom the county archive.',
+      'a story with nowhere to send you sends what it has');
+    t.is(send(story({ src: 'hh', id: 'h2', title: 'Only a headline', summary: '', link: '' })).body,
+      'Only a headline', 'and one with only a headline sends that');
+
+    // The briefing is the exception, and stays the exception.
+    const paras = ['First paragraph of it.', 'Second paragraph of it.'];
+    const brief = nd.briefAsItem({ headline: 'A quiet start', at: Date.now(),
+      slotName: 'Morning briefing', slotKey: 'k', paragraphs: paras }, 0);
+    t.is(send(brief).body, paras.join('\n\n'),
+      'a briefing has no link and no rest, so all of it still goes');
+
+    S.reader = null; c.shared.length = 0;
+  });
+
+  /* Breaking had the whole machinery - a seen list, a New tag, a tab that pulses -
+     and it was the only tab that used any of it. */
+  suite('Every tab counts what you have not read', (t) => {
+    const nd = phone.nd, S = nd.S, doc = phone.window.document, now = Date.now();
+    const news = (src, n, from) => Array.from({ length: n }, (_, i) => story({
+      src, id: src + ':' + (from + i), title: src + ' story ' + (from + i),
+      date: now - (from + i) * 60e3 }));
+    const base = { cw:{items:[]}, kg:{items:[]}, yh:{items:[]}, bb:{items:[]},
+                   vf:{items:[]}, lm:{items:[]}, hh:{items:[]}, rc:{items:[]} };
+    const idx = (id) => nd.TABS.findIndex((x) => x.id === id);
+
+    // Everything already read, so the counts start from nothing.
+    S.mode = 'home';
+    S.by = Object.assign({}, base, { ht: { items: news('ht', 4, 0) }, vf: { items: news('vf', 3, 0) } });
+    S.tab = idx('local');
+    nd.rebuild(null);
+    nd.markAllRead();
+    t.is(nd.unseenTotal(), 0, 'with everything read, nothing is counted');
+
+    // Four local stories and two vegan ones arrive.
+    S.by.ht.items = news('ht', 4, 100).concat(S.by.ht.items);
+    S.by.vf.items = news('vf', 2, 100).concat(S.by.vf.items);
+    S.tab = idx('vegan');                      // looking at Vegan, so Vegan is read
+    nd.rebuild(null);
+    t.is((S.unseen || {}).local, 4, 'Local counts the four that landed on it');
+    t.is((S.unseen || {}).vegan, undefined, 'the tab being looked at counts nothing');
+    t.ok(nd.unseenTotal() >= 4, 'and the total has them in it');
+
+    // The strip says so, on the tabs you are not on. rebuild has just drawn it.
+    const strip = [].map.call(doc.querySelectorAll('#tabs .tab'), (n) => n.textContent).join(' | ');
+    t.ok(/Local\s*4/.test(strip), 'the Local tab carries a 4');
+    t.ok(doc.querySelectorAll('#tabs .tab .cnt').length >= 1, 'drawn as a count beside the name');
+    const onTab = doc.querySelector('#tabs .tab.on');
+    t.is(onTab && onTab.querySelector('.cnt'), null, 'and the tab in use carries no number');
+
+    // Going to Local reads it.
+    S.tab = idx('local');
+    nd.rebuild(null);
+    t.is((S.unseen || {}).local, undefined, 'looking at a tab is reading it');
+    t.is(doc.querySelectorAll('#list .newtag').length, 4,
+      'and the four that were new say so on the row, on a tab that is not Breaking');
+
+    // Moving on clears the New tags, which belonged to the tab you were on.
+    nd.switchTab(1);
+    t.same(S.fresh, {}, 'the New tags belong to the tab you were on');
+
+    // Mark all read answers the lot.
+    S.by.ht.items = news('ht', 5, 200).concat(S.by.ht.items);
+    S.tab = idx('vegan');
+    nd.rebuild(null);
+    t.ok(nd.unseenTotal() > 0, 'more arrives and is counted');
+    nd.markAllRead();
+    t.is(nd.unseenTotal(), 0, 'and one button answers all of it');
+    t.same(S.fresh, {}, 'taking the New tags with it');
+
+    // The button is only offered when there is something to answer.
+    const has = () => nd.sheetActs().some((a) => /mark all read/i.test(
+      typeof a.label === 'function' ? a.label() : a.label));
+    t.not(has(), 'with nothing unread, the panel does not offer to mark it');
+    S.by.ht.items = news('ht', 3, 300).concat(S.by.ht.items);
+    S.tab = idx('vegan');
+    nd.rebuild(null);
+    t.ok(has(), 'and offers it as soon as there is something');
+    nd.markAllRead();
+
+    /* A tab draws 120 rows but may match more than that, so its count can be more
+       than nothing even while you are looking at it. It still does not badge the tab
+       you are looking at. */
+    S.by.ht.items = news('ht', 400, 1000);
+    S.tab = idx('local');
+    nd.rebuild(null);
+    const localTab = [].filter.call(doc.querySelectorAll('#tabs .tab'),
+      (n) => /Local/.test(n.textContent))[0];
+    t.ok(localTab && /\bon\b/.test(localTab.className), 'Local is the tab in use');
+    t.is((S.unseen || {}).local, undefined,
+      'looking at a tab reads all of it, not just the rows it drew');
+    t.is(localTab.querySelector('.cnt'), null, 'so it carries no count');
+    nd.markAllRead();
+    S.by = base;
+  });
+
+  /* The prune kept only the list it had just marked, so one long tab wiped the
+     record of every other one and stories you had read came back as unread. */
+  suite('Reading one long tab does not forget the others', (t) => {
+    const nd = phone.nd, S = nd.S, now = Date.now();
+    const many = (src, n) => Array.from({ length: n }, (_, i) => story({
+      src, id: src + ':p' + i, title: src + ' ' + i, date: now - i * 60e3 }));
+    S.by = { cw:{items:[]}, kg:{items:many('kg', 400)}, ht:{items:many('ht', 400)},
+             yh:{items:[]}, bb:{items:[]}, vf:{items:[]}, lm:{items:[]}, hh:{items:[]}, rc:{items:[]} };
+    S.seen = {};
+    nd.markSeen(nd.getAll());
+    t.ok(Object.keys(S.seen).length > nd.SEEN_MAX, 'more has been read than the cap holds');
+
+    // Now read one tab's worth, which is what used to trigger the prune.
+    nd.markSeen(S.by.ht.items);
+    t.ok(Object.keys(S.seen).length <= nd.SEEN_MAX + S.by.ht.items.length,
+      'the record is pruned rather than growing for ever');
+    const keptOther = S.by.kg.items.filter((it) => S.seen[it.id]).length;
+    t.ok(keptOther > 0, 'and the other tab keeps its record (' + keptOther + ' of 400)');
+    t.is(S.by.ht.items.filter((it) => !S.seen[it.id]).length, 0,
+      'while everything just read stays read');
+    S.by = { cw:{items:[]}, kg:{items:[]}, ht:{items:[]}, yh:{items:[]},
+             bb:{items:[]}, vf:{items:[]}, lm:{items:[]}, hh:{items:[]}, rc:{items:[]} };
+    S.seen = {};
+  });
+
+  /* The list is drawn in two goes - a screenful now, the rest a tick later - and a
+     section header belongs to the row it starts at. Resuming part way has to know
+     which headers are already behind it, or every one of them lands again on top of
+     the tail. Today's sections all start inside the first screenful, so the only way
+     to prove the resume is to ask for it. */
+  suite('Drawing a list in two goes puts each header once', (t) => {
+    const nd = phone.nd, S = nd.S, doc = phone.window.document;
+    const ol = doc.getElementById('list');
+    S.mode = 'home';
+    S.tab = nd.TABS.findIndex((x) => x.id === 'today');
+    S.view = Array.from({ length: 12 }, (_, i) => story({ src: 'ht', id: 'v' + i, title: 'Story ' + i }));
+    S.sections = [{ start: 0, title: 'First' }, { start: 4, title: 'Second' },
+                  { start: 9, title: 'Third', note: 'a note' }];
+
+    const draw = (splits) => {
+      ol.innerHTML = '';
+      let from = 0;
+      splits.concat([S.view.length]).forEach((to) => { nd.drawRows(ol, from, to); from = to; });
+      return [].map.call(ol.children, (n) => n.className.split(' ')[0] + ':' +
+        (/\bsec\b/.test(n.className) ? n.querySelector('.sec-t').textContent : n.getAttribute('data-i')));
+    };
+
+    const whole = draw([]);
+    t.same(whole.filter((x) => /^sec:/.test(x)), ['sec:First', 'sec:Second', 'sec:Third'],
+      'drawn in one go, each header appears once');
+
+    // The same list drawn in two goes, split in the middle of a section.
+    t.same(draw([6]), whole, 'split part way through a section, it comes out identical');
+    // And split exactly on a header, which is the case that could draw it twice.
+    t.same(draw([4]), whole, 'split exactly where a header starts, still identical');
+    t.same(draw([9]), whole, 'and on the last header too');
+    // Split more than once, since a slow list could be filled in several passes.
+    t.same(draw([3, 7, 10]), whole, 'and in four goes it is still the same list');
+
+    // The headers really are where they belong: immediately above their row.
+    const at = whole.indexOf('sec:Second');
+    t.is(whole[at + 1], 'row:4', 'a header sits directly above the row it names');
+    t.is(whole.filter((x) => /^row:/.test(x)).length, 12, 'and every row is drawn once');
+
+    S.sections = [];
+    S.view = [];
+    ol.innerHTML = '';
   });
 
   suite('What you can do with a story, on a phone', (t) => {

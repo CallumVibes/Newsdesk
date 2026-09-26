@@ -302,6 +302,81 @@ async function pullAndPill(browser) {
   return out;
 }
 
+/* A phone shows nine rows and the list is a hundred and twenty long. Drawing the lot
+   before the first one appears is most of what a rebuild costs, and only a browser
+   with real heights can say whether the rest arrives before anyone reaches it. */
+async function rowDrawing(browser) {
+  const page = await open(browser, { w: 412, h: 915 });
+  const out = await page.evaluate(async () => {
+    const nd = window.ndApi, S = nd.S;
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const wrap = document.getElementById('listWrap'), ol = document.getElementById('list');
+    const rows = () => ol.querySelectorAll('li.row').length;
+    const feed = (src, n, kicker) => ({ items: Array.from({ length: n }, (_, i) => ({
+      id: src + ':' + i, src, kicker: kicker || '', title: 'A headline for ' + src + ' story ' + i,
+      summary: 'Summary.', link: 'https://example.com/' + src + '/' + i, image: '', html: '',
+      date: Date.now() - i * 60000, when: 0, order: i, fetched: Date.now() })) });
+    S.by.ht = feed('ht', 90);
+    // Today draws in sections, and a section needs a source to fill it.
+    S.by.kg = feed('kg', 20, 'UK');
+    S.by.vf = feed('vf', 12);
+    S.by.cw = feed('cw', 12);
+    S.tab = nd.TABS.findIndex((x) => x.id === 'local');
+    S.mode = 'home';
+
+    // From the top: a screenful now, the rest a tick later.
+    wrap.scrollTop = 0;
+    nd.rebuild(null);
+    const r = { first: rows(), want: nd.FIRST_ROWS, view: S.view.length };
+    await wait(40);
+    r.afterTick = rows();
+    // Everything that was drawn is still in the right order and knows its place.
+    const ids = [].map.call(ol.querySelectorAll('li.row'), (n) => n.getAttribute('data-i'));
+    r.inOrder = ids.every((v, i) => Number(v) === i);
+    r.listTaller = ol.scrollHeight > wrap.clientHeight;
+
+    // Scrolled: nothing is deferred, or the list would lose the height it had.
+    wrap.scrollTop = 1200;
+    await wait(20);
+    nd.rebuild(null);
+    r.scrolled = rows();
+
+    /* A refresh that keeps your place deep in the list has to draw that far, or the
+       row it means to put the cursor on does not exist. */
+    wrap.scrollTop = 0;
+    await wait(40);
+    const deepId = S.view[60].id;
+    nd.rebuild(deepId);
+    r.deepIdx = S.idx;
+    const deep = ol.querySelectorAll('li.row')[60];
+    r.deepRowExists = !!deep;
+    r.deepRowIsRight = !!deep && deep.getAttribute('data-id') === deepId;
+    // And having drawn that far it has drawn the lot, rather than a ragged middle.
+    r.deepDrawn = rows();
+
+    /* Today is the tab with section headers in it, and a header belongs to the row it
+       starts at. Resuming part way through has to know which headers are behind it,
+       or every one of them is drawn a second time on top of the tail. */
+    S.tab = nd.TABS.findIndex((x) => x.id === 'today');
+    wrap.scrollTop = 0;
+    nd.rebuild(null);
+    const headsFirst = ol.querySelectorAll('li.sec').length;
+    await wait(40);
+    const heads = [].map.call(ol.querySelectorAll('li.sec'), (n) => n.textContent);
+    r.sectionStarts = (S.sections || []).map((x) => x.start);
+    r.sectionsFirst = headsFirst;
+    r.sections = heads.length;
+    r.sectionsUnique = new Set(heads).size;
+    // Each header still sits immediately above the row it names.
+    const kids = [].map.call(ol.children, (n) => n.className.split(' ')[0]);
+    r.noTrailingHeader = kids[kids.length - 1] !== 'sec';
+    r.rowsAfterTail = rows();
+    return r;
+  });
+  await page.close();
+  return out;
+}
+
 (async () => {
   let chromium;
   try { chromium = require('playwright-core').chromium; } catch (e) {
@@ -332,6 +407,7 @@ async function pullAndPill(browser) {
     await page.close();
   }
   const pp = await pullAndPill(browser);
+  const rd = await rowDrawing(browser);
   await browser.close();
 
   suite('The price band holds one line', (t) => {
@@ -447,6 +523,28 @@ async function pullAndPill(browser) {
     t.is(pp.acrossStarted, false, 'a flick across for the next tab refreshes nothing');
     t.is(pp.acrossInd, false, 'and shows nothing, however far down it drifts');
     t.is(pp.readerStarted, false, 'and a drag inside an open story is not a pull at all');
+  });
+
+  suite('The first screenful goes down first', (t) => {
+    t.is(rd.view, 90, 'the list is ninety rows long');
+    t.is(rd.first, rd.want, 'from the top, a screenful is drawn at once (' + rd.want + ')');
+    t.ok(rd.first < rd.view, 'rather than all ninety of them');
+    t.is(rd.afterTick, rd.view, 'and the rest follows a tick later');
+    t.is(rd.inOrder, true, 'every row still knowing which row it is');
+    t.is(rd.listTaller, true, 'and the list is taller than the screen, so it scrolls');
+    t.is(rd.scrolled, rd.view, 'a reader who has scrolled gets the whole list at once');
+    t.is(rd.deepIdx, 60, 'a refresh keeps your place deep in the list');
+    t.is(rd.deepRowExists, true, 'and draws that far, so the row it points at exists');
+    t.is(rd.deepRowIsRight, true, 'and is the story you were on');
+    t.is(rd.deepDrawn, rd.view, 'having drawn the rest rather than a ragged middle');
+    t.ok(rd.sections > 1, 'Today is drawn in sections (' + rd.sections + ')');
+    // With real data every section starts inside the first screenful, so the split
+    // lands mid-section. Resuming past a header is checked directly in logic.test.js.
+    t.ok(rd.sectionStarts.length >= 2, 'section starts read off the list ('
+      + rd.sectionStarts.join(',') + ')');
+    t.is(rd.sections, rd.sectionsUnique, 'each of them drawn once, not again on the tail');
+    t.ok(rd.sectionsFirst <= rd.sections, 'some of them arriving with the first screenful');
+    t.is(rd.noTrailingHeader, true, 'and no header is left with nothing under it');
   });
 
   return run('Newsdesk layout');
