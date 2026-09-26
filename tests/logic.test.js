@@ -868,6 +868,45 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.ok(text.indexOf('What is on') >= 0, 'a heading in the article is kept');
     t.is(got.blocks.filter((b) => b.k === 'h').length, 1, 'and it is the only heading');
 
+    /* The shape it is actually in. On a card the heading is inside the link, not the
+       other way round, and the first version of this looked straight past it -
+       querySelector only ever looks downwards. Every shape the menu could be in is
+       checked here, because guessing one of them right is not the same as knowing. */
+    const menu = ['featured', 'News', 'Sport', 'Letters', 'Hereford FC', 'E-editions',
+                  "What's On", 'Notices', 'Awards', 'Young Reporter'];
+    const story = `<h1>Hay-on-Wye to become UK's first Fungi Town</h1>
+      <p>Hay-on-Wye is set to transform into the UK's first Fungi Town with a three-day
+         celebration dedicated to the wonders of the mushroom kingdom.</p>
+      <p>The festival will run across three days in the castle grounds, with foraging
+         walks and talks from mycologists through the weekend.</p>`;
+    const shapes = {
+      'the link inside the heading': menu.map((x) => `<h3><a href="/x">${x}</a></h3>`).join(''),
+      'the heading inside the link': menu.map((x) => `<a href="/x"><h3>${x}</h3></a>`).join(''),
+      'the heading inside a card':   menu.map((x) => `<a href="/x" class="card"><div><h3>${x}</h3></div></a>`).join(''),
+      'no link at all':              menu.map((x) => `<h3>${x}</h3>`).join(''),
+      'h2 rather than h3':           menu.map((x) => `<a href="/x"><h2>${x}</h2></a>`).join('')
+    };
+    Object.keys(shapes).forEach((k) => {
+      const out = nd.extractArticle(
+        `<html><body><div class="article-content">${shapes[k]}${story}</div></body></html>`);
+      const txt = out.blocks.map((b) => b.t);
+      t.same(txt.filter((x) => menu.indexOf(x) >= 0), [], k + ': none of the menu gets through');
+      t.ok(txt.some((x) => /mushroom kingdom/.test(x)), k + ': and the story still does');
+    });
+
+    /* A short menu - three links, not ten - is under the run rule's line, so only
+       the heading-is-a-link rule catches it. Both rules earn their place. */
+    ['<a href="/x"><h3>{}</h3></a>', '<h3><a href="/x">{}</a></h3>'].forEach((shape, i) => {
+      const three = ['News', 'Sport', 'Letters']
+        .map((x) => shape.replace('{}', x)).join('');
+      const out = nd.extractArticle(
+        `<html><body><div class="article-content">${three}${story}</div></body></html>`);
+      const txt = out.blocks.map((b) => b.t);
+      t.same(txt.filter((x) => ['News', 'Sport', 'Letters'].indexOf(x) >= 0), [],
+        'a menu of three is caught too, shape ' + (i + 1));
+      t.ok(txt.some((x) => /mushroom kingdom/.test(x)), 'and the story is untouched, shape ' + (i + 1));
+    });
+
     // A heading that merely contains a link is still a heading.
     const withLink = nd.extractArticle(`<html><body><div class="article-content">
       <h2>The <a href="/x">mushroom festival</a> in full</h2>
@@ -882,6 +921,38 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
       <p>A paragraph long enough to be counted as the body of the article, which this
          one certainly is, with room to spare.</p></div></body></html>`);
     t.not(inNav.blocks.some((b) => /Sport/.test(b.t)), 'a menu inside a nav is still dropped');
+  });
+
+  /* The rule that needs no link at all: a row of short headings with nothing to read
+     between them is a menu, whatever it is marked up as. An article's headings have
+     the article in between them - that is what they are for. */
+  suite('A row of headings with nothing under them is a menu', (t) => {
+    const h = (x) => ({ k: 'h', t: x });
+    const p = (x) => ({ k: 'p', t: x });
+    const txt = (b) => b.map((x) => x.t);
+
+    t.same(txt(nd.dropMenus([h('News'), h('Sport'), h('Letters'), h('Awards'), p('The story.')])),
+      ['The story.'], 'four short headings in a row go, and the story stays');
+    t.same(txt(nd.dropMenus([h('News'), h('Sport'), h('Letters'), p('The story.')])),
+      ['News', 'Sport', 'Letters', 'The story.'], 'three do not: that could be an article');
+    t.same(txt(nd.dropMenus([
+      h('Ingredients'), p('Flour, water.'), h('Method'), p('Mix them.'),
+      h('To serve'), p('On a plate.'), h('Notes'), p('Keeps a week.')])),
+      ['Ingredients', 'Flour, water.', 'Method', 'Mix them.', 'To serve', 'On a plate.',
+       'Notes', 'Keeps a week.'],
+      'and headings with the article in between them are what headings are for');
+
+    // A long heading is a sentence, not a menu item, however many are in a row.
+    const longRun = [1, 2, 3, 4, 5].map((i) =>
+      h('A heading long enough to be a line of the article rather than a word ' + i));
+    t.is(nd.dropMenus(longRun).length, 5, 'five long headings are five headings');
+    t.is(nd.MENU_RUN, 4, 'four in a row is the line');
+    t.ok(nd.MENU_LEN >= 24 && nd.MENU_LEN <= 48, 'and a menu item is a word or two');
+
+    // The menu at the end of the page goes the same way as the one at the start.
+    t.same(txt(nd.dropMenus([p('The story.'), h('News'), h('Sport'), h('Letters'), h('Awards')])),
+      ['The story.'], 'wherever in the page it sits');
+    t.same(nd.dropMenus([]), [], 'and nothing is nothing');
   });
 
   suite('Reading a page the publisher meant for search engines', (t) => {

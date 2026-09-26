@@ -436,6 +436,105 @@ async function photoSizes(browser) {
   return out;
 }
 
+/* Pinching a photograph is geometry - two fingers, a midpoint, a scale - and none of
+   it can be checked without a browser that lays the picture out and touches that
+   actually move. */
+async function lens(browser) {
+  const page = await open(browser, { w: 412, h: 915 });
+  const out = await page.evaluate(async () => {
+    const nd = window.ndApi, S = nd.S;
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    // A photograph wider than the screen, so there is something to zoom into.
+    const pic = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800">'
+      + '<rect width="1200" height="800" fill="#777"/></svg>');
+    const item = { id: 'h1', src: 'hh', kicker: '', title: 'Church Street, 1969',
+      summary: '', link: 'https://example.com/h1', image: pic, html: '', year: 1969,
+      date: Date.now(), when: 0, order: 0, fetched: Date.now() };
+    S.by.hh = { items: [item] };
+    S.tab = nd.TABS.findIndex((x) => x.id === 'hist');
+    S.mode = 'home';
+    nd.rebuild(null);
+    await wait(60);
+
+    const lensEl = document.getElementById('lens');
+    const img = document.getElementById('lensImg');
+    const vis = () => !lensEl.hidden && getComputedStyle(lensEl).display !== 'none';
+    const rect = () => img.getBoundingClientRect();
+
+    // Tapping the photograph in the reader opens it.
+    nd.openReader(item);
+    await wait(250);
+    const r = { openedBefore: vis() };
+    document.getElementById('rdImgBox').dispatchEvent(
+      new MouseEvent('click', { bubbles: true, cancelable: true }));
+    await wait(250);
+    r.opened = vis();
+    r.startsWhole = Math.abs(nd.L.s - nd.L.fit) < 0.001;
+    const fit = rect();
+    r.fitInside = fit.width <= 413 && fit.height <= 916;
+    r.fitFills = fit.width > 380;               // as big as the screen allows
+
+    // Two fingers spreading apart: the picture gets bigger.
+    const touch = (x, y) => new Touch({ identifier: Math.random(), target: lensEl,
+      clientX: x, clientY: y, pageX: x, pageY: y, screenX: x, screenY: y });
+    const fire = (type, pts) => {
+      const ts = pts.map(([x, y]) => touch(x, y));
+      lensEl.dispatchEvent(new TouchEvent(type, { touches: type === 'touchend' ? [] : ts,
+        targetTouches: type === 'touchend' ? [] : ts, changedTouches: ts,
+        bubbles: true, cancelable: true }));
+    };
+    const before = nd.L.s;
+    fire('touchstart', [[150, 400], [250, 400]]);
+    fire('touchmove', [[100, 400], [300, 400]]);
+    fire('touchmove', [[60, 400], [340, 400]]);
+    fire('touchend', [[60, 400], [340, 400]]);
+    await wait(60);
+    r.pinchedTo = +(nd.L.s / before).toFixed(2);
+    r.biggerThanScreen = rect().width > 412;
+
+    // Dragging with one finger moves it, and it cannot be dragged off the screen.
+    const x0 = nd.L.x;
+    fire('touchstart', [[200, 400]]);
+    fire('touchmove', [[260, 400]]);
+    fire('touchend', [[260, 400]]);
+    await wait(60);
+    r.panned = nd.L.x !== x0;
+    fire('touchstart', [[200, 400]]);
+    fire('touchmove', [[3000, 400]]);
+    fire('touchend', [[3000, 400]]);
+    await wait(60);
+    const far = rect();
+    r.heldOnScreen = far.right > 40 && far.left < 412;
+
+    // Double tap goes back to the whole photograph.
+    fire('touchstart', [[200, 400]]); fire('touchend', [[200, 400]]);
+    await wait(40);
+    fire('touchstart', [[200, 400]]); fire('touchend', [[200, 400]]);
+    await wait(320);
+    r.doubleTapOut = Math.abs(nd.L.s - nd.L.fit) < 0.01;
+    r.stillOpen = vis();
+
+    // Double tap again goes in, to something you could read a shop sign at.
+    fire('touchstart', [[200, 400]]); fire('touchend', [[200, 400]]);
+    await wait(40);
+    fire('touchstart', [[200, 400]]); fire('touchend', [[200, 400]]);
+    await wait(320);
+    r.doubleTapIn = +(nd.L.s / nd.L.fit).toFixed(2);
+
+    // Back leaves the picture before it leaves the story.
+    const handled = window.nd.key('back');
+    await wait(120);
+    r.backHandled = handled;
+    r.closedByBack = !vis();
+    r.readerStillOpen = S.mode === 'reader';
+    nd.closeReader();
+    return r;
+  });
+  await page.close();
+  return out;
+}
+
 (async () => {
   let chromium;
   try { chromium = require('playwright-core').chromium; } catch (e) {
@@ -468,6 +567,7 @@ async function photoSizes(browser) {
   const pp = await pullAndPill(browser);
   const rd = await rowDrawing(browser);
   const ph = await photoSizes(browser);
+  const lz = await lens(browser);
   await browser.close();
 
   suite('The price band holds one line', (t) => {
@@ -646,6 +746,29 @@ async function photoSizes(browser) {
        is the part that matters and the part cover got wrong. */
     t.is(p.fit, 'contain', 'with none of it cropped away, only padded at the sides');
     t.ok(p.boxH > 400, 'and it is given nearly the whole screen (' + p.boxH + 'px)');
+  });
+
+  suite('A photograph can be looked at properly', (t) => {
+    t.is(lz.openedBefore, false, 'nothing is over the story until you ask');
+    t.is(lz.opened, true, 'tapping the photograph opens it');
+    t.is(lz.startsWhole, true, 'showing all of it to begin with');
+    t.is(lz.fitInside, true, 'inside the screen rather than over the edge of it');
+    t.is(lz.fitFills, true, 'and as big as the screen allows');
+
+    t.ok(lz.pinchedTo > 1.6, 'two fingers spreading make it bigger (x'
+      + lz.pinchedTo + ')');
+    t.is(lz.biggerThanScreen, true, 'bigger than the screen, which is the point of it');
+    t.is(lz.panned, true, 'one finger moves it about');
+    t.is(lz.heldOnScreen, true, 'and it cannot be dragged off the screen and lost');
+
+    t.is(lz.doubleTapOut, true, 'a double tap comes back to the whole photograph');
+    t.is(lz.stillOpen, true, 'without closing it');
+    t.ok(lz.doubleTapIn > 2, 'and another goes in close enough to read a shop sign (x'
+      + lz.doubleTapIn + ')');
+
+    t.is(lz.backHandled, true, 'Back is taken by the picture');
+    t.is(lz.closedByBack, true, 'which closes it');
+    t.is(lz.readerStillOpen, true, 'and leaves you in the story you were reading');
   });
 
   return run('Newsdesk layout');

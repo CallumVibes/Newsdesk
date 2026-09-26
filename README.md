@@ -233,9 +233,31 @@ of the website. The menu is marked up as headings that are links, outside any `<
 the same container as the story, which is how it got through: the container holding the paragraphs
 is the one that wins, and the menu was in it.
 
-A heading that is *nothing but* a link is somewhere to go, not something to read. A heading in an
-article is words on the page; a heading you can click is a menu, whatever it is wrapped in. One that
-merely contains a link is still a heading.
+Two rules catch it, and both earn their place:
+
+**A heading you can click is somewhere to go, not something to read** — both ways round. The link
+can be *inside* the heading, and on a card the heading is inside the *link* instead. The first
+version of this only looked downwards from the heading, which is why the menu kept coming through:
+of the five shapes such a menu can take, it caught one, and not the one in use.
+
+**A row of short headings with nothing to read between them is a menu**, whatever it's marked up as
+— `MENU_RUN` of them or more, each no longer than `MENU_LEN`. An article's headings have the
+article in between them; that is what they are for. This one needs no link at all, so it catches a
+menu marked up as plain headings, which no link rule can.
+
+The first is for a short menu of two or three, under the run rule's line. The second is for a menu
+that isn't linked at all. Neither covers the other.
+
+### Looking properly at a photograph
+
+A picture of Church Street in 1969 has shop signs in it, and the way to read them is to get closer.
+Tap the photograph in a story and it opens on black, above everything, showing all of it. Pinch to
+zoom about the point between your fingers, drag to move it, double tap to go in and back out, Back
+or **Close** to leave — Back takes the picture first and leaves you in the story you were reading.
+
+It cannot be dragged off the screen and lost: once the picture is bigger than the screen an edge may
+not come inside it. The image is placed by `transform` rather than by layout, which is the only way
+to move and scale something every frame without asking the page to lay itself out again.
 
 ## Search
 
