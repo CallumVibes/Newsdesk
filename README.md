@@ -174,82 +174,36 @@ which is why it is second rather than first.
 
 **[Herefordshire History](https://herefordshirehistory.org.uk/)** is the third, and the only one of
 them that is nothing but here. It is Herefordshire Libraries' digitised collection — some forty
-thousand photographs, postcards, posters, newspapers, maps and letters. The other two are national
-services asked about a county; neither has a picture of Broad Street with the trams still on it.
+thousand photographs, postcards, posters, newspapers, maps and letters, on a [PastView](https://pastview.com)
+site. The other two are national services asked about a county; neither has a picture of Church
+Street with the barge boards still on it.
 
-It publishes no feed and no API, so the app reads its listing pages — and reads them by the shape
-of an item's address, `/view/<number>-<slug>`, rather than by any class name or nesting. A link is
-the one thing on a page that cannot be restyled away, and a small service like this will be
-rebuilt long before it is retired. An address only counts as an item if it is on the archive's own
-host: plenty of sites have a `/view/123-something`.
+It publishes no feed and no API, so the app reads its pages. The archive is a **tree**: a collection
+holds sub-collections, a sub-collection holds pictures, and either kind of page can be either. One
+collection is asked for, chosen by the day; if what comes back is a shelf rather than the books, one
+shelf is taken down — again by the day — so the tab works its way round the whole archive instead of
+showing the same twenty pictures for ever. Two requests at most, once every ten minutes.
 
-A listing is free to link the bare number rather than the full address; the number is the item
-and the slug is a courtesy, so either is read.
+An item's address is `/archive/<collection>/<sub>/<7-digit number>-<name>`. The short form
+`/view/<number>-<name>` is the same item — the site answers it with a redirect — so both are read.
+Telling a picture from a shelf takes two signals, because one isn't enough: the site says which it
+means (`archive-item-link` against `archive-collection-link`), and where a redesign has taken the
+class names away the number decides, since a catalogue number is seven figures and a shelf called
+`1960-floods-hereford` is a year.
 
-An item is named by whatever the page was willing to say — the link's own words, then the
-picture's description, then the slug in the address. A slug that is only a shelf mark (`ca11003`)
-is not a name, and that item is left out rather than shown to you as a catalogue number. A year in
-the title is read off it, so a catalogued picture sorts in among the rest; undated ones follow the
-dated ones rather than leading the tab from the year nought.
+An item is named by whatever the page says: the caption in the link, then the picture's description,
+then the name in the address. A file extension is stripped — some of it is catalogued by file name.
+A year in the caption sorts the row in among the rest; undated ones follow. And because the archive
+catalogues twenty-four photographs of Church Street as twenty-four photographs of Church Street, one
+of each caption is kept, and the day's rotation brings the others round.
 
-The archive does not change from one day to the next and forty thousand items will not fit on a
-screen, so the day picks its own window into them: the same day gives the same pictures however
-often you open the app, and tomorrow gives others. The three listing pages are asked for one after
-another rather than all at once — it is run by a county library, not a newsroom, and three requests
-in a row is politer than three at once for the sake of half a second. One page being down costs
-that page's items and nothing else.
+**robots.txt is respected**: `/search` is disallowed and is not touched. Its `Crawl-delay: 5` is
+aimed at crawlers working through a site; this makes at most two requests per refresh.
 
-Whatever comes back is checked before it is shown: a year has to be a year, a name has to be a
-name, and a thing with no English name is dropped rather than displayed as a Q-number. A query
-answering in a shape the app did not expect empties the tab rather than filling it with nonsense.
-
-Rows show the year rather than how long ago anything was fetched, and history never reaches
-Breaking whatever words are in it. It is kept out of **Today** and **All**, where a row from 1743
-among the morning's headlines would read as a mistake, but it is fetched, cached and searched like
-any other source.
-
-### Keeping it quick
-
-Three things were measured on a full load — 254 stories, every source answering — and fixed:
-
-**One listener, not one per row.** A rebuild drew 120 rows and hung a tap handler on every one,
-then threw all 120 away when the next source landed. Nine sources land per refresh. The list
-outlives the rows, so the listener lives there and each row just records which row it is. Rebuild
-went from **21.3ms to 8.9ms**.
-
-**One redraw per landing became one every 300ms.** The first source to land draws at once — the
-reader is looking at an empty screen — and the eight behind it are gathered into one more
-(`REBUILD_GAP`). The last landing always gets its redraw, or the stories that arrived with it would
-wait for the next refresh.
-
-**The first screenful goes down first.** A phone shows nine rows and the list is 120 long —
-fourteen screens of it — and drawing the lot before the first one appeared was most of what a
-rebuild cost. `FIRST_ROWS` are drawn now and the rest follows a tick later, before a thumb could
-have moved far enough to want it. Time to the first rows on screen: **10.2ms to 3.0ms**, and
-**21.3ms to 3.0ms** counting the listener change above.
-
-Only from the top, though. A reader who has scrolled needs every row to exist for the list to keep
-the height it had, so there the lot is drawn at once. And whatever moves the cursor past the
-screenful — a refresh keeping your place deep in the list — draws that far first.
-
-**The cache stopped keeping page text.** It was 82% of the cache, and it is the one thing in there
-that can be had again for the asking: a story opened without it offers **Full story** and fetches
-it, exactly as a story that never had any already does. A briefing cannot be refetched, and the two
-were competing for the same 5MB. The cache went from **0.64MB to 0.11MB**. Saved stories still keep
-their text, so they read offline.
-
-### Unread
-
-Breaking had the whole machinery — a list of what you've seen, a **New** tag on the row, a tab that
-pulses — and it was the only tab that used any of it. Every tab counts now: the strip carries a
-number for each tab with stories you haven't looked at, looking at a tab reads it, and **Mark all
-read** in the ☰ panel answers the lot. That button only appears when there's something to answer;
-a foot of four buttons wraps onto a second row on a narrow phone.
-
-One bug came out of it. The seen list was pruned by keeping only the list just marked, so reading
-one long tab threw away the record of every other one and stories you'd already read came back as
-unread. It prunes to what the app is actually holding now — anything not in the pool has left the
-feeds and will never be asked about again.
+> This route was written twice. The first version looked for `/view/<id>-<slug>`, a shape taken from
+> search-result snippets rather than the site — the live pages have never used it. It matched
+> nothing, every day, silently, until the ☰ panel was taught to report a route that answers with
+> nothing. The fixtures under `tests/fixtures/` are the site's own markup now, not a guess at it.
 
 ### When a route goes quiet
 
