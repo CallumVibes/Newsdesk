@@ -39,7 +39,7 @@ async function boot(opts) {
     .replace(/<link[^>]*fonts\.(googleapis|gstatic)[^>]*>/g, '');
 
   const errors = [];
-  const calls = { fetched: [], posted: [], notified: [], scraped: [], widget: [], shared: [], diaried: [], themed: [], buzzed: [], spoken: [], hushed: 0 };
+  const calls = { fetched: [], posted: [], notified: [], scraped: [], widget: [], shared: [], diaried: [], themed: [], buzzed: [], spoken: [], hushed: 0, voiceSettings: 0 };
   let nd = null;
 
   const dom = new JSDOM(html, {
@@ -100,6 +100,12 @@ async function boot(opts) {
           return o.speak === undefined ? true : !!o.speak;
         },
         hush() { calls.hushed++; },
+        /* Where a voice is chosen. o.voiceSettings false is a build of Android with no
+           such screen, which is the other dead end. */
+        voiceSettings() {
+          calls.voiceSettings++;
+          return o.voiceSettings === undefined ? true : !!o.voiceSettings;
+        },
         scrape(url) {
           calls.scraped.push(url);
           setTimeout(() => w.__scrapeDone('[]', '[]'), 1);

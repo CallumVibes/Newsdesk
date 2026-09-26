@@ -3400,6 +3400,27 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     nd2.readAloud();
     kitchen.window.__spoke(false, 'silent');
     voice.mutedNote = doc.getElementById('rdNote').textContent;
+    voice.afterMuted = nd2.readerActions(dish).map((a) => a.id);
+
+    /* A phone with no speech engine installed at all - which is how one without Google's
+       services arrives. The button has to become a way out rather than the same no. */
+    nd2.readAloud();
+    kitchen.window.__spoke(false, 'noengine');
+    voice.noEngineNote = doc.getElementById('rdNote').textContent;
+    voice.afterNoEngine = nd2.readerActions(dish).map((a) => a.id);
+    const voiceAct = nd2.readerActions(dish).filter((a) => a.id === 'voice')[0] || {};
+    voice.voiceLabel = voiceAct.label;
+    voice.voiceShort = voiceAct.short;
+    c.voiceSettings = 0;
+    if (voiceAct.run) voiceAct.run();
+    voice.settingsOpened = c.voiceSettings;
+    voice.settingsNote = doc.getElementById('rdNote').textContent;
+
+    // Having installed one, trying again has to be possible without restarting the app.
+    nd2.readAloud();
+    voice.afterRetry = nd2.readerActions(dish).map((a) => a.id);
+    voice.retrySent = c.spoken.length;
+    nd2.hush();
 
     nd2.readAloud();
     kitchen.window.__spoke(false, '');
@@ -3463,14 +3484,33 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
 
     t.is(voice.speakingAfterDone, false, 'reaching the end puts the button back by itself');
     t.is(voice.speakingAfterFail, false, 'and so does a device that has no voice');
-    t.ok(/no voice installed/.test(voice.failNote),
-      'which says so rather than leaving it reading for ever');
+    t.ok(/would not start/.test(voice.failNote),
+      'which says so rather than leaving it reading for ever (' + voice.failNote + ')');
     /* And the message is given a row of its own, or on a phone it shares one with four
        buttons and is squeezed to no width at all - which is how a silent failure came to
        be a silent failure with no explanation either. */
     t.ok(/saying/.test(voice.failFoot), 'with the foot making room for it to be read');
     t.ok(/volume/.test(voice.mutedNote),
       'a muted phone is told apart from a missing voice (' + voice.mutedNote + ')');
+    t.ok(voice.afterMuted.indexOf('read') >= 0,
+      'and leaves the button offering to read, since turning the volume up is the fix');
+
+    /* No engine installed at all. A button that says no and offers nothing to do about it
+       is a dead end, so it becomes the way to the settings where a voice is chosen. */
+    t.ok(/No speech engine is installed/.test(voice.noEngineNote),
+      'a phone with no engine is told so plainly');
+    t.ok(/RHVoice|Speech Services/.test(voice.noEngineNote),
+      'and told what would do the job (' + voice.noEngineNote + ')');
+    t.ok(voice.afterNoEngine.indexOf('voice') >= 0, 'the button becomes Voice settings');
+    t.not(voice.afterNoEngine.indexOf('read') >= 0, 'rather than offering the same no again');
+    t.is(voice.voiceLabel, 'Voice settings', 'saying so on a television');
+    t.is(voice.voiceShort, 'Voice', 'and shorter on a phone, where the strip is tight');
+    t.is(voice.settingsOpened, 1, 'pressing it opens the system speech settings');
+    t.ok(/Text-to-speech/.test(voice.settingsNote), 'saying where to look once there');
+
+    // And with a voice installed, it goes back to reading without the app being restarted.
+    t.ok(voice.afterRetry.indexOf('read') >= 0, 'asking again puts the Read button back');
+    t.ok(voice.retrySent > 0, 'and hands the words over to try again');
     t.ok(voice.vagueNote.length > 0, 'and a failure with no reason still says something');
     t.is(voice.doneNote, '', 'a reading that finished leaves no message behind');
     t.not(/saying/.test(voice.doneFoot), 'and the foot goes back to one row');

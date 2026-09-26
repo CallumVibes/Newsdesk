@@ -441,8 +441,34 @@ suite('The voice does not read a field its own constructor has not set yet', (t)
   t.ok(/val t = tts/.test(began), 'which is where the field is read');
   t.ok(/setOnUtteranceProgressListener/.test(began), 'and where the progress listener is set');
   t.ok(/ready = true/.test(began), 'and where it is marked ready to speak');
-  t.ok(/ended\(false, "novoice"\)/.test(began),
-    'with a device that has no engine told to say so, rather than left silent');
+  /* And it says which kind of nothing. A phone with no speech engine installed at all -
+     which is how a GrapheneOS phone without Google's services arrives - wants a different
+     answer from an engine that is there and would not start. */
+  t.ok(/anyEngine\(\)/.test(began), 'asking whether there is an engine at all');
+  t.ok(/"novoice"/.test(began) && /"noengine"/.test(began),
+    'and telling the two apart rather than leaving it silent');
+  /* Which way round matters and nothing here can see it run - there is no speech engine in
+     jsdom and none in Chromium - so the mapping is pinned: an engine that is installed and
+     would not start is novoice, and none installed at all is noengine. Swapped, the phone
+     with no engine would be told to go and pick another one. */
+  t.ok(/if \(anyEngine\(\)\) "novoice" else "noengine"/.test(began.replace(/\s+/g, ' ')),
+    'an installed engine that failed is novoice; none at all is noengine, and not the reverse');
+  const any = kt.slice(kt.indexOf('private fun anyEngine'), kt.indexOf('private fun began('));
+  t.ok(/INTENT_ACTION_TTS_SERVICE/.test(any), 'by asking what speech services are installed');
+  t.ok(/catch \(e: Exception\) \{\s*true/.test(any.replace(/\n\s*/g, ' ')),
+    'and where it cannot tell, saying there is one - so the engine is tried, never refused');
+  /* From Android 11 an app sees only the packages it declares an interest in, so without
+     this the query answers empty however many engines are installed. */
+  const man = read('app/src/main/AndroidManifest.xml');
+  t.ok(/<queries>/.test(man), 'the manifest says which packages it wants to see');
+  t.ok(/android\.intent\.action\.TTS_SERVICE/.test(man), 'naming the speech services');
+
+  // A dead end is no use: there has to be somewhere to go and get a voice.
+  t.ok(/fun voiceSettings\(\)/.test(kt), 'the app can open the speech settings');
+  t.ok(/com\.android\.settings\.TTS_SETTINGS/.test(kt), 'which is where a voice is chosen');
+  const page0 = read(PAGE);
+  t.ok(/noengine:/.test(page0), 'and the page has words for a phone with no engine');
+  t.ok(/RHVoice|Speech Services/.test(page0), 'naming something that would do the job');
 
   /* A voice reading to a muted phone is the same nothing as no voice, and likelier. The
      two are told apart before a word is queued. */
