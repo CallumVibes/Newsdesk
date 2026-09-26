@@ -27,6 +27,7 @@ function pagePath() {
  *   storage     -> object written into localStorage before the page runs
  *   config      -> window.ND_CONFIG
  *   device      -> 'tv' or 'touch'
+ *   now         -> pin Date.now and new Date() to this instant
  *   search      -> location search, e.g. '?bg=1'
  * @returns {Promise<{nd, window, errors, calls}>}
  */
@@ -51,6 +52,19 @@ async function boot(opts) {
     // loading from assets has working storage, so the harness should too.
     url: 'https://newsdesk.test/index.html' + (o.search || ''),
     beforeParse(w) {
+      /* Pin the clock. Some of what the app shows depends on the date rather than on
+         anything it fetched - what fell on this day in bitcoin's history, which
+         briefing is due - and a check that only bites on one day of the year is not
+         a check. */
+      if (o.now != null) {
+        const Real = w.Date;
+        const Fake = function (...a) { return a.length ? new Real(...a) : new Real(o.now); };
+        Fake.now = () => o.now;
+        Fake.parse = Real.parse;
+        Fake.UTC = Real.UTC;
+        Fake.prototype = Real.prototype;
+        w.Date = Fake;
+      }
       w.__ndTestHook = (api) => { nd = api; };
       // The Citadel relays would otherwise hold a socket open for nine seconds
       try { Object.defineProperty(w, 'WebSocket', { value: undefined, configurable: true }); } catch (e) {}

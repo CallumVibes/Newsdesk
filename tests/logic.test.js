@@ -1295,6 +1295,54 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     proto.setItem = real; proto.removeItem = realRm;
   });
 
+  /* ------------------------------------------------ Bitcoin, on this day */
+  /* Written down rather than fetched, which makes every line a claim that sits in
+     the app for ever if it is wrong. These check the shape of the list; the dates
+     themselves were checked against the record when they were written. */
+  suite("Bitcoin's own dates", (t) => {
+    const days = nd.BTC_DAYS;
+    t.ok(days.length >= 12, 'there is a handful of them (' + days.length + ')');
+
+    // Every line is a real date, and a date that could have happened.
+    const bad = days.filter((x) => {
+      const d = new Date(Date.UTC(x.y, x.m - 1, x.d));
+      return d.getUTCFullYear() !== x.y || d.getUTCMonth() !== x.m - 1 || d.getUTCDate() !== x.d;
+    });
+    t.same(bad.map((x) => x.t), [], 'every one of them is a date that exists');
+    t.not(days.some((x) => x.y < 2008), 'none of them before bitcoin did');
+    t.not(days.some((x) => x.y > new Date().getFullYear()), 'and none in the future');
+    t.not(days.some((x) => !x.t || !x.s), 'each one says what happened and what it was');
+    t.not(days.some((x) => x.s.length < 40), 'in enough words to stand on its own');
+    t.is(new Set(days.map((x) => x.t)).size, days.length, 'and none of them twice');
+
+    // The ones anybody would check first.
+    const on = (m, d) => nd.btcToday(new Date(2026, m - 1, d)).map((x) => x.title);
+    t.ok(on(1, 3).some((x) => /genesis block/i.test(x)), 'the genesis block is on 3 January');
+    t.ok(on(10, 31).some((x) => /white paper/i.test(x)), 'the white paper on 31 October');
+    t.ok(on(5, 22).some((x) => /10,000 bitcoin/.test(x)), 'and the pizzas on 22 May');
+    t.same(on(6, 13), [], 'a day with nothing on it has nothing on it');
+
+    /* The month has to count as well as the day. Two of these fall on a 9th and two
+       on a 28th, in different months, so matching the day alone would put the second
+       halving on the day the software was released. */
+    t.same(on(1, 9), ['Bitcoin v0.1 is released'], 'the 9th of January is only January\'s');
+    t.same(on(7, 9), ['The second halving'], 'and the 9th of July only July\'s');
+    t.is(on(11, 28).length, 1, 'the 28th of November is one thing');
+    t.is(on(2, 28).length, 1, 'and the 28th of February another');
+    t.not(on(11, 28)[0] === on(2, 28)[0], 'and they are not the same thing');
+
+    // What comes back is a row, not a table entry.
+    const pizza = nd.btcToday(new Date(2026, 4, 22))[0];
+    t.is(pizza.year, 2010, 'the row carries the year it happened');
+    t.is(pizza.kicker, 'Bitcoin', 'and says which kind of history it is');
+    t.is(pizza.link, '', 'with nowhere to send you, since it is written here');
+    t.is(nd.autoFull(story({ src: 'hh', id: 'b', title: pizza.title, summary: pizza.summary,
+      link: '' })), false, 'so nothing is fetched when it is opened');
+
+    // A leap day is a day, and the table must not claim one that is not.
+    t.same(nd.btcToday(new Date(2024, 1, 29)), [], 'the 29th of February is quiet, and valid');
+  });
+
   /* ------------------------------------------- The county's own archive */
   /* The archive publishes no feed, so the tab reads its listing pages - and reads
      them by the shape of an item's address rather than by any markup, because the
@@ -2288,6 +2336,15 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.ok(/Wikipedia/.test(hh.method || ''), 'and Wikipedia another');
     t.ok(/county archive/.test(hh.method || ''), 'and the county archive the third');
 
+    /* Bitcoin's dates are the fourth, and they are written down rather than fetched -
+       so whether today has one is a fact about today, not about the app. Either way
+       the tab and the panel have to agree with each other. */
+    const due = hist.nd.btcToday(Date.now());
+    const says = /bitcoin's own dates/.test(hh.method || '');
+    t.is(says, due.length > 0, 'the panel names bitcoin exactly when bitcoin has something');
+    due.forEach((x) => t.ok(titles.indexOf(x.title) >= 0,
+      'and what it has is on the tab: ' + x.title));
+
     const titles = items.map((x) => x.title);
     t.ok(titles.indexOf('Nell Gwyn') >= 0, 'somebody Wikidata knows was born here');
     t.ok(titles.some((x) => /Wye Valley railway/.test(x)), 'something Wikipedia has for the day');
@@ -2508,10 +2565,56 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     halfDown.window.nd.key('menu');
   });
 
+  /* Whether bitcoin has a date today is a fact about today, not about the app, so the
+     clock is pinned to a day that does: 22 May, when two pizzas cost 10,000 bitcoin.
+     Otherwise this check does nothing for 350 days of the year. */
+  const PIZZA_DAY = new Date(2026, 4, 22, 10, 0, 0).getTime();
+  const pizzaDay = await boot({
+    settle: 900,
+    now: PIZZA_DAY,
+    reply(url) {
+      // Only the county's routes answer; bitcoin's need nothing.
+      if (/wbsearchentities|query\.wikidata|onthisday|herefordshirehistory/.test(url)) {
+        return { ok: false, status: 599, body: '' };
+      }
+      return { ok: false, status: 599, body: '' };
+    }
+  });
+
+  suite('On a day bitcoin has a date, the tab has it', (t) => {
+    const nd2 = pizzaDay.nd, hh = nd2.S.by.hh || {};
+    const titles = (hh.items || []).map((x) => x.title);
+    // The clock is pinned inside that page only; out here it is still today.
+    t.is(pizzaDay.window.Date.now(), PIZZA_DAY, 'the page is on the 22nd of May');
+    t.not(Date.now() === PIZZA_DAY, 'while the runner is not');
+
+    const due = nd2.btcToday(PIZZA_DAY);
+    t.is(due.length, 1, 'the 22nd of May has one date on it');
+    t.ok(/10,000 bitcoin/.test(due[0].title), 'and it is the pizzas');
+
+    // Every other route was refused, so what is on the tab is bitcoin's alone.
+    t.ok(titles.indexOf(due[0].title) >= 0, 'which reaches the tab');
+    t.ok(/bitcoin's own dates/.test(hh.method || ''), 'and the panel says where it came from');
+    t.not(/Wikidata|Wikipedia|county archive/.test(hh.method || ''),
+      'naming nothing that did not answer');
+    t.not(hh.error, 'and the tab is not in error, though every fetch failed');
+
+    // The row reads as history: a year where a story shows its age, and no fetching.
+    const row = (hh.items || []).filter((x) => x.title === due[0].title)[0];
+    t.is(row.year, 2010, 'the row carries the year');
+    t.is(nd2.timeLabel(row), '2010', 'which is what it shows in place of an age');
+    t.is(row.kicker, 'Bitcoin', 'and says which kind of history it is');
+    // The other routes were asked and refused; bitcoin's was not asked at all.
+    t.not((hh.requests || []).some((r) => /bitcoin|btc/i.test(r.url)),
+      'and the History source asked for nothing to put it there');
+    t.ok((hh.requests || []).length > 0, 'though it did ask the routes that need asking');
+  });
+
   return run('Newsdesk logic').then(() => {
     close();                       // stop the page's clock, or node never gets to exit
     phone.close();
     hist.close();
+    pizzaDay.close();
     halfDown.close();
   });
 }).catch((e) => {

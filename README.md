@@ -248,6 +248,23 @@ menu marked up as plain headings, which no link rule can.
 The first is for a short menu of two or three, under the run rule's line. The second is for a menu
 that isn't linked at all. Neither covers the other.
 
+### Bitcoin, on this day
+
+A fourth route, and the only one that fetches nothing. Dates do not change, so bitcoin's are written
+down rather than asked for: the genesis block on 3 January, the white paper on 31 October, two
+pizzas for 10,000 bitcoin on 22 May, each halving, SegWit, Taproot, El Salvador. `BTC_DAYS` is a
+plain list and is meant to be edited.
+
+That makes it the one route that cannot fail, cannot be rate limited, and works with the aerial
+unplugged — and it is also why the list is short. Every line is a date somebody can check, and a
+wrong one would sit in the app for ever. The tests assert every entry is a date that actually
+exists, that none predates bitcoin or postdates today, and that the month counts as well as the day
+— two of them fall on a 9th and two on a 28th, in different months.
+
+The county's history and bitcoin's are the same question, *what happened on this date*, which is
+what the tab is for. The kicker on the row says which is which, and the source is **On this day**
+rather than *On this day here*, since bitcoin's isn't.
+
 ### Nothing to press
 
 A Wikipedia entry used to open showing its description — *English darts player* — and nothing else,
