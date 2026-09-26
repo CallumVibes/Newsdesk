@@ -20,8 +20,7 @@ One build, two layouts. On a TV it's headlines on the left, a large preview on t
 
 ## Tabs
 
-- **Breaking** — only what matters to everyone, and only while it's recent. See below.
-- **Today** — an optional AI briefing, then the day's biggest stories, local news, vegan food and living, what's on in town, and Bitcoin and markets.
+- **Today** — where the app opens: an optional AI briefing, then the day's biggest stories, local news, vegan food and living, what's on in town, and Bitcoin and markets.
 - **Local** — the local news sites, the BBC topic and what's on in town.
 - **UK & World** — Kagi's UK and World categories, plus general news off the wire.
 - **Tech** — Kagi's Technology and Science categories, plus anything technical off the wire.
@@ -112,23 +111,6 @@ the seed extrapolates to, wide enough for years of drift but enough to catch a f
 factor of a thousand, or the wrong ONS series. A cached total is re-checked the same way on
 load, on refresh and before each draw, so one written by an older build can't sit there.
 
-## What reaches Breaking
-
-Breaking is about importance, not just freshness, so a story has to be recent **and** matter
-to everyone. There are three ways in:
-
-- **Kagi** stories qualify on how many outlets are covering them — at least `KG_BREAKING_MIN`,
-  and within `KG_BREAKING_SHARE` of the day's most widely covered story. The bar is relative,
-  so it adjusts itself as the day's news gets bigger or smaller. If a feed arrives without its
-  source list, the top `KG_BREAKING_TOP` of each category are used instead.
-- **Local sources** (`LOCAL_NEWS`) have no such count, so a headline is judged on what it says:
-  it needs more words from `URGENT_WORDS` than from `SOFT_WORDS`. A road closed by a crash gets
-  in; six houses for sale does not.
-- **The wire and Vegan Food & Living** only appear when a story is explicitly labelled breaking.
-
-If nothing clears the bar, the tab says so rather than filling up with whatever is newest.
-Both word lists sit near the top of `index.html` and are meant to be edited.
-
 ## Recipes
 
 Six plant-based kitchens, pooled rather than tried in turn: one blog has a quiet fortnight, six
@@ -137,7 +119,7 @@ what is filtered out is everything that is not a recipe, because even a recipe s
 itself. A feed that has not moved in `RC_FRESH_DAYS` is treated as a kitchen that has closed.
 
 A row names the kitchen rather than the hour, because a recipe from last week is as good as one
-from this morning. Recipes never reach **Breaking**, and are kept out of **Today** and **All** the
+from this morning. Recipes are kept out of **Today** and **All** the
 way History is.
 
 **On "trending":** none of these feeds publishes a view count or a share count, so nothing here
@@ -425,7 +407,7 @@ and that the facts written twice in two languages agree — the briefing times i
 offers.
 
 `logic.test.js` boots the real page under jsdom with every source stubbed and checks the rules
-themselves: what reaches Breaking, where a wire story lands, event dates, the debt figure, the
+themselves: where a wire story lands, event dates, the debt figure, the
 briefing editions and how a screen is built. Both run in CI before Gradle is asked for an APK, so a
 bad push fails in seconds. `tests/README.md` has the detail.
 
@@ -538,10 +520,6 @@ Near the top of `app/src/main/assets/index.html`:
 | Setting | Does |
 | --- | --- |
 | `HOME_TAB` | Which tab opens first |
-| `BREAKING_HOURS` | How new a story must be to count as breaking |
-| `BREAKING_PER_SOURCE` | Most stories one source may put on **Breaking** |
-| `BREAKING_MAX` | Most rows **Breaking** will ever show |
-| `KG_BREAKING_MIN` / `KG_BREAKING_SHARE` | How widely covered a Kagi story must be to count |
 | `URGENT_WORDS` / `SOFT_WORDS` | What makes a local headline important, or not |
 | `ROW_IMAGES` | Small picture on each headline; `false` for text only |
 | `BTC_SOURCES`, `GOLD_SOURCES`, `OIL_SOURCES` | Where prices come from, tried in order |
@@ -561,7 +539,7 @@ Near the top of `app/src/main/assets/index.html`:
 **On in town** is a diary, not a news feed, so it behaves differently from every other source:
 
 - It sorts forwards. The next thing on is at the top, and anything already over drops to the bottom.
-- It never appears under **Breaking news**, and a future date can't masquerade as a story that just broke.
+- A future date can't masquerade as a story that just landed.
 - Rows read "Tomorrow, 16:30" rather than "2h ago". An event whose date can't be read shows no time at all rather than the day it was posted.
 
 The date comes from the listing's own field where it has one, and is otherwise read out of the title or the blurb ("5 September 2026", "12th June at 4:30pm"). The AI briefing is told these are upcoming events rather than news, and is given the date.

@@ -52,79 +52,14 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
   suite('The page itself', (t) => {
     t.same(errors, [], 'boots with no error on the console');
     t.same(nd.TABS.map((x) => x.id),
-      ['breaking', 'today', 'local', 'world', 'tech', 'coin', 'vegan', 'recipes', 'hist', 'all', 'saved'],
+      ['today', 'local', 'world', 'tech', 'coin', 'vegan', 'recipes', 'hist', 'all', 'saved'],
       'has its tabs, in the order the remote walks them');
+    t.is(nd.TABS[nd.HOME_TAB].id, 'today', 'and opens on the first of them');
     t.same(nd.ORDER, ['cw', 'kg', 'ht', 'yh', 'bb', 'vf', 'lm', 'hh', 'rc'], 'knows its sources');
     nd.TABS.forEach((tab) => {
       t.ok(tab.srcs.every((s) => nd.ORDER.indexOf(s) >= 0),
         tab.id + ' draws only from sources that exist');
     });
-  });
-
-  /* ---------------------------------------------------------------- Breaking */
-  suite('Breaking news: local papers', (t) => {
-    const bar = 0;
-    const yes = (title) => nd.important(story({ src: 'ht', title }), bar);
-    // The complaint that started this: a house for sale is not breaking news.
-    t.is(yes('Four-bedroom home for sale in the county'), false, 'a house for sale stays out');
-    t.is(yes('In pictures: the best of this year\'s carnival'), false, 'a picture gallery stays out');
-    t.is(yes('Top 10 things to do this weekend'), false, 'a listicle stays out');
-    t.is(yes('Win a meal for two at a new restaurant'), false, 'a competition stays out');
-    t.is(yes('Man arrested after crash on the A49'), true, 'an arrest after a crash gets in');
-    t.is(yes('Police close road after major incident'), true, 'a road closed by police gets in');
-    t.is(yes('Firefighters tackle blaze at industrial unit'), true, 'a blaze gets in');
-    t.is(yes('Flood warning issued for the river'), true, 'a flood warning gets in');
-    // One urgent word is not enough when the story is plainly a soft one.
-    t.is(yes('In pictures: fire station open day'), false,
-      'an open day at a fire station is not a fire');
-    t.is(nd.important(story({ src: 'bb', title: 'Two died in collision, police say' }), bar), true,
-      'the BBC topic page is judged the same way');
-  });
-
-  suite('Breaking news: Kagi and the rest', (t) => {
-    const all = [story({ src: 'kg', weight: 10 }), story({ src: 'kg', weight: 4 })];
-    t.is(nd.kagiBar(all), 5, 'the bar is 45% of the day\'s most-covered story');
-    t.is(nd.kagiBar([story({ src: 'kg', weight: 4 })]), 3, 'but never below three outlets');
-    t.is(nd.kagiBar([story({ src: 'kg' })]), 0, 'and zero when no counts came through at all');
-
-    t.is(nd.important(story({ src: 'kg', weight: 6 }), 5), true, 'a widely covered story gets in');
-    t.is(nd.important(story({ src: 'kg', weight: 2 }), 5), false, 'a thinly covered one does not');
-    t.is(nd.important(story({ src: 'kg', order: 1 }), 0), true,
-      'with no counts, Kagi\'s own top three get in');
-    t.is(nd.important(story({ src: 'kg', order: 7 }), 0), false, 'and the rest do not');
-
-    t.is(nd.important(story({ src: 'cw', title: 'Fed holds rates steady' }), 5), false,
-      'the wire only gets in when it says so itself');
-    t.is(nd.important(story({ src: 'cw', kicker: 'BREAKING', title: 'Fed cuts rates' }), 5), true,
-      'a wire flagged breaking gets in');
-    t.is(nd.important(story({ src: 'vf', title: 'A new oat milk arrives' }), 5), false,
-      'the vegan feed stays out unless flagged');
-    t.is(nd.important(story({ src: 'lm', title: 'Fire station open day' }), 5), false,
-      'and the events diary never breaks news');
-  });
-
-  suite('Breaking news: the list', (t) => {
-    const now = Date.now();
-    const hot = (n, mins) => story({
-      src: 'ht', id: 'ht:' + n, title: 'Police arrest man number ' + n, date: now - mins * 60e3
-    });
-    const list = nd.breakingList([
-      hot(1, 10), hot(2, 20), hot(3, 30), hot(4, 40), hot(5, 50),
-      story({ src: 'ht', id: 'old', title: 'Police arrest man last week', date: now - 5 * DAY }),
-      story({ src: 'ht', id: 'ahead', title: 'Police arrest man tomorrow', date: now + HOUR }),
-      story({ src: 'lm', id: 'ev', title: 'Emergency services open day', date: now, when: now + DAY })
-    ]);
-    t.is(list.length, nd.BREAKING_PER_SOURCE, 'one paper contributes at most three stories');
-    t.same(list.map((x) => x.id), ['ht:1', 'ht:2', 'ht:3'], 'and they are its newest three');
-    t.not(list.some((x) => x.id === 'old'), 'a story from last week has stopped breaking');
-    t.not(list.some((x) => x.id === 'ahead'), 'a story dated ahead of us is not news that just broke');
-    t.not(list.some((x) => x.id === 'ev'), 'a diary entry is never breaking news');
-
-    const wires = nd.breakingList([
-      story({ src: 'cw', id: 'w1', kicker: 'BREAKING', title: 'Fed cuts rates', date: now - 10 * 60e3 }),
-      story({ src: 'cw', id: 'w0', kicker: 'BREAKING', title: 'Fed held rates', date: now - 3 * HOUR })
-    ]);
-    t.same(wires.map((x) => x.id), ['w1'], 'only the latest wire of the hour counts');
   });
 
   /* ---------------------------------------------------- Where the wire lands */
@@ -161,7 +96,7 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.is(nd.inTab(story({ src: 'cw', title: 'Oil falls after OPEC raises output' }), tab('world')), true,
       'it goes to UK & World instead, where it reads perfectly well');
     t.is(nd.inTab(story({ src: 'lm' }), tab('local')), true, 'events sit under Local');
-    t.is(nd.inTab(story({ src: 'lm' }), tab('breaking')), false, 'and never under Breaking');
+    t.is(nd.inTab(story({ src: 'lm' }), tab('world')), false, 'and not under UK & World');
     t.is(nd.inTab(story({ src: 'vf' }), tab('vegan')), true, 'the vegan feed has its own tab');
   });
 
@@ -1043,7 +978,7 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     // The remote must not stop on a tab that is not there.
     S.tab = nd.TABS.findIndex((x) => x.id === 'all');
     nd.switchTab(1);
-    t.is(nd.TABS[S.tab].id, 'breaking', 'so the remote walks past it, round to the first');
+    t.is(nd.TABS[S.tab].id, 'today', 'so the remote walks past it, round to the first');
     nd.toggleSave(story({ src: 'ht', id: 'ht:9', title: 'Road closed', date: Date.now() }));
     t.is(nd.tabShown(nd.TABS[saved]), true, 'once something is saved it appears');
     S.tab = nd.TABS.findIndex((x) => x.id === 'all');
@@ -1151,10 +1086,11 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
       'which is what the row shows, rather than how long ago it was fetched');
     t.is(nd.isHistory(items[0]), true, 'it knows it is history');
     t.is(nd.isHistory(story({ src: 'ht' })), false, 'and the news knows it is not');
-    // Centuries old and never breaking, whatever words are in it.
-    t.same(nd.breakingList([Object.assign(items[0], { date: Date.now(),
-      title: 'Fire destroys the market hall' })]), [],
-      'history never reaches Breaking, however urgent the words in it');
+    // Centuries old, whatever words are in it: it stays out of the news.
+    const urgent = Object.assign({}, items[0], { date: Date.now(),
+      title: 'Fire destroys the market hall' });
+    t.is(nd.inTab(urgent, nd.TABS[nd.TABS.findIndex((x) => x.id === 'all')]), false,
+      'history never reaches All, however urgent the words in it');
     const hist = nd.TABS[nd.TABS.findIndex((x) => x.id === 'hist')];
     t.same(hist.srcs, ['hh'], 'the History tab draws from it alone');
     const all = nd.TABS[nd.TABS.findIndex((x) => x.id === 'all')];
@@ -1198,9 +1134,9 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.is(nd.timeLabel(dish), 'Minimalist Baker', 'the row names the kitchen, not the hour');
     t.is(nd.isKitchen(dish), true, 'it knows it is a recipe');
     t.is(nd.isKitchen(story({ src: 'ht' })), false, 'and the news knows it is not');
-    t.same(nd.breakingList([Object.assign({}, dish, { date: now,
-      title: 'Fire roasted red pepper soup' })]), [],
-      'a recipe never reaches Breaking, however the words read');
+    t.is(nd.inTab(Object.assign({}, dish, { date: now, title: 'Fire roasted red pepper soup' }),
+      nd.TABS[nd.TABS.findIndex((x) => x.id === 'all')]), false,
+      'a recipe never reaches All, however the words read');
     const tab = nd.TABS[nd.TABS.findIndex((x) => x.id === 'recipes')];
     t.same(tab.srcs, ['rc'], 'the Recipes tab draws from the kitchens alone');
     const all = nd.TABS[nd.TABS.findIndex((x) => x.id === 'all')];
@@ -1712,11 +1648,6 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     S.tab = nd.TABS.findIndex((x) => x.id === 'local');
     nd.rebuild();
     t.same(S.view.map((x) => x.id).sort(), ['ht:1', 'lm:1'], 'Local shows the paper and the diary');
-    S.tab = nd.TABS.findIndex((x) => x.id === 'breaking');
-    nd.rebuild();
-    t.same(S.view.map((x) => x.id), ['ht:1', 'kg:1'],
-      'and Breaking shows only what actually broke: the closed road and the big story, '
-      + 'not the chip announcement or the oat milk');
     t.ok(window.document.querySelectorAll('#list .row').length >= 1, 'and it reaches the screen');
   });
 
