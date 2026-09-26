@@ -997,16 +997,19 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
                          link: 'https://example.com/a' });
     const ids = (it) => { S.reader = { item: it, full: false, loading: false, y: 0, act: -1, acts: [] };
                           return nd.readerActions(it).map((a) => a.id); };
-    // This boot is a television: it has nothing to share to and no calendar.
-    t.same(ids(news), ['full', 'save'], 'a TV is offered the full story and saving, and no more');
-    t.same(ids(ev), ['full', 'save'], 'an event too');
+    /* This boot is a television: it has nothing to share to and no calendar. It does have
+       a voice, though, and a television is the device you are least likely to be holding,
+       so being read to is offered there as much as on a phone. */
+    t.same(ids(news), ['full', 'save', 'read'],
+      'a TV is offered the full story, saving and being read to, and no more');
+    t.same(ids(ev), ['full', 'save', 'read'], 'an event too');
     S.reader = { item: news, full: true, loading: false, y: 0, act: -1, acts: [] };
-    t.same(nd.readerActions(news).map((a) => a.id), ['save'],
+    t.same(nd.readerActions(news).map((a) => a.id), ['save', 'read'],
       'and the full story drops off the strip once it has been loaded');
     const brief = { src: 'ai', id: 'brief:1', title: 'H', link: '', summary: 'x' };
     S.reader = { item: brief, full: true, loading: false, y: 0, act: -1, acts: [] };
-    t.same(nd.readerActions(brief).map((a) => a.id), ['save'],
-      'a briefing has no page to fetch, so it is only ever saved');
+    t.same(nd.readerActions(brief).map((a) => a.id), ['save', 'read'],
+      'a briefing has no page to fetch, so it is saved or read out');
     S.reader = null; S.saved = [];
   });
 
@@ -2519,11 +2522,11 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
       S.reader = { item: it, full: !!full, loading: false, y: 0, act: -1, acts: [] };
       return phone.nd.readerActions(it).map((a) => a.id);
     };
-    t.same(ids(news), ['full', 'save', 'share'], 'a phone can share a story');
-    t.same(ids(ev), ['full', 'save', 'share', 'cal'],
+    t.same(ids(news), ['full', 'save', 'read', 'share'], 'a phone can share a story');
+    t.same(ids(ev), ['full', 'save', 'read', 'share', 'cal'],
       'and put an event in the calendar, since it knows when it is');
     const undated = Object.assign({}, ev, { when: 0 });
-    t.same(ids(undated), ['full', 'save', 'share'],
+    t.same(ids(undated), ['full', 'save', 'read', 'share'],
       'but not one whose date could not be read, which would only guess');
     S.reader = null; S.saved = [];
   });
@@ -3345,6 +3348,115 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
       'a kitchen costs no more than its limit, the page fetch included (' + rc.tightFetches + ')');
     t.is(rc.tight.reqs.filter((r) => !r.note).length, 5,
       'so the five feeds are tried and the five offered are not');
+  });
+
+  /* A story read out loud. What is read is taken off the screen, so it is always what you
+     are looking at - the summary before the article has been fetched, the article after,
+     and a recipe's ingredients and method in the order you would cook them. */
+  const voice = {};
+  {
+    const nd2 = kitchen.nd, S2 = nd2.S, doc = kitchen.window.document, c = kitchen.calls;
+    const dish = { id: 'rc:stew2', src: 'rc', kitchen: 'A Kitchen', title: 'Smoky butter bean stew',
+      summary: 'A stew for a Tuesday.', link: 'https://kitchen.test/stew2', image: '', html: '',
+      date: Date.now(), when: 0, order: 0, fetched: Date.now() };
+    RC_REPLY['https://kitchen.test/stew2'] = { ok: true, body: readFixture('recipe-graph.html') };
+    S2.view = [dish];
+    S2.idx = 0;
+    nd2.openReader(dish);
+    await new Promise((r) => setTimeout(r, 200));
+
+    voice.offered = nd2.readerActions(dish).map((a) => a.id);
+    voice.text = nd2.spokenText();
+    c.spoken.length = 0;
+    c.hushed = 0;
+    nd2.readAloud();
+    voice.sent = c.spoken.slice();
+    voice.speakingAfter = !!S2.speaking;
+    // Defensively: an action strip with no read button should fail a line, not throw and
+    // take the rest of the run with it.
+    const readAct = () => nd2.readerActions(dish).filter((a) => a.id === 'read')[0] || {};
+    voice.labelWhile = readAct().label;
+
+    // Pressing it again stops it.
+    nd2.readAloud();
+    voice.hushedByPress = c.hushed;
+    voice.speakingAfterStop = !!S2.speaking;
+    voice.labelAfter = readAct().label;
+
+    // Kotlin saying it has finished puts the button back on its own.
+    nd2.readAloud();
+    kitchen.window.__spoke(true);
+    voice.speakingAfterDone = !!S2.speaking;
+
+    // A device with no voice says so rather than leaving it reading for ever.
+    nd2.readAloud();
+    kitchen.window.__spoke(false);
+    voice.speakingAfterFail = !!S2.speaking;
+    voice.failNote = doc.getElementById('rdNote').textContent;
+
+    // Leaving the story stops it, and so does opening another.
+    nd2.readAloud();
+    c.hushed = 0;
+    nd2.closeReader();
+    voice.hushedByClose = c.hushed;
+    voice.speakingAfterClose = !!S2.speaking;
+
+    nd2.openReader(dish);
+    await new Promise((r) => setTimeout(r, 200));
+    nd2.readAloud();
+    c.hushed = 0;
+    nd2.openReader(Object.assign({}, dish, { id: 'rc:other', title: 'Another dish entirely' }));
+    voice.hushedByNext = c.hushed;
+    voice.speakingAfterNext = !!S2.speaking;
+
+    // And the app going off screen.
+    nd2.readAloud();
+    c.hushed = 0;
+    kitchen.window.nd.paused();
+    voice.hushedByPause = c.hushed;
+    voice.speakingAfterPause = !!S2.speaking;
+    nd2.startTimers();
+    nd2.closeReader();
+    S2.view = [];
+  }
+
+  suite('A story can be read out loud', (t) => {
+    t.ok(voice.offered.indexOf('read') >= 0, 'the reader offers to read it out');
+
+    /* Taken off the screen, so it is what you are looking at. A recipe reads its times,
+       then its ingredients, then its method - in the order you would cook it. */
+    const lines = voice.text.split('\n');
+    t.is(lines[0], 'Smoky butter bean stew', 'it starts with the headline');
+    t.ok(/50 min/.test(lines[1]), 'then how long it takes, which is the next thing on screen');
+    t.ok(lines.indexOf('Ingredients') > 0, 'the headings are read too, so you know where you are');
+    t.ok(lines.indexOf('2 tbsp olive oil') > 0, 'every ingredient is read');
+    t.ok(lines.some((l) => /^1\. Warm the oil/.test(l)),
+      'and a step is read with its number, which the list draws and the words do not carry');
+    t.ok(lines.some((l) => /^5\. Simmer/.test(l)), 'up to the last of them');
+    t.is(lines.filter((l) => /^\d+\. /.test(l)).length, 5, 'five steps, numbered one to five');
+
+    t.is(voice.sent.length, 1, 'pressing it hands the words over once');
+    t.is(voice.sent[0], voice.text, 'and hands over exactly what is on the screen');
+    t.is(voice.speakingAfter, true, 'the app knows it is reading');
+    t.is(voice.labelWhile, 'Stop reading', 'and the button offers to stop');
+
+    t.is(voice.hushedByPress, 1, 'pressing it again stops the voice');
+    t.is(voice.speakingAfterStop, false, 'and the app knows it has stopped');
+    t.is(voice.labelAfter, 'Read aloud', 'with the button back to offering to read');
+
+    t.is(voice.speakingAfterDone, false, 'reaching the end puts the button back by itself');
+    t.is(voice.speakingAfterFail, false, 'and so does a device that has no voice');
+    t.ok(/no voice to read with/.test(voice.failNote),
+      'which says so rather than leaving it reading for ever');
+
+    /* Every way you stop listening. A voice carrying on from the last article while you
+       read the next is worse than no voice at all. */
+    t.is(voice.hushedByClose, 1, 'leaving the story stops it');
+    t.is(voice.speakingAfterClose, false, 'and it is not left marked as reading');
+    t.is(voice.hushedByNext, 1, 'opening another story stops it');
+    t.is(voice.speakingAfterNext, false, 'rather than reading the last one over the new one');
+    t.is(voice.hushedByPause, 1, 'and the app going off screen stops it');
+    t.is(voice.speakingAfterPause, false, 'with nothing left speaking to an empty room');
   });
 
   /* The evening edition repeated the morning's news. Four editions a day, and each was

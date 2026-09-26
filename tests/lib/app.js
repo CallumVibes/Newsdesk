@@ -39,7 +39,7 @@ async function boot(opts) {
     .replace(/<link[^>]*fonts\.(googleapis|gstatic)[^>]*>/g, '');
 
   const errors = [];
-  const calls = { fetched: [], posted: [], notified: [], scraped: [], widget: [], shared: [], diaried: [], themed: [], buzzed: [] };
+  const calls = { fetched: [], posted: [], notified: [], scraped: [], widget: [], shared: [], diaried: [], themed: [], buzzed: [], spoken: [], hushed: 0 };
   let nd = null;
 
   const dom = new JSDOM(html, {
@@ -92,6 +92,14 @@ async function boot(opts) {
           // What the home screen widget would be handed, parsed as Kotlin parses it
           try { calls.widget.push(JSON.parse(json)); } catch (e) { calls.widget.push({ bad: json }); }
         },
+        /* The voice. o.speak decides what the device answers: true is an engine that
+           took it, false is a device with none. Nothing is spoken here, so the page's
+           window.__spoke has to be called by the test when it wants the end of it. */
+        speak(text) {
+          calls.spoken.push(text);
+          return o.speak === undefined ? true : !!o.speak;
+        },
+        hush() { calls.hushed++; },
         scrape(url) {
           calls.scraped.push(url);
           setTimeout(() => w.__scrapeDone('[]', '[]'), 1);
