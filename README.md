@@ -216,6 +216,62 @@ So every route now counts what it got, and the ☰ panel lists any that failed o
 under **Nothing came from:**, with the address and the reason — `HTTP 404`, `Timed out`, or
 `answered with nothing`. A route that worked is not listed; there is nothing to say about it.
 
+### A photograph is the story
+
+An archive item is a photograph with a caption; the picture *is* the thing, not an illustration
+beside an article. It used to be drawn in the same fixed strip a news story's picture gets, which
+cropped the top off a street and left half the screen empty below the caption because there was no
+article to fill it. A history item now gets its own shape: as much width as the screen allows,
+its own height, nothing cropped, capped so the caption stays on screen. Its row in the list carries
+a bigger thumbnail too.
+
+### A menu is not the start of the article
+
+**Full story** on a Hereford Times piece used to begin with the paper's section menu — featured,
+News, Sport, Letters, Hereford FC, E-editions — as though the article opened with a list of the rest
+of the website. The menu is marked up as headings that are links, outside any `<nav>`, and inside
+the same container as the story, which is how it got through: the container holding the paragraphs
+is the one that wins, and the menu was in it.
+
+Two rules catch it, and both earn their place:
+
+**A heading you can click is somewhere to go, not something to read** — both ways round. The link
+can be *inside* the heading, and on a card the heading is inside the *link* instead. The first
+version of this only looked downwards from the heading, which is why the menu kept coming through:
+of the five shapes such a menu can take, it caught one, and not the one in use.
+
+**A row of short headings with nothing to read between them is a menu**, whatever it's marked up as
+— `MENU_RUN` of them or more, each no longer than `MENU_LEN`. An article's headings have the
+article in between them; that is what they are for. This one needs no link at all, so it catches a
+menu marked up as plain headings, which no link rule can.
+
+The first is for a short menu of two or three, under the run rule's line. The second is for a menu
+that isn't linked at all. Neither covers the other.
+
+### Nothing to press
+
+A Wikipedia entry used to open showing its description — *English darts player* — and nothing else,
+with the article one tap away behind **Full story**. There was nothing else on the screen to read,
+so the tap asked a question with only one answer. Where an entry opens with too little to read and
+there is an article to fetch, it is fetched on opening. That already happened for the local paper
+and the diary; history entries join them.
+
+An archive item goes the other way. Its page on the library's site is their own picture viewer, and
+behind it there is nothing to read but *"Scroll the mousewheel to zoom"* and a note about colour
+accuracy — checked against the real page. The photograph **is** the story and it is already on the
+screen, so no full story is offered, because there is none.
+
+### Looking properly at a photograph
+
+A picture of Church Street in 1969 has shop signs in it, and the way to read them is to get closer.
+Tap the photograph in a story and it opens on black, above everything, showing all of it. Pinch to
+zoom about the point between your fingers, drag to move it, double tap to go in and back out, Back
+or **Close** to leave — Back takes the picture first and leaves you in the story you were reading.
+
+It cannot be dragged off the screen and lost: once the picture is bigger than the screen an edge may
+not come inside it. The image is placed by `transform` rather than by layout, which is the only way
+to move and scale something every frame without asking the page to lay itself out again.
+
 ## Search
 
 Searches what the app already has — every story its sources last gave it, everything saved, and

@@ -832,6 +832,129 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
   });
 
   /* -------------------------------------------------------- Reading a page */
+  /* The paper's section menu arrived at the top of every story it fetched in full -
+     featured, News, Sport, Letters, Hereford FC, E-editions - as though the article
+     began with a list of the rest of the website. */
+  suite('A menu is not the start of the article', (t) => {
+    // The shape it came in: headings that are links, outside any <nav>.
+    /* The menu sits inside the same container as the story, which is the whole
+       reason it got through: the container holding the paragraphs is the one that
+       wins, and the menu was in it. A menu in a box of its own was never a problem,
+       because a box with no paragraphs in it never wins. */
+    const page = `<html><body><div class="article-content">
+        <div class="menu-wrap">
+          ${['featured','News','Sport','Letters','Hereford FC','E-editions',
+             "What's On",'Notices','Awards','Young Reporter']
+            .map((x) => `<h3><a href="/${x}">${x}</a></h3>`).join('')}
+        </div>
+        <h1>Hay-on-Wye to become UK's first Fungi Town</h1>
+        <p>Hay-on-Wye is set to transform into the UK's first Fungi Town with a
+           three-day celebration dedicated to the wonders of the mushroom kingdom.</p>
+        <h2>What is on</h2>
+        <p>The festival will run across three days in the town's castle grounds, with
+           foraging walks and talks from mycologists through the weekend.</p>
+      </div></body></html>`;
+    const got = nd.extractArticle(page);
+    const text = got.blocks.map((b) => b.t);
+    t.not(text.some((x) => /^(News|Sport|Letters|Notices|Awards|featured)$/.test(x)),
+      'not one of the section names is in the article');
+    t.not(text.some((x) => /Hereford FC|E-editions|Young Reporter/.test(x)),
+      'nor any of the rest of the menu');
+    t.ok(text.some((x) => /mushroom kingdom/.test(x)), 'while the story itself is there');
+    t.ok(text.some((x) => /foraging walks/.test(x)), 'all of it');
+    t.is(got.blocks[0].t.slice(0, 20), 'Hay-on-Wye is set to', 'and it starts at the start');
+
+    // A real subheading stays, because it is words rather than somewhere to go.
+    t.ok(text.indexOf('What is on') >= 0, 'a heading in the article is kept');
+    t.is(got.blocks.filter((b) => b.k === 'h').length, 1, 'and it is the only heading');
+
+    /* The shape it is actually in. On a card the heading is inside the link, not the
+       other way round, and the first version of this looked straight past it -
+       querySelector only ever looks downwards. Every shape the menu could be in is
+       checked here, because guessing one of them right is not the same as knowing. */
+    const menu = ['featured', 'News', 'Sport', 'Letters', 'Hereford FC', 'E-editions',
+                  "What's On", 'Notices', 'Awards', 'Young Reporter'];
+    const story = `<h1>Hay-on-Wye to become UK's first Fungi Town</h1>
+      <p>Hay-on-Wye is set to transform into the UK's first Fungi Town with a three-day
+         celebration dedicated to the wonders of the mushroom kingdom.</p>
+      <p>The festival will run across three days in the castle grounds, with foraging
+         walks and talks from mycologists through the weekend.</p>`;
+    const shapes = {
+      'the link inside the heading': menu.map((x) => `<h3><a href="/x">${x}</a></h3>`).join(''),
+      'the heading inside the link': menu.map((x) => `<a href="/x"><h3>${x}</h3></a>`).join(''),
+      'the heading inside a card':   menu.map((x) => `<a href="/x" class="card"><div><h3>${x}</h3></div></a>`).join(''),
+      'no link at all':              menu.map((x) => `<h3>${x}</h3>`).join(''),
+      'h2 rather than h3':           menu.map((x) => `<a href="/x"><h2>${x}</h2></a>`).join('')
+    };
+    Object.keys(shapes).forEach((k) => {
+      const out = nd.extractArticle(
+        `<html><body><div class="article-content">${shapes[k]}${story}</div></body></html>`);
+      const txt = out.blocks.map((b) => b.t);
+      t.same(txt.filter((x) => menu.indexOf(x) >= 0), [], k + ': none of the menu gets through');
+      t.ok(txt.some((x) => /mushroom kingdom/.test(x)), k + ': and the story still does');
+    });
+
+    /* A short menu - three links, not ten - is under the run rule's line, so only
+       the heading-is-a-link rule catches it. Both rules earn their place. */
+    ['<a href="/x"><h3>{}</h3></a>', '<h3><a href="/x">{}</a></h3>'].forEach((shape, i) => {
+      const three = ['News', 'Sport', 'Letters']
+        .map((x) => shape.replace('{}', x)).join('');
+      const out = nd.extractArticle(
+        `<html><body><div class="article-content">${three}${story}</div></body></html>`);
+      const txt = out.blocks.map((b) => b.t);
+      t.same(txt.filter((x) => ['News', 'Sport', 'Letters'].indexOf(x) >= 0), [],
+        'a menu of three is caught too, shape ' + (i + 1));
+      t.ok(txt.some((x) => /mushroom kingdom/.test(x)), 'and the story is untouched, shape ' + (i + 1));
+    });
+
+    // A heading that merely contains a link is still a heading.
+    const withLink = nd.extractArticle(`<html><body><div class="article-content">
+      <h2>The <a href="/x">mushroom festival</a> in full</h2>
+      <p>A paragraph long enough to be counted as the body of the article, which this
+         one certainly is, with room to spare.</p></div></body></html>`);
+    t.ok(withLink.blocks.some((b) => b.k === 'h' && /in full/.test(b.t)),
+      'a heading with a link inside it is not a menu item');
+
+    // And a menu marked up properly was already going; it still is.
+    const inNav = nd.extractArticle(`<html><body><div class="article-content">
+      <nav><h3><a href="/sport">Sport</a></h3></nav>
+      <p>A paragraph long enough to be counted as the body of the article, which this
+         one certainly is, with room to spare.</p></div></body></html>`);
+    t.not(inNav.blocks.some((b) => /Sport/.test(b.t)), 'a menu inside a nav is still dropped');
+  });
+
+  /* The rule that needs no link at all: a row of short headings with nothing to read
+     between them is a menu, whatever it is marked up as. An article's headings have
+     the article in between them - that is what they are for. */
+  suite('A row of headings with nothing under them is a menu', (t) => {
+    const h = (x) => ({ k: 'h', t: x });
+    const p = (x) => ({ k: 'p', t: x });
+    const txt = (b) => b.map((x) => x.t);
+
+    t.same(txt(nd.dropMenus([h('News'), h('Sport'), h('Letters'), h('Awards'), p('The story.')])),
+      ['The story.'], 'four short headings in a row go, and the story stays');
+    t.same(txt(nd.dropMenus([h('News'), h('Sport'), h('Letters'), p('The story.')])),
+      ['News', 'Sport', 'Letters', 'The story.'], 'three do not: that could be an article');
+    t.same(txt(nd.dropMenus([
+      h('Ingredients'), p('Flour, water.'), h('Method'), p('Mix them.'),
+      h('To serve'), p('On a plate.'), h('Notes'), p('Keeps a week.')])),
+      ['Ingredients', 'Flour, water.', 'Method', 'Mix them.', 'To serve', 'On a plate.',
+       'Notes', 'Keeps a week.'],
+      'and headings with the article in between them are what headings are for');
+
+    // A long heading is a sentence, not a menu item, however many are in a row.
+    const longRun = [1, 2, 3, 4, 5].map((i) =>
+      h('A heading long enough to be a line of the article rather than a word ' + i));
+    t.is(nd.dropMenus(longRun).length, 5, 'five long headings are five headings');
+    t.is(nd.MENU_RUN, 4, 'four in a row is the line');
+    t.ok(nd.MENU_LEN >= 24 && nd.MENU_LEN <= 48, 'and a menu item is a word or two');
+
+    // The menu at the end of the page goes the same way as the one at the start.
+    t.same(txt(nd.dropMenus([p('The story.'), h('News'), h('Sport'), h('Letters'), h('Awards')])),
+      ['The story.'], 'wherever in the page it sits');
+    t.same(nd.dropMenus([]), [], 'and nothing is nothing');
+  });
+
   suite('Reading a page the publisher meant for search engines', (t) => {
     const out = [];
     nd.ldItems({
@@ -2016,6 +2139,78 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     S.sections = [];
     S.view = [];
     ol.innerHTML = '';
+  });
+
+  /* A Wikipedia entry opened showing "English darts player" and nothing else, with
+     the article one tap away behind a button. An archive item had the same button,
+     and behind that one there was nothing to read at all. */
+  suite('Fetch what is worth reading, ask about nothing', (t) => {
+    const nd = phone.nd, S = nd.S, c = phone.calls;
+    const wiki = story({ src: 'hh', id: 'hh:1963:Terry Jenkins', title: 'Terry Jenkins',
+      kicker: 'Born', summary: 'English darts player',
+      link: 'https://en.wikipedia.org/wiki/Terry_Jenkins' });
+    const archive = story({ src: 'hh', id: 'hh:a146705', title: 'Church Street, barge boards, 1903',
+      kicker: 'Archive', summary: '', image: 'https://herefordshirehistory.org.uk/img/x',
+      link: 'https://herefordshirehistory.org.uk/archive/hereford-images/church-street-hereford/146705-church-street-barge-boards-1903' });
+    archive.ref = '146705';
+
+    // The Wikipedia one: there is an article, so it is fetched rather than offered.
+    t.is(nd.canLoadFull(wiki), true, 'there is an article behind a Wikipedia entry');
+    t.is(nd.autoFull(wiki), true, 'so it is fetched on opening');
+    c.fetched.length = 0;
+    nd.openReader(wiki);
+    t.ok(c.fetched.some((u) => /Terry_Jenkins/.test(u)),
+      'opening it asks for the article without being told to');
+    t.not(nd.readerActions(wiki).some((a) => a.id === 'full' && !a.off),
+      'and the button is not sitting there waiting to be pressed');
+    nd.closeReader();
+
+    /* The archive one: its page is the library's picture viewer, and all that is on
+       it is "Scroll the mousewheel to zoom". The photograph is the story, and it is
+       already on the screen. */
+    t.is(nd.canLoadFull(archive), false, 'an archive item has no article behind it');
+    t.is(nd.autoFull(archive), false, 'so nothing is fetched');
+    c.fetched.length = 0;
+    nd.openReader(archive);
+    t.same(c.fetched.filter((u) => /herefordshirehistory/.test(u)), [],
+      'opening it asks for nothing');
+    t.not(nd.readerActions(archive).some((a) => a.id === 'full'),
+      'and offers no Full story button, since there is no full story');
+    nd.closeReader();
+
+    // The rules it already had are untouched.
+    const ht = story({ src: 'ht', id: 'ht:1', title: 'A local story',
+      summary: 'A line.', link: 'https://www.herefordtimes.com/news/1' });
+    t.is(nd.autoFull(ht), true, 'the local paper is still fetched on opening');
+    const ev = story({ src: 'lm', id: 'lm:1', title: 'Christmas Fayre', summary: 'In the square.',
+      when: Date.now() + DAY, link: 'https://example.com/e' });
+    t.is(nd.autoFull(ev), true, 'and so is a diary entry');
+    const kg = story({ src: 'kg', id: 'kg:1', title: 'A wire story',
+      summary: 'A summary of a decent length, which is the point of the wire.',
+      link: 'https://example.com/k' });
+    t.is(nd.autoFull(kg), false, 'a wire story that came with its summary is not');
+    t.is(nd.canLoadFull(kg), true, 'but can still be asked for');
+
+    /* And through the loader that actually builds them, rather than by hand: the
+       catalogue number has to survive the trip from the page to the row, or the
+       reader cannot tell a photograph from an article. */
+    const built = nd.hhItems([
+      { title: 'Church Street, barge boards, 1903', summary: '', year: 1903, kicker: 'Archive',
+        ref: '146705', image: 'https://herefordshirehistory.org.uk/img/x',
+        link: 'https://herefordshirehistory.org.uk/archive/a/b/146705-church-street' },
+      { title: 'Terry Jenkins', summary: 'English darts player', year: 1963, kicker: 'Born',
+        link: 'https://en.wikipedia.org/wiki/Terry_Jenkins' }
+    ]);
+    t.is(built[0].ref, '146705', 'an archive row carries its catalogue number');
+    t.is(built[1].ref, '', 'and a Wikipedia row carries none');
+    t.is(nd.canLoadFull(built[0]), false, 'so the photograph is offered no full story');
+    t.is(nd.autoFull(built[1]), true, 'while the article is fetched on opening');
+
+    // Nothing to link to, nothing to fetch.
+    t.is(nd.autoFull(story({ src: 'hh', id: 'x', title: 'No link', link: '' })), false,
+      'an entry with nowhere to go fetches nothing');
+    t.is(nd.autoFull(null), false, 'and nothing fetches nothing');
+    c.fetched.length = 0;
   });
 
   suite('What you can do with a story, on a phone', (t) => {

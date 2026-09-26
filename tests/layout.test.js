@@ -377,6 +377,164 @@ async function rowDrawing(browser) {
   return out;
 }
 
+/* An archive photograph is the story rather than a picture beside one, and only a
+   browser can say how much of it is on the screen and how much was cropped off. */
+async function photoSizes(browser) {
+  const page = await open(browser, { w: 412, h: 915 });
+  const out = await page.evaluate(async () => {
+    const nd = window.ndApi, S = nd.S;
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    // A landscape photograph, 300x200, so the shape it should keep is known.
+    const pic = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200">'
+      + '<rect width="300" height="200" fill="#888"/></svg>');
+    const mk = (src, id, extra) => Object.assign({
+      id, src, kicker: '', title: 'Church Street Hereford, 1969', summary: '',
+      link: 'https://example.com/' + id, image: pic, html: '',
+      date: Date.now(), when: 0, order: 0, fetched: Date.now() }, extra || {});
+
+    S.by.hh = { items: [mk('hh', 'h1', { year: 1969 })] };
+    S.by.ht = { items: [mk('ht', 'n1', { title: 'A news story with a picture' })] };
+
+    const shot = async (tab, item) => {
+      S.tab = nd.TABS.findIndex((x) => x.id === tab);
+      S.mode = 'home';
+      nd.rebuild(null);
+      await wait(60);
+      const row = document.querySelector('#list li.row');
+      const thumb = row && row.querySelector('.thumb');
+      const tr = thumb ? thumb.getBoundingClientRect() : { width: 0, height: 0 };
+      nd.openReader(item);
+      await wait(200);
+      const box = document.getElementById('rdImgBox');
+      const img = document.getElementById('rdImg');
+      const br = box.getBoundingClientRect(), ir = img.getBoundingClientRect();
+      const wrap = document.getElementById('rdScroll').getBoundingClientRect();
+      const r = {
+        rowThumbW: Math.round(tr.width), rowThumbH: Math.round(tr.height),
+        boxH: Math.round(br.height), imgW: Math.round(ir.width), imgH: Math.round(ir.height),
+        natural: img.naturalWidth + 'x' + img.naturalHeight,
+        fit: getComputedStyle(img).objectFit,
+        whole: /\bwhole\b/.test(box.className),
+        screenH: Math.round(wrap.height)
+      };
+      nd.closeReader();
+      await wait(60);
+      return r;
+    };
+    const hist = await shot('hist', S.by.hh.items[0]);
+    const news = await shot('local', S.by.ht.items[0]);
+    // A tall photograph at full width would run off the screen; the cap is for it.
+    const tall = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="600">'
+      + '<rect width="200" height="600" fill="#888"/></svg>');
+    S.by.hh = { items: [mk('hh', 'h2', { image: tall, title: 'A tall one' })] };
+    const portrait = await shot('hist', S.by.hh.items[0]);
+    return { hist, news, portrait };
+  });
+  await page.close();
+  return out;
+}
+
+/* Pinching a photograph is geometry - two fingers, a midpoint, a scale - and none of
+   it can be checked without a browser that lays the picture out and touches that
+   actually move. */
+async function lens(browser) {
+  const page = await open(browser, { w: 412, h: 915 });
+  const out = await page.evaluate(async () => {
+    const nd = window.ndApi, S = nd.S;
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    // A photograph wider than the screen, so there is something to zoom into.
+    const pic = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800">'
+      + '<rect width="1200" height="800" fill="#777"/></svg>');
+    const item = { id: 'h1', src: 'hh', kicker: '', title: 'Church Street, 1969',
+      summary: '', link: 'https://example.com/h1', image: pic, html: '', year: 1969,
+      date: Date.now(), when: 0, order: 0, fetched: Date.now() };
+    S.by.hh = { items: [item] };
+    S.tab = nd.TABS.findIndex((x) => x.id === 'hist');
+    S.mode = 'home';
+    nd.rebuild(null);
+    await wait(60);
+
+    const lensEl = document.getElementById('lens');
+    const img = document.getElementById('lensImg');
+    const vis = () => !lensEl.hidden && getComputedStyle(lensEl).display !== 'none';
+    const rect = () => img.getBoundingClientRect();
+
+    // Tapping the photograph in the reader opens it.
+    nd.openReader(item);
+    await wait(250);
+    const r = { openedBefore: vis() };
+    document.getElementById('rdImgBox').dispatchEvent(
+      new MouseEvent('click', { bubbles: true, cancelable: true }));
+    await wait(250);
+    r.opened = vis();
+    r.startsWhole = Math.abs(nd.L.s - nd.L.fit) < 0.001;
+    const fit = rect();
+    r.fitInside = fit.width <= 413 && fit.height <= 916;
+    r.fitFills = fit.width > 380;               // as big as the screen allows
+
+    // Two fingers spreading apart: the picture gets bigger.
+    const touch = (x, y) => new Touch({ identifier: Math.random(), target: lensEl,
+      clientX: x, clientY: y, pageX: x, pageY: y, screenX: x, screenY: y });
+    const fire = (type, pts) => {
+      const ts = pts.map(([x, y]) => touch(x, y));
+      lensEl.dispatchEvent(new TouchEvent(type, { touches: type === 'touchend' ? [] : ts,
+        targetTouches: type === 'touchend' ? [] : ts, changedTouches: ts,
+        bubbles: true, cancelable: true }));
+    };
+    const before = nd.L.s;
+    fire('touchstart', [[150, 400], [250, 400]]);
+    fire('touchmove', [[100, 400], [300, 400]]);
+    fire('touchmove', [[60, 400], [340, 400]]);
+    fire('touchend', [[60, 400], [340, 400]]);
+    await wait(60);
+    r.pinchedTo = +(nd.L.s / before).toFixed(2);
+    r.biggerThanScreen = rect().width > 412;
+
+    // Dragging with one finger moves it, and it cannot be dragged off the screen.
+    const x0 = nd.L.x;
+    fire('touchstart', [[200, 400]]);
+    fire('touchmove', [[260, 400]]);
+    fire('touchend', [[260, 400]]);
+    await wait(60);
+    r.panned = nd.L.x !== x0;
+    fire('touchstart', [[200, 400]]);
+    fire('touchmove', [[3000, 400]]);
+    fire('touchend', [[3000, 400]]);
+    await wait(60);
+    const far = rect();
+    r.heldOnScreen = far.right > 40 && far.left < 412;
+
+    // Double tap goes back to the whole photograph.
+    fire('touchstart', [[200, 400]]); fire('touchend', [[200, 400]]);
+    await wait(40);
+    fire('touchstart', [[200, 400]]); fire('touchend', [[200, 400]]);
+    await wait(320);
+    r.doubleTapOut = Math.abs(nd.L.s - nd.L.fit) < 0.01;
+    r.stillOpen = vis();
+
+    // Double tap again goes in, to something you could read a shop sign at.
+    fire('touchstart', [[200, 400]]); fire('touchend', [[200, 400]]);
+    await wait(40);
+    fire('touchstart', [[200, 400]]); fire('touchend', [[200, 400]]);
+    await wait(320);
+    r.doubleTapIn = +(nd.L.s / nd.L.fit).toFixed(2);
+
+    // Back leaves the picture before it leaves the story.
+    const handled = window.nd.key('back');
+    await wait(120);
+    r.backHandled = handled;
+    r.closedByBack = !vis();
+    r.readerStillOpen = S.mode === 'reader';
+    nd.closeReader();
+    return r;
+  });
+  await page.close();
+  return out;
+}
+
 (async () => {
   let chromium;
   try { chromium = require('playwright-core').chromium; } catch (e) {
@@ -408,6 +566,8 @@ async function rowDrawing(browser) {
   }
   const pp = await pullAndPill(browser);
   const rd = await rowDrawing(browser);
+  const ph = await photoSizes(browser);
+  const lz = await lens(browser);
   await browser.close();
 
   suite('The price band holds one line', (t) => {
@@ -545,6 +705,70 @@ async function rowDrawing(browser) {
     t.is(rd.sections, rd.sectionsUnique, 'each of them drawn once, not again on the tail');
     t.ok(rd.sectionsFirst <= rd.sections, 'some of them arriving with the first screenful');
     t.is(rd.noTrailingHeader, true, 'and no header is left with nothing under it');
+  });
+
+  suite('An archive photograph is shown whole, and large', (t) => {
+    const h = ph.hist, n = ph.news;
+    t.is(h.natural, '300x200', 'the photograph is a landscape one');
+
+    // The reader: all of it, and enough of the screen to be worth looking at.
+    t.is(h.whole, true, 'a history item is drawn as a photograph rather than a strip');
+    t.is(h.fit, 'contain', 'so none of it is cropped away');
+    t.ok(h.boxH > 220, 'and it is given real room (' + h.boxH + 'px)');
+    t.ok(h.boxH > n.boxH * 1.4, 'more than a news story\'s picture gets ('
+      + h.boxH + 'px against ' + n.boxH + 'px)');
+    t.ok(h.boxH < h.screenH, 'while still leaving the caption on the screen');
+    // Full width, so a landscape photograph is as big as the screen allows.
+    t.ok(h.imgW > 340, 'across the whole width it is given (' + h.imgW + 'px)');
+    // Whole means whole: the shape on screen is the shape it was taken in.
+    const ratio = h.imgW / h.imgH;
+    t.ok(Math.abs(ratio - 1.5) < 0.06,
+      'shown in the shape it was taken in, 3:2 (' + ratio.toFixed(2) + ')');
+
+    // A news story is unchanged: a strip beside the words it illustrates.
+    t.is(n.whole, false, 'a news story still gets a picture, not a photograph');
+    t.is(n.fit, 'cover', 'filling its strip');
+    t.ok(Math.abs(n.imgH - n.boxH) < 2, 'which is a fixed height');
+
+    // The list: a row about a photograph shows more of the photograph.
+    t.ok(h.rowThumbW > n.rowThumbW, 'a history row carries a bigger thumbnail ('
+      + h.rowThumbW + 'px against ' + n.rowThumbW + 'px)');
+    t.ok(h.rowThumbW >= n.rowThumbW * 1.4, 'meaningfully bigger, not a nudge');
+    t.ok(h.rowThumbH > n.rowThumbH, 'in both directions');
+
+    // A tall photograph is capped rather than pushing the caption off the bottom.
+    const p = ph.portrait;
+    t.is(p.whole, true, 'a portrait photograph is shown whole too');
+    t.ok(p.boxH < p.screenH, 'but never taller than the screen it is on ('
+      + p.boxH + 'px of ' + p.screenH + 'px)');
+    /* contain fits the picture inside that box and pads the sides, so the picture
+       keeps its shape while the element is wider than it. Nothing is cut off, which
+       is the part that matters and the part cover got wrong. */
+    t.is(p.fit, 'contain', 'with none of it cropped away, only padded at the sides');
+    t.ok(p.boxH > 400, 'and it is given nearly the whole screen (' + p.boxH + 'px)');
+  });
+
+  suite('A photograph can be looked at properly', (t) => {
+    t.is(lz.openedBefore, false, 'nothing is over the story until you ask');
+    t.is(lz.opened, true, 'tapping the photograph opens it');
+    t.is(lz.startsWhole, true, 'showing all of it to begin with');
+    t.is(lz.fitInside, true, 'inside the screen rather than over the edge of it');
+    t.is(lz.fitFills, true, 'and as big as the screen allows');
+
+    t.ok(lz.pinchedTo > 1.6, 'two fingers spreading make it bigger (x'
+      + lz.pinchedTo + ')');
+    t.is(lz.biggerThanScreen, true, 'bigger than the screen, which is the point of it');
+    t.is(lz.panned, true, 'one finger moves it about');
+    t.is(lz.heldOnScreen, true, 'and it cannot be dragged off the screen and lost');
+
+    t.is(lz.doubleTapOut, true, 'a double tap comes back to the whole photograph');
+    t.is(lz.stillOpen, true, 'without closing it');
+    t.ok(lz.doubleTapIn > 2, 'and another goes in close enough to read a shop sign (x'
+      + lz.doubleTapIn + ')');
+
+    t.is(lz.backHandled, true, 'Back is taken by the picture');
+    t.is(lz.closedByBack, true, 'which closes it');
+    t.is(lz.readerStillOpen, true, 'and leaves you in the story you were reading');
   });
 
   return run('Newsdesk layout');
