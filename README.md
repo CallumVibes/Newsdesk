@@ -20,8 +20,7 @@ One build, two layouts. On a TV it's headlines on the left, a large preview on t
 
 ## Tabs
 
-- **Breaking** — only what matters to everyone, and only while it's recent. See below.
-- **Today** — an optional AI briefing, then the day's biggest stories, local news, vegan food and living, what's on in town, and Bitcoin and markets.
+- **Today** — where the app opens: an optional AI briefing, then the day's biggest stories, local news, vegan food and living, what's on in town, and Bitcoin and markets.
 - **Local** — the local news sites, the BBC topic and what's on in town.
 - **UK & World** — Kagi's UK and World categories, plus general news off the wire.
 - **Tech** — Kagi's Technology and Science categories, plus anything technical off the wire.
@@ -112,23 +111,6 @@ the seed extrapolates to, wide enough for years of drift but enough to catch a f
 factor of a thousand, or the wrong ONS series. A cached total is re-checked the same way on
 load, on refresh and before each draw, so one written by an older build can't sit there.
 
-## What reaches Breaking
-
-Breaking is about importance, not just freshness, so a story has to be recent **and** matter
-to everyone. There are three ways in:
-
-- **Kagi** stories qualify on how many outlets are covering them — at least `KG_BREAKING_MIN`,
-  and within `KG_BREAKING_SHARE` of the day's most widely covered story. The bar is relative,
-  so it adjusts itself as the day's news gets bigger or smaller. If a feed arrives without its
-  source list, the top `KG_BREAKING_TOP` of each category are used instead.
-- **Local sources** (`LOCAL_NEWS`) have no such count, so a headline is judged on what it says:
-  it needs more words from `URGENT_WORDS` than from `SOFT_WORDS`. A road closed by a crash gets
-  in; six houses for sale does not.
-- **The wire and Vegan Food & Living** only appear when a story is explicitly labelled breaking.
-
-If nothing clears the bar, the tab says so rather than filling up with whatever is newest.
-Both word lists sit near the top of `index.html` and are meant to be edited.
-
 ## Recipes
 
 Six plant-based kitchens, pooled rather than tried in turn: one blog has a quiet fortnight, six
@@ -137,7 +119,7 @@ what is filtered out is everything that is not a recipe, because even a recipe s
 itself. A feed that has not moved in `RC_FRESH_DAYS` is treated as a kitchen that has closed.
 
 A row names the kitchen rather than the hour, because a recipe from last week is as good as one
-from this morning. Recipes never reach **Breaking**, and are kept out of **Today** and **All** the
+from this morning. Recipes are kept out of **Today** and **All** the
 way History is.
 
 **On "trending":** none of these feeds publishes a view count or a share count, so nothing here
@@ -247,6 +229,56 @@ menu marked up as plain headings, which no link rule can.
 
 The first is for a short menu of two or three, under the run rule's line. The second is for a menu
 that isn't linked at all. Neither covers the other.
+
+### The picture, not the page that points at one
+
+Archive photographs were not appearing. Every `/img/` address on the archive is served as **a page
+that redirects to a picture** — 998 bytes of HTML with a meta refresh in it — and an `<img>` cannot
+follow a meta refresh: it asks for a picture and is handed a document. Checked against the live site
+with a browser's own Accept header, with a referer and with a session cookie: always the same stub.
+
+The address it redirects to is the same two parts of the path on the cache the site sends browsers
+to itself, so that is where the picture is fetched from. One hop fewer, and a picture rather than a
+page.
+
+### Moving between tabs
+
+A tab that changes without moving reads as a glitch rather than a change: the words are different
+and nothing said why. The list comes in from the side the swipe came from — 8% of the width over
+about a quarter of a second, far enough to answer the gesture and short enough not to be sat
+through. `prefers-reduced-motion` turns it off, for people who mean it.
+
+The direction comes from the swipe rather than from where it landed, so the last tab to the first is
+still forwards. And a second swipe inside the first restarts the animation rather than waiting for
+it — which needs the class taken off, a reflow, and the class put back, because otherwise the
+browser never sees it go.
+
+### Bitcoin, on this day
+
+A fourth route, and the only one that fetches nothing. Dates do not change, so bitcoin's are written
+down rather than asked for: the genesis block on 3 January, the white paper on 31 October, two
+pizzas for 10,000 bitcoin on 22 May, each halving, SegWit, Taproot, El Salvador. `BTC_DAYS` is a
+plain list and is meant to be edited.
+
+That makes it the one route that cannot fail, cannot be rate limited, and works with the aerial
+unplugged — and it is also why the list is short. Every line is a date somebody can check, and a
+wrong one would sit in the app for ever. The tests assert every entry is a date that actually
+exists, that none predates bitcoin or postdates today, and that the month counts as well as the day
+— two of them fall on a 9th and two on a 28th, in different months.
+
+The county's history and bitcoin's are the same question, *what happened on this date*, which is
+what the tab is for. The kicker on the row says which is which, and the source is **On this day**
+rather than *On this day here*, since bitcoin's isn't.
+
+### The tab strip
+
+It scrolls when it has to and keeps the tab in use in the middle. The ends fade so a tab cut off
+there reads as more to scroll — but **only an end with something past it**. Faded at the start,
+where there is nothing to scroll back to, it simply takes the first letter off the first tab, which
+is what it did to **Today** the moment Today became the first of them.
+
+Ten tabs fit a television again now that Breaking has gone, at 720p with nothing to spare, so the
+strip is not faded there at all. A phone still overflows by a good 400px and fades its right end.
 
 ### Nothing to press
 
@@ -385,7 +417,7 @@ and that the facts written twice in two languages agree — the briefing times i
 offers.
 
 `logic.test.js` boots the real page under jsdom with every source stubbed and checks the rules
-themselves: what reaches Breaking, where a wire story lands, event dates, the debt figure, the
+themselves: where a wire story lands, event dates, the debt figure, the
 briefing editions and how a screen is built. Both run in CI before Gradle is asked for an APK, so a
 bad push fails in seconds. `tests/README.md` has the detail.
 
@@ -498,10 +530,6 @@ Near the top of `app/src/main/assets/index.html`:
 | Setting | Does |
 | --- | --- |
 | `HOME_TAB` | Which tab opens first |
-| `BREAKING_HOURS` | How new a story must be to count as breaking |
-| `BREAKING_PER_SOURCE` | Most stories one source may put on **Breaking** |
-| `BREAKING_MAX` | Most rows **Breaking** will ever show |
-| `KG_BREAKING_MIN` / `KG_BREAKING_SHARE` | How widely covered a Kagi story must be to count |
 | `URGENT_WORDS` / `SOFT_WORDS` | What makes a local headline important, or not |
 | `ROW_IMAGES` | Small picture on each headline; `false` for text only |
 | `BTC_SOURCES`, `GOLD_SOURCES`, `OIL_SOURCES` | Where prices come from, tried in order |
@@ -521,7 +549,7 @@ Near the top of `app/src/main/assets/index.html`:
 **On in town** is a diary, not a news feed, so it behaves differently from every other source:
 
 - It sorts forwards. The next thing on is at the top, and anything already over drops to the bottom.
-- It never appears under **Breaking news**, and a future date can't masquerade as a story that just broke.
+- A future date can't masquerade as a story that just landed.
 - Rows read "Tomorrow, 16:30" rather than "2h ago". An event whose date can't be read shows no time at all rather than the day it was posted.
 
 The date comes from the listing's own field where it has one, and is otherwise read out of the title or the blurb ("5 September 2026", "12th June at 4:30pm"). The AI briefing is told these are upcoming events rather than news, and is given the date.

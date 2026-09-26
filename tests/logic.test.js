@@ -52,79 +52,14 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
   suite('The page itself', (t) => {
     t.same(errors, [], 'boots with no error on the console');
     t.same(nd.TABS.map((x) => x.id),
-      ['breaking', 'today', 'local', 'world', 'tech', 'coin', 'vegan', 'recipes', 'hist', 'all', 'saved'],
+      ['today', 'local', 'world', 'tech', 'coin', 'vegan', 'recipes', 'hist', 'all', 'saved'],
       'has its tabs, in the order the remote walks them');
+    t.is(nd.TABS[nd.HOME_TAB].id, 'today', 'and opens on the first of them');
     t.same(nd.ORDER, ['cw', 'kg', 'ht', 'yh', 'bb', 'vf', 'lm', 'hh', 'rc'], 'knows its sources');
     nd.TABS.forEach((tab) => {
       t.ok(tab.srcs.every((s) => nd.ORDER.indexOf(s) >= 0),
         tab.id + ' draws only from sources that exist');
     });
-  });
-
-  /* ---------------------------------------------------------------- Breaking */
-  suite('Breaking news: local papers', (t) => {
-    const bar = 0;
-    const yes = (title) => nd.important(story({ src: 'ht', title }), bar);
-    // The complaint that started this: a house for sale is not breaking news.
-    t.is(yes('Four-bedroom home for sale in the county'), false, 'a house for sale stays out');
-    t.is(yes('In pictures: the best of this year\'s carnival'), false, 'a picture gallery stays out');
-    t.is(yes('Top 10 things to do this weekend'), false, 'a listicle stays out');
-    t.is(yes('Win a meal for two at a new restaurant'), false, 'a competition stays out');
-    t.is(yes('Man arrested after crash on the A49'), true, 'an arrest after a crash gets in');
-    t.is(yes('Police close road after major incident'), true, 'a road closed by police gets in');
-    t.is(yes('Firefighters tackle blaze at industrial unit'), true, 'a blaze gets in');
-    t.is(yes('Flood warning issued for the river'), true, 'a flood warning gets in');
-    // One urgent word is not enough when the story is plainly a soft one.
-    t.is(yes('In pictures: fire station open day'), false,
-      'an open day at a fire station is not a fire');
-    t.is(nd.important(story({ src: 'bb', title: 'Two died in collision, police say' }), bar), true,
-      'the BBC topic page is judged the same way');
-  });
-
-  suite('Breaking news: Kagi and the rest', (t) => {
-    const all = [story({ src: 'kg', weight: 10 }), story({ src: 'kg', weight: 4 })];
-    t.is(nd.kagiBar(all), 5, 'the bar is 45% of the day\'s most-covered story');
-    t.is(nd.kagiBar([story({ src: 'kg', weight: 4 })]), 3, 'but never below three outlets');
-    t.is(nd.kagiBar([story({ src: 'kg' })]), 0, 'and zero when no counts came through at all');
-
-    t.is(nd.important(story({ src: 'kg', weight: 6 }), 5), true, 'a widely covered story gets in');
-    t.is(nd.important(story({ src: 'kg', weight: 2 }), 5), false, 'a thinly covered one does not');
-    t.is(nd.important(story({ src: 'kg', order: 1 }), 0), true,
-      'with no counts, Kagi\'s own top three get in');
-    t.is(nd.important(story({ src: 'kg', order: 7 }), 0), false, 'and the rest do not');
-
-    t.is(nd.important(story({ src: 'cw', title: 'Fed holds rates steady' }), 5), false,
-      'the wire only gets in when it says so itself');
-    t.is(nd.important(story({ src: 'cw', kicker: 'BREAKING', title: 'Fed cuts rates' }), 5), true,
-      'a wire flagged breaking gets in');
-    t.is(nd.important(story({ src: 'vf', title: 'A new oat milk arrives' }), 5), false,
-      'the vegan feed stays out unless flagged');
-    t.is(nd.important(story({ src: 'lm', title: 'Fire station open day' }), 5), false,
-      'and the events diary never breaks news');
-  });
-
-  suite('Breaking news: the list', (t) => {
-    const now = Date.now();
-    const hot = (n, mins) => story({
-      src: 'ht', id: 'ht:' + n, title: 'Police arrest man number ' + n, date: now - mins * 60e3
-    });
-    const list = nd.breakingList([
-      hot(1, 10), hot(2, 20), hot(3, 30), hot(4, 40), hot(5, 50),
-      story({ src: 'ht', id: 'old', title: 'Police arrest man last week', date: now - 5 * DAY }),
-      story({ src: 'ht', id: 'ahead', title: 'Police arrest man tomorrow', date: now + HOUR }),
-      story({ src: 'lm', id: 'ev', title: 'Emergency services open day', date: now, when: now + DAY })
-    ]);
-    t.is(list.length, nd.BREAKING_PER_SOURCE, 'one paper contributes at most three stories');
-    t.same(list.map((x) => x.id), ['ht:1', 'ht:2', 'ht:3'], 'and they are its newest three');
-    t.not(list.some((x) => x.id === 'old'), 'a story from last week has stopped breaking');
-    t.not(list.some((x) => x.id === 'ahead'), 'a story dated ahead of us is not news that just broke');
-    t.not(list.some((x) => x.id === 'ev'), 'a diary entry is never breaking news');
-
-    const wires = nd.breakingList([
-      story({ src: 'cw', id: 'w1', kicker: 'BREAKING', title: 'Fed cuts rates', date: now - 10 * 60e3 }),
-      story({ src: 'cw', id: 'w0', kicker: 'BREAKING', title: 'Fed held rates', date: now - 3 * HOUR })
-    ]);
-    t.same(wires.map((x) => x.id), ['w1'], 'only the latest wire of the hour counts');
   });
 
   /* ---------------------------------------------------- Where the wire lands */
@@ -161,7 +96,7 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.is(nd.inTab(story({ src: 'cw', title: 'Oil falls after OPEC raises output' }), tab('world')), true,
       'it goes to UK & World instead, where it reads perfectly well');
     t.is(nd.inTab(story({ src: 'lm' }), tab('local')), true, 'events sit under Local');
-    t.is(nd.inTab(story({ src: 'lm' }), tab('breaking')), false, 'and never under Breaking');
+    t.is(nd.inTab(story({ src: 'lm' }), tab('world')), false, 'and not under UK & World');
     t.is(nd.inTab(story({ src: 'vf' }), tab('vegan')), true, 'the vegan feed has its own tab');
   });
 
@@ -1043,7 +978,7 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     // The remote must not stop on a tab that is not there.
     S.tab = nd.TABS.findIndex((x) => x.id === 'all');
     nd.switchTab(1);
-    t.is(nd.TABS[S.tab].id, 'breaking', 'so the remote walks past it, round to the first');
+    t.is(nd.TABS[S.tab].id, 'today', 'so the remote walks past it, round to the first');
     nd.toggleSave(story({ src: 'ht', id: 'ht:9', title: 'Road closed', date: Date.now() }));
     t.is(nd.tabShown(nd.TABS[saved]), true, 'once something is saved it appears');
     S.tab = nd.TABS.findIndex((x) => x.id === 'all');
@@ -1151,10 +1086,11 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
       'which is what the row shows, rather than how long ago it was fetched');
     t.is(nd.isHistory(items[0]), true, 'it knows it is history');
     t.is(nd.isHistory(story({ src: 'ht' })), false, 'and the news knows it is not');
-    // Centuries old and never breaking, whatever words are in it.
-    t.same(nd.breakingList([Object.assign(items[0], { date: Date.now(),
-      title: 'Fire destroys the market hall' })]), [],
-      'history never reaches Breaking, however urgent the words in it');
+    // Centuries old, whatever words are in it: it stays out of the news.
+    const urgent = Object.assign({}, items[0], { date: Date.now(),
+      title: 'Fire destroys the market hall' });
+    t.is(nd.inTab(urgent, nd.TABS[nd.TABS.findIndex((x) => x.id === 'all')]), false,
+      'history never reaches All, however urgent the words in it');
     const hist = nd.TABS[nd.TABS.findIndex((x) => x.id === 'hist')];
     t.same(hist.srcs, ['hh'], 'the History tab draws from it alone');
     const all = nd.TABS[nd.TABS.findIndex((x) => x.id === 'all')];
@@ -1198,9 +1134,9 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.is(nd.timeLabel(dish), 'Minimalist Baker', 'the row names the kitchen, not the hour');
     t.is(nd.isKitchen(dish), true, 'it knows it is a recipe');
     t.is(nd.isKitchen(story({ src: 'ht' })), false, 'and the news knows it is not');
-    t.same(nd.breakingList([Object.assign({}, dish, { date: now,
-      title: 'Fire roasted red pepper soup' })]), [],
-      'a recipe never reaches Breaking, however the words read');
+    t.is(nd.inTab(Object.assign({}, dish, { date: now, title: 'Fire roasted red pepper soup' }),
+      nd.TABS[nd.TABS.findIndex((x) => x.id === 'all')]), false,
+      'a recipe never reaches All, however the words read');
     const tab = nd.TABS[nd.TABS.findIndex((x) => x.id === 'recipes')];
     t.same(tab.srcs, ['rc'], 'the Recipes tab draws from the kitchens alone');
     const all = nd.TABS[nd.TABS.findIndex((x) => x.id === 'all')];
@@ -1295,6 +1231,54 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     proto.setItem = real; proto.removeItem = realRm;
   });
 
+  /* ------------------------------------------------ Bitcoin, on this day */
+  /* Written down rather than fetched, which makes every line a claim that sits in
+     the app for ever if it is wrong. These check the shape of the list; the dates
+     themselves were checked against the record when they were written. */
+  suite("Bitcoin's own dates", (t) => {
+    const days = nd.BTC_DAYS;
+    t.ok(days.length >= 12, 'there is a handful of them (' + days.length + ')');
+
+    // Every line is a real date, and a date that could have happened.
+    const bad = days.filter((x) => {
+      const d = new Date(Date.UTC(x.y, x.m - 1, x.d));
+      return d.getUTCFullYear() !== x.y || d.getUTCMonth() !== x.m - 1 || d.getUTCDate() !== x.d;
+    });
+    t.same(bad.map((x) => x.t), [], 'every one of them is a date that exists');
+    t.not(days.some((x) => x.y < 2008), 'none of them before bitcoin did');
+    t.not(days.some((x) => x.y > new Date().getFullYear()), 'and none in the future');
+    t.not(days.some((x) => !x.t || !x.s), 'each one says what happened and what it was');
+    t.not(days.some((x) => x.s.length < 40), 'in enough words to stand on its own');
+    t.is(new Set(days.map((x) => x.t)).size, days.length, 'and none of them twice');
+
+    // The ones anybody would check first.
+    const on = (m, d) => nd.btcToday(new Date(2026, m - 1, d)).map((x) => x.title);
+    t.ok(on(1, 3).some((x) => /genesis block/i.test(x)), 'the genesis block is on 3 January');
+    t.ok(on(10, 31).some((x) => /white paper/i.test(x)), 'the white paper on 31 October');
+    t.ok(on(5, 22).some((x) => /10,000 bitcoin/.test(x)), 'and the pizzas on 22 May');
+    t.same(on(6, 13), [], 'a day with nothing on it has nothing on it');
+
+    /* The month has to count as well as the day. Two of these fall on a 9th and two
+       on a 28th, in different months, so matching the day alone would put the second
+       halving on the day the software was released. */
+    t.same(on(1, 9), ['Bitcoin v0.1 is released'], 'the 9th of January is only January\'s');
+    t.same(on(7, 9), ['The second halving'], 'and the 9th of July only July\'s');
+    t.is(on(11, 28).length, 1, 'the 28th of November is one thing');
+    t.is(on(2, 28).length, 1, 'and the 28th of February another');
+    t.not(on(11, 28)[0] === on(2, 28)[0], 'and they are not the same thing');
+
+    // What comes back is a row, not a table entry.
+    const pizza = nd.btcToday(new Date(2026, 4, 22))[0];
+    t.is(pizza.year, 2010, 'the row carries the year it happened');
+    t.is(pizza.kicker, 'Bitcoin', 'and says which kind of history it is');
+    t.is(pizza.link, '', 'with nowhere to send you, since it is written here');
+    t.is(nd.autoFull(story({ src: 'hh', id: 'b', title: pizza.title, summary: pizza.summary,
+      link: '' })), false, 'so nothing is fetched when it is opened');
+
+    // A leap day is a day, and the table must not claim one that is not.
+    t.same(nd.btcToday(new Date(2024, 1, 29)), [], 'the 29th of February is quiet, and valid');
+  });
+
   /* ------------------------------------------- The county's own archive */
   /* The archive publishes no feed, so the tab reads its listing pages - and reads
      them by the shape of an item's address rather than by any markup, because the
@@ -1317,8 +1301,16 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.is(items[0].link,
       'https://herefordshirehistory.org.uk/archive/images-by-subject/richard-jenkins-collection/transport/1658012-man-in-a-cap-posing-with-a-bicycle',
       'and its address, without the question mark the site hangs off every link');
-    t.ok(/^https:\/\/herefordshirehistory\.org\.uk\/img\//.test(items[0].image),
-      'with the picture that goes on the row');
+    /* The picture, not the page that points at one. The archive serves every /img/
+       address as a meta refresh, and an <img> cannot follow one - it asks for a
+       picture and is handed 998 bytes of HTML, so nothing appears. Checked against
+       the live site with a browser's Accept header, a referer and a cookie: always
+       the same stub. The address it redirects to is where the picture is. */
+    t.ok(items[0].image.indexOf(nd.HHA_IMG) === 0,
+      'the row carries the address of the picture itself');
+    t.ok(/\.jpg$/.test(items[0].image), 'which is a picture');
+    t.not(/herefordshirehistory\.org\.uk\/img\//.test(items[0].image),
+      'rather than the page that redirects to it');
     t.is(items[0].kicker, 'Archive', 'and where it came from');
 
     // A catalogued year sorts the row in among the rest.
@@ -1406,6 +1398,32 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.is(nd.HHA_HOST, 'herefordshirehistory.org.uk', 'the host is read off the home address');
     t.same(nd.hhaLinks('<a href="https://evil.example/view/9-hereford-cathedral">Hereford Cathedral</a>',
       nd.HHA_HOME), [], 'and a matching address somewhere else is not an item');
+  });
+
+  suite('A picture address is turned into a picture', (t) => {
+    // The two halves of the path, moved onto the cache, with .jpg on the end. Both
+    // of these were fetched from the live site: stub, and 38KB of JPEG.
+    const stub = 'https://herefordshirehistory.org.uk/img/'
+      + 'e9557e59b389e59aff08ace3a37ced52cc2c7ab04fce9a94def764a13a61b125/'
+      + '4c15a5774399422425e49f7d95719dd07080d52401bbb478e62e4f6b2f23923d';
+    t.is(nd.hhaImage(stub), nd.HHA_IMG
+      + 'e9557e59b389e59aff08ace3a37ced52cc2c7ab04fce9a94def764a13a61b125/'
+      + '4c15a5774399422425e49f7d95719dd07080d52401bbb478e62e4f6b2f23923d.jpg',
+      'the picture is fetched from where the page points');
+    t.is(nd.hhaImage(stub + '/'), nd.hhaImage(stub), 'a trailing slash changes nothing');
+    t.is(nd.hhaImage(stub.replace('https://', 'http://')), nd.hhaImage(stub),
+      'nor does the site being asked for over http');
+    t.is(nd.hhaImage('https://www.herefordshirehistory.org.uk/img/a/b'),
+      nd.HHA_IMG + 'a/b.jpg', 'nor a www in front of it');
+
+    // Anything that is not one of theirs is left exactly as it is.
+    t.is(nd.hhaImage('https://example.com/img/a/b'), 'https://example.com/img/a/b',
+      'another site is left alone');
+    t.is(nd.hhaImage('https://herefordshirehistory.org.uk/archive/a/b/1658012-x'),
+      'https://herefordshirehistory.org.uk/archive/a/b/1658012-x',
+      'and so is one of their pages that is not a picture');
+    t.is(nd.hhaImage(''), '', 'nothing stays nothing');
+    t.is(nd.hhaImage(null), '', 'and so does nothing at all');
   });
 
   suite('An item is named, or it is not shown', (t) => {
@@ -1630,11 +1648,6 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     S.tab = nd.TABS.findIndex((x) => x.id === 'local');
     nd.rebuild();
     t.same(S.view.map((x) => x.id).sort(), ['ht:1', 'lm:1'], 'Local shows the paper and the diary');
-    S.tab = nd.TABS.findIndex((x) => x.id === 'breaking');
-    nd.rebuild();
-    t.same(S.view.map((x) => x.id), ['ht:1', 'kg:1'],
-      'and Breaking shows only what actually broke: the closed road and the big story, '
-      + 'not the chip announcement or the oat milk');
     t.ok(window.document.querySelectorAll('#list .row').length >= 1, 'and it reaches the screen');
   });
 
@@ -2141,6 +2154,262 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     ol.innerHTML = '';
   });
 
+  /* Nine sources land within a few seconds of a cold start and each landing rebuilt
+     the list from nothing: every row thrown away and built again, so every thumbnail
+     went back to opacity zero and faded in once more. The whole screen blinked three
+     or four times on opening the app, and again on every refresh and every minute the
+     ages were redrawn. The rows are kept and moved instead. */
+  suite('A rebuild keeps the rows it already has', (t) => {
+    const nd = phone.nd, S = nd.S, doc = phone.window.document;
+    const ol = doc.getElementById('list');
+    S.mode = 'home';
+    S.tab = nd.TABS.findIndex((x) => x.id === 'all');
+    S.sections = [];
+    // Fresh objects with the same ids each time, which is what a loader hands back.
+    const pics = (ids) => ids.map((n) => story({
+      src: 'kg', id: 'p' + n, title: 'Story ' + n, image: 'https://pics.test/' + n + '.jpg' }));
+    const imgs = () => [].slice.call(ol.querySelectorAll('.thumb img'));
+    const ids = () => [].map.call(ol.querySelectorAll('li.row'), (li) => li.getAttribute('data-id'));
+
+    S.view = pics([0, 1, 2, 3]);
+    nd.renderListRows(false);
+    // The pictures arrive, as they do once the row is near the screen.
+    imgs().forEach((img) => {
+      img.src = img.getAttribute('data-src');
+      img.removeAttribute('data-src');
+      img.className = 'ld';
+    });
+    const before = imgs();
+    t.is(before.length, 4, 'four rows, four pictures');
+
+    S.view = pics([0, 1, 2, 3]);
+    nd.renderListRows(false);
+    const after = imgs();
+    t.is(after.length, 4, 'a landing that adds nothing still shows four pictures');
+    t.is(after.every((img, i) => img === before[i]), true,
+      'and they are the very same elements, so none of them loaded or faded again');
+    t.is(after.every((img) => img.className === 'ld'), true,
+      'still shown rather than back to transparent');
+    t.is(after.every((img) => !img.hasAttribute('data-src')), true,
+      'and none of them waiting to be fetched a second time');
+
+    // A refresh that reorders the list moves the rows rather than redrawing them.
+    S.view = pics([2, 0, 3, 1]);
+    nd.renderListRows(false);
+    t.same(ids(), ['p2', 'p0', 'p3', 'p1'], 'reordered, the list is in its new order');
+    t.is(imgs()[0], before[2], 'and a story that moved took its own picture with it');
+    t.same([].map.call(ol.querySelectorAll('li.row'), (li) => li.getAttribute('data-i')),
+      ['0', '1', '2', '3'], 'each row numbered where it now sits');
+
+    // One story goes, one arrives: the one that arrives is built, the rest are kept.
+    S.view = pics([2, 0, 4]);
+    nd.renderListRows(false);
+    t.same(ids(), ['p2', 'p0', 'p4'], 'a story leaving and another arriving are both drawn');
+    t.is(imgs()[0], before[2], 'the story that stayed kept its picture');
+    t.is(imgs()[2] === before[0] || imgs()[2] === before[1] || imgs()[2] === before[3], false,
+      'and the new one got a picture of its own rather than a dead row');
+    t.is(imgs()[2].getAttribute('data-src'), 'https://pics.test/4.jpg',
+      'pointed at its own photograph');
+
+    // The parts that go out of date are the parts brought up to date.
+    const kept = ol.querySelector('li.row');
+    S.fresh.p2 = 1;
+    const renamed = pics([2, 0, 4]);
+    renamed[0].title = 'Story 2, as it now reads';
+    S.view = renamed;
+    nd.renderListRows(false);
+    t.is(ol.querySelector('li.row'), kept, 'the row for a story is still the same row');
+    t.is(kept.querySelector('.ttl').textContent, 'Story 2, as it now reads',
+      'with a headline that has been rewritten since');
+    t.ok(kept.querySelector('.newtag'), 'and its New tag');
+    delete S.fresh.p2;
+    S.view = pics([2, 0, 4]);
+    nd.renderListRows(false);
+    t.is(kept.querySelector('.newtag'), null, 'which goes once it has been read');
+    t.is(ol.querySelector('li.row'), kept, 'the row itself outliving the tag');
+
+    // The cursor's own class is dropped, as building the row afresh used to drop it.
+    kept.classList.add('on');
+    S.view = pics([2, 0, 4]);
+    nd.renderListRows(false);
+    t.is(/\bon\b/.test(kept.className), false, 'a kept row does not keep the cursor');
+
+    /* An archive photograph gets a bigger thumbnail than a headline does, and which it
+       is depends on the story having a picture at all - which for the archive is
+       something that arrives after the row has been drawn. */
+    S.tab = nd.TABS.findIndex((x) => x.id === 'hist');
+    const shot = (img) => [story({ src: 'hh', id: 'hh:a1', title: 'Church Street, 1903',
+      kicker: 'Archive', image: img })];
+    S.view = shot('');
+    nd.renderListRows(false);
+    const hrow = ol.querySelector('li.row');
+    t.is(/\bpic\b/.test(hrow.className), false, 'an archive story with no photograph yet is a plain row');
+    S.view = shot('https://pics.test/a1.jpg');
+    nd.renderListRows(false);
+    t.is(ol.querySelector('li.row'), hrow, 'the photograph arriving keeps the row');
+    t.is(/\bpic\b/.test(hrow.className), true, 'and turns it into a photograph row');
+    S.view = shot('');
+    nd.renderListRows(false);
+    t.is(/\bpic\b/.test(hrow.className), false, 'and losing it turns it back');
+    S.tab = nd.TABS.findIndex((x) => x.id === 'all');
+
+    /* Two rows for one story - Today can put a headline in a section and in the list
+       under it - and one node cannot be in two places, so the second needs its own.
+       The first has to be one the pool is holding, which is the case that goes wrong. */
+    const twice = pics([0]);
+    S.view = [twice[0]];
+    nd.renderListRows(false);
+    const only = ol.querySelector('li.row');
+    S.view = [twice[0], twice[0]];
+    nd.renderListRows(false);
+    t.is(ol.querySelectorAll('li.row').length, 2, 'a story listed twice gets two rows');
+    t.is(ol.querySelectorAll('li.row')[0], only, 'the first of them being the row already there');
+    t.same([].map.call(ol.querySelectorAll('li.row'), (li) => li.getAttribute('data-i')),
+      ['0', '1'], 'each knowing which of them it is');
+
+    // A story whose picture has changed gets the new one.
+    const moved = pics([2, 0, 4]);
+    moved[1].image = 'https://pics.test/0-new.jpg';
+    S.view = moved;
+    nd.renderListRows(false);
+    t.is(imgs()[1].getAttribute('data-src') || imgs()[1].getAttribute('src'),
+      'https://pics.test/0-new.jpg', 'a new photograph for the story replaces the old one');
+    // And a story that has lost its picture loses the space it took.
+    const bare = pics([2, 0, 4]);
+    bare[1].image = '';
+    S.view = bare;
+    nd.renderListRows(false);
+    t.is(ol.querySelectorAll('li.row')[1].querySelector('.thumb'), null,
+      'and a story with no picture left keeps no room for one');
+
+    S.view = [];
+    S.sections = [];
+    ol.innerHTML = '';
+  });
+
+  /* The placeholders shimmer while you wait. Building them again restarts that from
+     nothing, and a cold start builds them once per source. */
+  suite('The placeholders are not started again while you wait', (t) => {
+    const nd = phone.nd, S = nd.S, doc = phone.window.document;
+    const ol = doc.getElementById('list');
+    S.mode = 'home';
+    S.view = [];
+    S.sections = [];
+    S.tab = nd.TABS.findIndex((x) => x.id === 'local');
+    const srcs = nd.TABS[S.tab].srcs;
+    srcs.forEach((s) => { S.busy[s] = true; });
+    ol.innerHTML = '';
+    nd.renderListRows(false);
+    const ghosts = [].slice.call(ol.querySelectorAll('li.ghost'));
+    t.ok(ghosts.length > 0, 'a tab still loading shows placeholders (' + ghosts.length + ')');
+    t.is(nd.onlyGhosts(ol), true, 'and nothing else');
+
+    nd.renderListRows(false);
+    const again = [].slice.call(ol.querySelectorAll('li.ghost'));
+    t.is(again.length, ghosts.length, 'drawn again, there are no more of them');
+    t.is(again.every((g, i) => g === ghosts[i]), true,
+      'and they are the same ones, so the shimmer carries on rather than starting over');
+
+    /* Placeholders with nothing behind them any more. They are only kept while there
+       is still something to wait for, or a source that answers with nothing would
+       leave the app shimmering at you for ever instead of saying so. */
+    srcs.forEach((s) => { S.busy[s] = false; });
+    nd.renderListRows(false);
+    t.is(ol.querySelectorAll('li.ghost').length, 0, 'once nothing is loading they go');
+    t.ok(ol.querySelector('.empty-note'), 'replaced by a note saying there is nothing to show');
+
+    // And stories landing replace them too.
+    srcs.forEach((s) => { S.busy[s] = true; });
+    S.view = [];
+    nd.renderListRows(false);
+    t.ok(ol.querySelector('li.ghost'), 'placeholders again while it loads');
+    S.view = [story({ src: 'ht', id: 'g1', title: 'The first story to land' })];
+    nd.renderListRows(false);
+    t.is(ol.querySelectorAll('li.ghost').length, 0, 'the stories replace them when they land');
+    t.is(ol.querySelectorAll('li.row').length, 1, 'with the story in their place');
+
+    S.view = [];
+    srcs.forEach((s) => { S.busy[s] = false; });
+    nd.renderListRows(false);
+    ol.innerHTML = '';
+  });
+
+  /* The rows a rebuild dropped are held while the tail of the list is still being
+     drawn, because the tail may yet want them. Once it is down they are a hundred and
+     twenty detached rows, pictures and all, and a stick has better uses for that. */
+  suite('The rows a rebuild dropped are let go', (t) => {
+    const nd = phone.nd, S = nd.S, doc = phone.window.document;
+    const ol = doc.getElementById('list');
+    S.mode = 'home';
+    S.sections = [];
+    S.tab = nd.TABS.findIndex((x) => x.id === 'all');
+    S.view = Array.from({ length: nd.FIRST_ROWS + 6 }, (_, i) =>
+      story({ src: 'kg', id: 'q' + i, title: 'Story ' + i }));
+    nd.renderListRows(false);
+    t.is(nd.pooling(), false, 'a list drawn in one go holds nothing afterwards');
+
+    nd.renderListRows(true);
+    t.is(nd.pooling(), true, 'a list with a tail still to come keeps them for it');
+    nd.drawTail();
+    t.is(nd.pooling(), false, 'and lets them go once the tail is down');
+
+    // A tab whose stories all go while the tail is still pending: the tail is called
+    // off, so nothing is left that could want the rows it was holding.
+    nd.renderListRows(true);
+    t.is(nd.pooling(), true, 'held again, with a tail pending');
+    S.view = [];
+    nd.renderListRows(false);
+    t.is(nd.pooling(), false, 'a list that empties lets them go rather than holding them');
+    ol.innerHTML = '';
+  });
+
+  /* Every landing and every rebuild came through renderTabs, which threw the strip
+     away and built it again - restarting the loading dot's pulse and snapping the
+     strip back to the current tab from wherever it had been scrolled. */
+  suite('The tab strip is drawn again only when it changes', (t) => {
+    const nd = phone.nd, S = nd.S, doc = phone.window.document;
+    const nav = doc.getElementById('tabs');
+    S.mode = 'home';
+    S.tab = nd.TABS.findIndex((x) => x.id === 'local');
+    S.unseen = {};
+    nd.renderTabs();
+    const tabs = [].slice.call(nav.querySelectorAll('.tab'));
+    t.ok(tabs.length > 0, 'the strip has its tabs (' + tabs.length + ')');
+
+    nd.renderTabs();
+    t.is([].slice.call(nav.querySelectorAll('.tab')).every((d, i) => d === tabs[i]), true,
+      'drawn again with nothing changed, it is the same strip - the dot keeps pulsing');
+
+    const mark = nd.tabsMark();
+    S.busy[nd.TABS[S.tab].srcs[0]] = true;
+    t.ok(nd.tabsMark() !== mark, 'a source starting to load is a change');
+    nd.renderTabs();
+    t.is(nav.querySelector('.tab') === tabs[0], false, 'so the strip is drawn again');
+    S.busy[nd.TABS[S.tab].srcs[0]] = false;
+    nd.renderTabs();
+
+    const counted = nd.tabsMark();
+    S.unseen = { world: 3 };
+    t.ok(nd.tabsMark() !== counted, 'a count appearing is a change');
+    const was = nav.querySelector('.tab');
+    nd.renderTabs();
+    t.is(nav.querySelector('.tab') === was, false, 'and brings the strip back');
+
+    const here = nd.tabsMark();
+    S.tab = nd.TABS.findIndex((x) => x.id === 'world');
+    t.ok(nd.tabsMark() !== here, 'and so is changing tab, which has to move the strip');
+
+    // Whatever the mark says, an empty strip is filled: nothing else would fill it.
+    nd.renderTabs();
+    nav.innerHTML = '';
+    nd.renderTabs();
+    t.ok(nav.querySelector('.tab'), 'an emptied strip is always drawn again');
+
+    S.unseen = {};
+    S.tab = nd.TABS.findIndex((x) => x.id === 'local');
+    nd.renderTabs();
+  });
+
   /* A Wikipedia entry opened showing "English darts player" and nothing else, with
      the article one tap away behind a button. An archive item had the same button,
      and behind that one there was nothing to read at all. */
@@ -2287,6 +2556,15 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.ok(/Wikidata/.test(hh.method || ''), 'and says Wikidata is one of its sources');
     t.ok(/Wikipedia/.test(hh.method || ''), 'and Wikipedia another');
     t.ok(/county archive/.test(hh.method || ''), 'and the county archive the third');
+
+    /* Bitcoin's dates are the fourth, and they are written down rather than fetched -
+       so whether today has one is a fact about today, not about the app. Either way
+       the tab and the panel have to agree with each other. */
+    const due = hist.nd.btcToday(Date.now());
+    const says = /bitcoin's own dates/.test(hh.method || '');
+    t.is(says, due.length > 0, 'the panel names bitcoin exactly when bitcoin has something');
+    due.forEach((x) => t.ok(titles.indexOf(x.title) >= 0,
+      'and what it has is on the tab: ' + x.title));
 
     const titles = items.map((x) => x.title);
     t.ok(titles.indexOf('Nell Gwyn') >= 0, 'somebody Wikidata knows was born here');
@@ -2508,11 +2786,303 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     halfDown.window.nd.key('menu');
   });
 
+  /* Whether bitcoin has a date today is a fact about today, not about the app, so the
+     clock is pinned to a day that does: 22 May, when two pizzas cost 10,000 bitcoin.
+     Otherwise this check does nothing for 350 days of the year. */
+  const PIZZA_DAY = new Date(2026, 4, 22, 10, 0, 0).getTime();
+  const pizzaDay = await boot({
+    settle: 900,
+    now: PIZZA_DAY,
+    reply(url) {
+      // Only the county's routes answer; bitcoin's need nothing.
+      if (/wbsearchentities|query\.wikidata|onthisday|herefordshirehistory/.test(url)) {
+        return { ok: false, status: 599, body: '' };
+      }
+      return { ok: false, status: 599, body: '' };
+    }
+  });
+
+  suite('On a day bitcoin has a date, the tab has it', (t) => {
+    const nd2 = pizzaDay.nd, hh = nd2.S.by.hh || {};
+    const titles = (hh.items || []).map((x) => x.title);
+    // The clock is pinned inside that page only; out here it is still today.
+    t.is(pizzaDay.window.Date.now(), PIZZA_DAY, 'the page is on the 22nd of May');
+    t.not(Date.now() === PIZZA_DAY, 'while the runner is not');
+
+    const due = nd2.btcToday(PIZZA_DAY);
+    t.is(due.length, 1, 'the 22nd of May has one date on it');
+    t.ok(/10,000 bitcoin/.test(due[0].title), 'and it is the pizzas');
+
+    // Every other route was refused, so what is on the tab is bitcoin's alone.
+    t.ok(titles.indexOf(due[0].title) >= 0, 'which reaches the tab');
+    t.ok(/bitcoin's own dates/.test(hh.method || ''), 'and the panel says where it came from');
+    t.not(/Wikidata|Wikipedia|county archive/.test(hh.method || ''),
+      'naming nothing that did not answer');
+    t.not(hh.error, 'and the tab is not in error, though every fetch failed');
+
+    // The row reads as history: a year where a story shows its age, and no fetching.
+    const row = (hh.items || []).filter((x) => x.title === due[0].title)[0];
+    t.is(row.year, 2010, 'the row carries the year');
+    t.is(nd2.timeLabel(row), '2010', 'which is what it shows in place of an age');
+    t.is(row.kicker, 'Bitcoin', 'and says which kind of history it is');
+    // The other routes were asked and refused; bitcoin's was not asked at all.
+    t.not((hh.requests || []).some((r) => /bitcoin|btc/i.test(r.url)),
+      'and the History source asked for nothing to put it there');
+    t.ok((hh.requests || []).length > 0, 'though it did ask the routes that need asking');
+  });
+
+  /* refresh() clears S.busy[s] when the source's promise settles, and only then. So a
+     promise nobody ever answers leaves that source reading "Updating…" for the life of
+     the app and never refreshed again. There was one slot to be answered in, with no
+     deadline on it, and a second scrape simply overwrote it. */
+  const scrapes = {};
+  {
+    const nd2 = phone.nd, w = phone.window;
+    const real = w.Native.scrape;
+    /* Bounded, because the fault being checked for is a promise that never settles:
+       awaiting one of those hangs the whole run instead of failing a line of it. */
+    const ran = (p) => {
+      let bell;
+      const rung = new Promise((r) => { bell = setTimeout(() => r({ failed: 'never settled' }), 2000); });
+      return Promise.race([p.then((r) => ({ got: r }), (e) => ({ failed: (e && e.message) || String(e) })), rung])
+        .then((r) => { clearTimeout(bell); return r; });
+    };
+
+    // A page that is read normally still comes back with what was on it.
+    scrapes.normal = await ran(nd2.scrapeRendered('https://example.com/one'));
+
+    // Nothing answers, and a second read starts. The first has to be told.
+    w.Native.scrape = function () {};
+    scrapes.afterNormal = nd2.scrapeState();
+    const first = ran(nd2.scrapeRendered('https://example.com/first'));
+    scrapes.waiting = nd2.scrapeState();
+    const second = ran(nd2.scrapeRendered('https://example.com/second'));
+    scrapes.first = await first;
+    scrapes.stillWaiting = nd2.scrapeState();
+    // And that second one is the one __scrapeDone answers.
+    w.__scrapeDone('[{"title":"A wire off the live page","link":"https://example.com/w"}]', '[]');
+    scrapes.second = await second;
+    scrapes.settled = nd2.scrapeState();
+    w.Native.scrape = real;
+  }
+
+  suite('A page that is never read still answers', (t) => {
+    const nd2 = phone.nd;
+    t.ok(scrapes.normal.got, 'a page read normally comes back');
+    t.ok(Array.isArray(scrapes.normal.got.items), 'with the items off it');
+
+    t.same(scrapes.afterNormal, { slot: false, armed: false },
+      'and leaves nothing waiting and no deadline running behind it');
+    t.same(scrapes.waiting, { slot: true, armed: true },
+      'a read nothing has answered is waiting, with a deadline of its own');
+    t.is(scrapes.first.failed, 'Another page was read instead',
+      'and a second read tells the first rather than dropping it');
+    t.same(scrapes.stillWaiting, { slot: true, armed: true },
+      'the second one now being the one waiting');
+    t.ok(scrapes.second.got, 'which is the one that is answered');
+    t.is(scrapes.second.got.items.length, 1, 'with what was on that page');
+    /* The slot is let go and the deadline disarmed. A deadline left running belongs to
+       a read that is over, and forty-five seconds later it would reject whichever read
+       happened to be in the slot by then. */
+    t.same(scrapes.settled, { slot: false, armed: false },
+      'and afterwards there is nothing waiting and no deadline left running');
+
+    // The deadline only exists for the case where Kotlin says nothing at all, so it has
+    // to be longer than the time Kotlin allows itself to answer in.
+    t.ok(nd2.SCRAPE_WAIT_MS > 35000,
+      'the page waits longer than the app allows itself (' + nd2.SCRAPE_WAIT_MS + 'ms)');
+  });
+
+  /* Saving the cache waits a second and a half for the quiet, because nine sources
+     landing means nine saves and eight are thrown away. Going off screen is not the
+     quiet: Android can reclaim the process without running another line, so a refresh
+     that had just landed was lost and the app opened on the cache before it. */
+  suite('News that has landed is not lost to the app going away', (t) => {
+    const nd = phone.nd, S = nd.S, ls = phone.window.localStorage;
+    S.by.ht = { items: [story({ src: 'ht', id: 'f1', title: 'A headline that has just landed' })],
+                method: 'test', requests: [], at: Date.now(), error: '' };
+    S.lastRefresh = Date.now();
+    ls.removeItem(nd.CACHE_KEY);
+    nd.save();
+    t.is(nd.savePending(), true, 'a save is waiting for the quiet');
+    t.is(ls.getItem(nd.CACHE_KEY), null, 'and nothing is written yet');
+
+    nd.flushSave();
+    t.is(nd.savePending(), false, 'going off screen stops the waiting');
+    const held = JSON.parse(ls.getItem(nd.CACHE_KEY) || 'null');
+    t.ok(held && held.by && held.by.ht, 'and writes what had landed');
+    t.is(held.by.ht.items[0].title, 'A headline that has just landed', 'the story itself');
+
+    // Nothing waiting means nothing to do, and nothing written over.
+    ls.setItem(nd.CACHE_KEY, '{"by":{},"at":1}');
+    nd.flushSave();
+    t.is(ls.getItem(nd.CACHE_KEY), '{"by":{},"at":1}',
+      'with no save waiting it leaves the cache alone');
+
+    // The page is told by the bridge on a Fire TV, and notices for itself in a browser.
+    ls.removeItem(nd.CACHE_KEY);
+    nd.save();
+    phone.window.nd.paused();
+    t.ok(ls.getItem(nd.CACHE_KEY), 'the bridge telling it to pause writes it');
+    phone.nd.startTimers();
+
+    ls.removeItem(nd.CACHE_KEY);
+    nd.save();
+    const doc = phone.window.document;
+    // jsdom has no window to hide, so say so the way a browser would.
+    Object.defineProperty(doc, 'visibilityState', { value: 'hidden', configurable: true });
+    doc.dispatchEvent(new phone.window.Event('visibilitychange'));
+    t.ok(ls.getItem(nd.CACHE_KEY), 'and so does the page being hidden, which is all a browser gives it');
+
+    // Coming back into view is not a reason to write anything.
+    Object.defineProperty(doc, 'visibilityState', { value: 'visible', configurable: true });
+    ls.setItem(nd.CACHE_KEY, '{"by":{},"at":2}');
+    nd.save();
+    doc.dispatchEvent(new phone.window.Event('visibilitychange'));
+    t.is(ls.getItem(nd.CACHE_KEY), '{"by":{},"at":2}', 'coming back into view writes nothing');
+    nd.flushSave();
+
+    S.by.ht = { items: [] };
+    ls.removeItem(nd.CACHE_KEY);
+  });
+
+  /* The minute tick exists so the ages can go stale without the list being rebuilt for
+     it - the words are the only part that changed. Nothing checked that it updates the
+     words, or that it leaves the pictures alone. */
+  suite('The ages go stale without the list being redrawn', (t) => {
+    const nd = phone.nd, S = nd.S, doc = phone.window.document;
+    const ol = doc.getElementById('list');
+    S.mode = 'home';
+    S.sections = [];
+    S.tab = nd.TABS.findIndex((x) => x.id === 'all');
+    const at = (mins) => story({ src: 'kg', id: 'a' + mins, title: 'Story from ' + mins,
+      image: 'https://pics.test/' + mins + '.jpg', date: Date.now() - mins * 60e3 });
+    S.view = [at(2), at(240)];
+    nd.renderListRows(false);
+    const whens = () => [].map.call(ol.querySelectorAll('.meta .when'), (n) => n.textContent);
+    const imgs = () => [].slice.call(ol.querySelectorAll('.thumb img'));
+    const before = imgs();
+    t.same(whens(), ['2m ago', '4h ago'], 'the ages as they are now');
+    t.is(before.length, 2, 'with a picture on each row');
+
+    // An hour goes by without a rebuild.
+    S.view.forEach((it) => { it.date -= 60 * 60e3; });
+    nd.renderListAgesOnly();
+    t.same(whens(), ['1h ago', '5h ago'], 'an hour later the ages have moved on');
+    t.is(imgs().every((n, i) => n === before[i]), true,
+      'and the pictures are the same elements, never redrawn');
+    t.is(ol.querySelectorAll('li.row').length, 2, 'as are the rows they sit in');
+
+    // A list only half drawn is not walked past its end.
+    S.view = Array.from({ length: 4 }, (_, i) => at(i + 1));
+    ol.innerHTML = '';
+    nd.drawRows(ol, 0, 2);
+    let threw = false;
+    try { nd.renderListAgesOnly(); } catch (e) { threw = true; }
+    t.is(threw, false, 'a half-drawn list is safe to walk');
+    t.is(whens().length, 2, 'and only the rows that exist are touched');
+    S.view = [];
+    ol.innerHTML = '';
+  });
+
+  /* A picture that 404s used to be asked for again on every rebuild: the handler took
+     the row's thumbnail away but nothing remembered why, so the next rebuild put it
+     back and fetched the same dead address. */
+  suite('A picture that is not there is asked for once', (t) => {
+    const nd = phone.nd, S = nd.S, doc = phone.window.document;
+    const ol = doc.getElementById('list');
+    S.mode = 'home';
+    S.sections = [];
+    S.tab = nd.TABS.findIndex((x) => x.id === 'all');
+    const it = story({ src: 'kg', id: 'd1', title: 'A story with a dead picture',
+      image: 'https://pics.test/gone.jpg' });
+    S.view = [it];
+    nd.renderListRows(false);
+    const img = ol.querySelector('.thumb img');
+    t.ok(img, 'the row is drawn with a picture to load');
+    // jsdom loads no images, so the handler is called the way a 404 would call it.
+    img.onerror();
+    t.is(ol.querySelector('.thumb'), null, 'a picture that fails takes its space with it');
+    t.is(it.image, '', 'and the story remembers there is none');
+
+    nd.renderListRows(false);
+    t.is(ol.querySelector('.thumb'), null, 'so a rebuild does not put it back');
+    t.is(ol.querySelectorAll('li.row').length, 1, 'the row itself staying where it is');
+    S.view = [];
+    ol.innerHTML = '';
+  });
+
+  /* tryChain takes the first provider that answers, so what counts as an answer is
+     the whole of its meaning. A reader that handed back { gbp: undefined } from JSON
+     of the right shape and no price in it ended the chain there - and Coinbase and
+     blockchain.info, both working, were never asked. */
+  const REPLY = {};
+  const mkt = await boot({ settle: 400, reply: (u) => REPLY[u] || null });
+  const priceChain = {};
+  {
+    const nd2 = mkt.nd;
+    const answer = (list, i, body) => { REPLY[list[i].url] = { ok: true, body: body }; };
+    const B = nd2.BTC_SOURCES, R = nd2.RATE_SOURCES;
+    const ran = (p) => p.then((r) => r, (e) => ({ failed: String((e && e.message) || e) }));
+
+    // The right shape with nothing in it, then a provider that has the price.
+    answer(B, 0, '{"bitcoin":{}}');
+    answer(B, 1, '{"data":{"amount":"51234.50"}}');
+    priceChain.past = await ran(nd2.tryChain(B));
+    // The first one working is still the one used.
+    answer(B, 0, '{"bitcoin":{"gbp":49000,"gbp_24h_change":-1.5}}');
+    priceChain.first = await ran(nd2.tryChain(B));
+    // A price of zero is not a price either.
+    answer(B, 0, '{"bitcoin":{"gbp":0}}');
+    priceChain.zero = await ran(nd2.tryChain(B));
+    // Nor is one that is not a number at all.
+    answer(B, 0, '{"bitcoin":{"gbp":"n/a"}}');
+    priceChain.words = await ran(nd2.tryChain(B));
+    // And with every provider answering emptily the chain fails rather than inventing.
+    answer(B, 0, '{"bitcoin":{}}');
+    answer(B, 1, '{"data":{}}');
+    answer(B, 2, '{"GBP":{}}');
+    priceChain.none = await ran(nd2.tryChain(B));
+    /* The dollar rate reads a bare number rather than an object. A missing one is
+       undefined, which tryChain rejects on its own; a zero is a number, and without the
+       same rule it would be taken as the rate - which is gold and oil gone, since both
+       are priced through it. */
+    answer(R, 0, '{"rates":{}}');
+    answer(R, 1, '{"rates":{"GBP":0.79}}');
+    priceChain.rate = await ran(nd2.tryChain(R));
+    answer(R, 0, '{"rates":{"GBP":0}}');
+    priceChain.zeroRate = await ran(nd2.tryChain(R));
+  }
+
+  suite('One source answering with nothing does not take the price down', (t) => {
+    const nd2 = mkt.nd;
+    t.is(nd2.priced('51234.50'), 51234.5, 'a figure reads as a number');
+    ['', null, undefined, 0, -1, 'n/a', {}].forEach((bad) => {
+      let threw = false;
+      try { nd2.priced(bad); } catch (e) { threw = true; }
+      t.is(threw, true, JSON.stringify(bad) + ' is not a price and says so');
+    });
+
+    t.is(priceChain.past.v && priceChain.past.v.gbp, 51234.5,
+      'a provider with no price in its answer is passed over for one that has it');
+    t.is(priceChain.past.from, 'api.coinbase.com', 'which is the next in the chain');
+    t.is(priceChain.first.v && priceChain.first.v.gbp, 49000,
+      'and the first one is still used when it does answer');
+    t.is(priceChain.first.v.chg, -1.5, 'with the change it came with');
+    t.is(priceChain.zero.v && priceChain.zero.v.gbp, 51234.5, 'a price of zero is passed over');
+    t.is(priceChain.words.v && priceChain.words.v.gbp, 51234.5, 'so is one that is not a number');
+    t.ok(priceChain.none.failed, 'every provider answering emptily fails the chain');
+    t.is(priceChain.rate.v, 0.79, 'and the dollar rate is read the same way');
+    t.is(priceChain.zeroRate.v, 0.79, 'a rate of zero passed over rather than taken');
+  });
+
   return run('Newsdesk logic').then(() => {
     close();                       // stop the page's clock, or node never gets to exit
     phone.close();
     hist.close();
+    pizzaDay.close();
     halfDown.close();
+    mkt.close();
   });
 }).catch((e) => {
   console.error(e && e.stack || e);

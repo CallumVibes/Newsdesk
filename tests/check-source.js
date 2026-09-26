@@ -355,6 +355,63 @@ suite('The share the page composes is the share Kotlin sends', (t) => {
     'and hands over the headline, that body, and the address');
 });
 
+/* Reading a rendered page is Kotlin's job and the page waits to be told. Both sides
+   have a deadline, and the page's has to be the later of the two: it exists only for
+   the case where Kotlin says nothing at all, and a page that gave up first would have
+   its source marked busy when the real answer arrived. */
+suite('The page waits longer than the app takes', (t) => {
+  const kt = read(KT + 'MainActivity.kt'), page = read(PAGE);
+  const ktMs = (kt.match(/SCRAPE_TIMEOUT_MS\s*=\s*([\d_]+)L/) || [])[1];
+  const jsMs = (page.match(/var SCRAPE_WAIT_MS\s*=\s*(\d+)/) || [])[1];
+  t.ok(ktMs, 'the app gives itself a time to answer in (' + ktMs + ')');
+  t.ok(jsMs, 'and the page gives itself a time to be answered in (' + jsMs + ')');
+  const kn = parseInt(String(ktMs).replace(/_/g, ''), 10), jn = parseInt(jsMs, 10);
+  t.ok(jn > kn, 'the page waits the longer of the two (' + jn + ' > ' + kn + ')');
+  // And it settles either way, or the source it belongs to stays busy for ever.
+  const fn = page.slice(page.indexOf('function scrapeRendered'), page.indexOf('window.__scrapeDone'));
+  t.ok(/setTimeout/.test(fn), 'the page arms that deadline rather than waiting for ever');
+  t.ok(/w\.rej\(/.test(fn), 'and a read that is replaced is told, not dropped');
+});
+
+/* The window behind the page and the bars around it are painted by Kotlin, before a
+   line of that page has run. So the two colours are written twice, in two languages,
+   and a page that turned white while Kotlin still painted black would open with a
+   flash and keep a black status bar for good - which is exactly what it did. */
+suite('Both languages are lit the same way', (t) => {
+  const kt = read(KT + 'MainActivity.kt'), page = read(PAGE);
+  const ktCol = (name) => ((kt.match(new RegExp('const val ' + name + ' = "(#[0-9A-Fa-f]{6})"')) || [])[1] || '').toUpperCase();
+  const dark = ktCol('BG'), light = ktCol('BG_LIGHT');
+  t.ok(dark && light, 'Kotlin names a colour for each way up (' + dark + ', ' + light + ')');
+  // --bg is declared twice in the page: on :root, then again under .light.
+  const bgs = (page.match(/--bg:\s*(#[0-9A-Fa-f]{6})/g) || [])
+    .map((m) => m.replace(/.*(#[0-9A-Fa-f]{6}).*/, '$1').toUpperCase());
+  t.is(bgs.length, 2, 'and the page declares one for each way up too');
+  t.is(bgs[0], dark, 'the page dark is the Kotlin dark');
+  t.is(bgs[1], light, 'and the page light is the Kotlin light');
+  // The browser's own bar, for the installed web app, turns over with them too.
+  const meta = (page.match(/<meta name="theme-color"[^>]*content="(#[0-9A-Fa-f]{6})"/) || [])[1];
+  t.is((meta || '').toUpperCase(), dark, 'the theme-color meta starts on the dark one');
+  const flip = page.slice(page.indexOf('function setTheme('), page.indexOf('function loadTheme('));
+  t.ok(/themeColour/.test(flip), 'and setTheme is what turns it over');
+  const both = (flip.match(/#[0-9A-Fa-f]{6}/g) || []).map((x) => x.toUpperCase());
+  t.same(both.sort(), [dark, light].sort(), 'between the same two colours Kotlin uses');
+
+  /* Which way up is decided before the window is painted, and painting it again is
+     what makes the theme toggle reach the bars. */
+  const create = kt.slice(kt.indexOf('override fun onCreate'), kt.indexOf('private fun configure'));
+  t.ok(create.indexOf('BriefStore.theme(') >= 0, 'the saved theme is read on the way in');
+  t.ok(create.indexOf('BriefStore.theme(') < create.indexOf('setUpWindow()'),
+    'before the window is set up, not after it');
+  const paint = kt.slice(kt.indexOf('private fun paintWindow'), kt.indexOf('/* From Android 13'));
+  t.ok(/setBackgroundDrawable/.test(paint), 'the window itself is painted');
+  t.ok(/statusBarColor/.test(paint) && /navigationBarColor/.test(paint), 'and both bars with it');
+  t.ok(/SYSTEM_UI_FLAG_LIGHT_STATUS_BAR/.test(paint),
+    'with dark icons on a light bar, or the clock is white on white');
+  t.not(/Color\.parseColor\(BG\)/.test(paint), 'none of it hard-coded to the dark one');
+  const theme = kt.slice(kt.indexOf('fun theme(name: String)'), kt.indexOf('fun briefSave'));
+  t.ok(/paintWindow\(\)/.test(theme), 'and turning the theme over repaints them');
+});
+
 suite('No key is committed', (t) => {
   const cfg = read('app/src/main/assets/config.js');
   t.ok(/ppqKey:\s*""/.test(cfg), 'config.js ships with an empty key, filled in from the secret');
