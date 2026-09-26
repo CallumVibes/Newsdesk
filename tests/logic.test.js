@@ -1365,8 +1365,16 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.is(items[0].link,
       'https://herefordshirehistory.org.uk/archive/images-by-subject/richard-jenkins-collection/transport/1658012-man-in-a-cap-posing-with-a-bicycle',
       'and its address, without the question mark the site hangs off every link');
-    t.ok(/^https:\/\/herefordshirehistory\.org\.uk\/img\//.test(items[0].image),
-      'with the picture that goes on the row');
+    /* The picture, not the page that points at one. The archive serves every /img/
+       address as a meta refresh, and an <img> cannot follow one - it asks for a
+       picture and is handed 998 bytes of HTML, so nothing appears. Checked against
+       the live site with a browser's Accept header, a referer and a cookie: always
+       the same stub. The address it redirects to is where the picture is. */
+    t.ok(items[0].image.indexOf(nd.HHA_IMG) === 0,
+      'the row carries the address of the picture itself');
+    t.ok(/\.jpg$/.test(items[0].image), 'which is a picture');
+    t.not(/herefordshirehistory\.org\.uk\/img\//.test(items[0].image),
+      'rather than the page that redirects to it');
     t.is(items[0].kicker, 'Archive', 'and where it came from');
 
     // A catalogued year sorts the row in among the rest.
@@ -1454,6 +1462,32 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.is(nd.HHA_HOST, 'herefordshirehistory.org.uk', 'the host is read off the home address');
     t.same(nd.hhaLinks('<a href="https://evil.example/view/9-hereford-cathedral">Hereford Cathedral</a>',
       nd.HHA_HOME), [], 'and a matching address somewhere else is not an item');
+  });
+
+  suite('A picture address is turned into a picture', (t) => {
+    // The two halves of the path, moved onto the cache, with .jpg on the end. Both
+    // of these were fetched from the live site: stub, and 38KB of JPEG.
+    const stub = 'https://herefordshirehistory.org.uk/img/'
+      + 'e9557e59b389e59aff08ace3a37ced52cc2c7ab04fce9a94def764a13a61b125/'
+      + '4c15a5774399422425e49f7d95719dd07080d52401bbb478e62e4f6b2f23923d';
+    t.is(nd.hhaImage(stub), nd.HHA_IMG
+      + 'e9557e59b389e59aff08ace3a37ced52cc2c7ab04fce9a94def764a13a61b125/'
+      + '4c15a5774399422425e49f7d95719dd07080d52401bbb478e62e4f6b2f23923d.jpg',
+      'the picture is fetched from where the page points');
+    t.is(nd.hhaImage(stub + '/'), nd.hhaImage(stub), 'a trailing slash changes nothing');
+    t.is(nd.hhaImage(stub.replace('https://', 'http://')), nd.hhaImage(stub),
+      'nor does the site being asked for over http');
+    t.is(nd.hhaImage('https://www.herefordshirehistory.org.uk/img/a/b'),
+      nd.HHA_IMG + 'a/b.jpg', 'nor a www in front of it');
+
+    // Anything that is not one of theirs is left exactly as it is.
+    t.is(nd.hhaImage('https://example.com/img/a/b'), 'https://example.com/img/a/b',
+      'another site is left alone');
+    t.is(nd.hhaImage('https://herefordshirehistory.org.uk/archive/a/b/1658012-x'),
+      'https://herefordshirehistory.org.uk/archive/a/b/1658012-x',
+      'and so is one of their pages that is not a picture');
+    t.is(nd.hhaImage(''), '', 'nothing stays nothing');
+    t.is(nd.hhaImage(null), '', 'and so does nothing at all');
   });
 
   suite('An item is named, or it is not shown', (t) => {

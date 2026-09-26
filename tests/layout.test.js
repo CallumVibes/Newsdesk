@@ -535,6 +535,68 @@ async function lens(browser) {
   return out;
 }
 
+/* Whether a tab change looks like a change is a question about animation, which only
+   a browser that runs animations can answer. */
+async function tabMotion(browser) {
+  const page = await open(browser, { w: 412, h: 915 });
+  const out = await page.evaluate(async () => {
+    const nd = window.ndApi, S = nd.S;
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const wrap = document.getElementById('listWrap');
+    const feed = (src, n) => ({ items: Array.from({ length: n }, (_, i) => ({
+      id: src + ':' + i, src, kicker: 'UK', title: src + ' headline ' + i, summary: 'S.',
+      link: 'https://example.com/' + src + '/' + i, image: '', html: '',
+      date: Date.now() - i * 60000, when: 0, order: i, fetched: Date.now() })) });
+    S.by.ht = feed('ht', 12); S.by.kg = feed('kg', 12); S.by.vf = feed('vf', 12);
+    S.mode = 'home';
+    S.tab = nd.TABS.findIndex((x) => x.id === 'local');
+    nd.rebuild(null);
+    await wait(60);
+
+    const r = { atRest: wrap.className };
+    // Forwards, the way a swipe from right to left goes.
+    nd.switchTab(1);
+    r.fwdClass = wrap.className;
+    const anims = typeof wrap.getAnimations === 'function' ? wrap.getAnimations() : [];
+    r.animating = anims.length > 0;
+    r.animMs = anims.length ? anims[0].effect.getTiming().duration : 0;
+    // Part way through it is somewhere other than where it ends up.
+    await wait(70);
+    const mid = getComputedStyle(wrap);
+    r.midTransform = mid.transform;
+    r.midOpacity = +mid.opacity;
+    // And when it is done it is exactly where it should be, with no class left on it.
+    await wait(400);
+    const end = getComputedStyle(wrap);
+    r.endTransform = end.transform;
+    r.endOpacity = +end.opacity;
+    r.endClass = wrap.className;
+
+    // Backwards goes the other way.
+    nd.switchTab(-1);
+    r.backClass = wrap.className;
+    await wait(70);
+    r.backTransform = getComputedStyle(wrap).transform;
+    await wait(400);
+
+    /* A second swipe inside the first one has to move again rather than sit still.
+       Taking the class off and putting it back in the same breath is not enough on
+       its own - the browser never sees it go - so identity is what is checked here:
+       a restart is a new animation, not the old one still running. */
+    nd.switchTab(1);
+    const first = typeof wrap.getAnimations === 'function' ? wrap.getAnimations()[0] : null;
+    await wait(40);
+    nd.switchTab(1);
+    const second = typeof wrap.getAnimations === 'function' ? wrap.getAnimations()[0] : null;
+    r.restarted = !!first && !!second && first !== second;
+    r.secondAt = second ? Number(second.currentTime) : -1;
+    await wait(400);
+    return r;
+  });
+  await page.close();
+  return out;
+}
+
 (async () => {
   let chromium;
   try { chromium = require('playwright-core').chromium; } catch (e) {
@@ -568,6 +630,7 @@ async function lens(browser) {
   const rd = await rowDrawing(browser);
   const ph = await photoSizes(browser);
   const lz = await lens(browser);
+  const tm = await tabMotion(browser);
   await browser.close();
 
   suite('The price band holds one line', (t) => {
@@ -769,6 +832,35 @@ async function lens(browser) {
     t.is(lz.backHandled, true, 'Back is taken by the picture');
     t.is(lz.closedByBack, true, 'which closes it');
     t.is(lz.readerStillOpen, true, 'and leaves you in the story you were reading');
+  });
+
+  suite('A tab change looks like a change', (t) => {
+    const xOf = (m) => (m && m !== 'none' ? parseFloat(m.split(',')[4]) : 0);
+    t.not(/fwd|back/.test(tm.atRest), 'nothing is moving while you are reading');
+
+    t.ok(/\bfwd\b/.test(tm.fwdClass), 'swiping on marks the list as coming in forwards');
+    t.is(tm.animating, true, 'and it is actually animating, not just labelled');
+    t.ok(tm.animMs >= 150 && tm.animMs <= 450,
+      'over a quarter of a second or so (' + tm.animMs + 'ms)');
+
+    // Part way through: off to one side and not yet fully there.
+    t.ok(xOf(tm.midTransform) > 2, 'part way through it is still coming in from the right ('
+      + Math.round(xOf(tm.midTransform)) + 'px)');
+    t.ok(tm.midOpacity < 0.99, 'and not yet fully there');
+
+    // Finished: exactly where it belongs, and nothing left behind.
+    t.is(xOf(tm.endTransform), 0, 'when it finishes it is square on the screen');
+    t.is(tm.endOpacity, 1, 'and fully there');
+    t.not(/fwd|back/.test(tm.endClass), 'with nothing left on it to stop it happening again');
+
+    // The other way round.
+    t.ok(/\bback\b/.test(tm.backClass), 'swiping the other way marks it as coming back');
+    t.ok(xOf(tm.backTransform) < -2, 'and it comes in from the left ('
+      + Math.round(xOf(tm.backTransform)) + 'px)');
+
+    t.is(tm.restarted, true, 'a second swipe starts a new animation, not the old one');
+    t.ok(tm.secondAt >= 0 && tm.secondAt < 25,
+      'which begins at the beginning (' + tm.secondAt + 'ms in)');
   });
 
   return run('Newsdesk layout');

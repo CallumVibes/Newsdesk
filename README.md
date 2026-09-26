@@ -248,6 +248,29 @@ menu marked up as plain headings, which no link rule can.
 The first is for a short menu of two or three, under the run rule's line. The second is for a menu
 that isn't linked at all. Neither covers the other.
 
+### The picture, not the page that points at one
+
+Archive photographs were not appearing. Every `/img/` address on the archive is served as **a page
+that redirects to a picture** — 998 bytes of HTML with a meta refresh in it — and an `<img>` cannot
+follow a meta refresh: it asks for a picture and is handed a document. Checked against the live site
+with a browser's own Accept header, with a referer and with a session cookie: always the same stub.
+
+The address it redirects to is the same two parts of the path on the cache the site sends browsers
+to itself, so that is where the picture is fetched from. One hop fewer, and a picture rather than a
+page.
+
+### Moving between tabs
+
+A tab that changes without moving reads as a glitch rather than a change: the words are different
+and nothing said why. The list comes in from the side the swipe came from — 8% of the width over
+about a quarter of a second, far enough to answer the gesture and short enough not to be sat
+through. `prefers-reduced-motion` turns it off, for people who mean it.
+
+The direction comes from the swipe rather than from where it landed, so the last tab to the first is
+still forwards. And a second swipe inside the first restarts the animation rather than waiting for
+it — which needs the class taken off, a reflow, and the class put back, because otherwise the
+browser never sees it go.
+
 ### Bitcoin, on this day
 
 A fourth route, and the only one that fetches nothing. Dates do not change, so bitcoin's are written
