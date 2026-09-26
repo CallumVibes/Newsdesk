@@ -1,0 +1,51 @@
+<!--
+  PROVENANCE: constructed, not captured. See recipe-graph.html.
+
+  A recipe in parts, which schema.org models as HowToSection objects each holding their own
+  HowToSteps. A parser that only looks one level down finds no method at all here. The
+  Recipe is reached through mainEntity rather than sitting at the top or in a @graph, and
+  only prep and cook times are given, with no total - so the total has to be added up.
+-->
+<html><head>
+<title>Sticky toffee pudding</title>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebPage",
+  "mainEntity": {
+    "@type": "Recipe",
+    "name": "Sticky toffee pudding",
+    "prepTime": "PT20M",
+    "cookTime": "PT1H10M",
+    "recipeYield": ["8", "8 servings"],
+    "recipeIngredient": [
+      "200g medjool dates, stoned",
+      "175g self-raising flour",
+      "100g dark brown sugar",
+      "75g vegan butter",
+      "250ml oat milk",
+      "1 tsp bicarbonate of soda"
+    ],
+    "recipeInstructions": [
+      {
+        "@type": "HowToSection",
+        "name": "For the pudding",
+        "itemListElement": [
+          { "@type": "HowToStep", "text": "Cover the dates with boiling water and leave them to soften." },
+          { "@type": "HowToStep", "text": "Beat the butter and sugar, then fold in the flour." },
+          { "@type": "HowToStep", "text": "Blitz the dates with their water and stir that through." }
+        ]
+      },
+      {
+        "@type": "HowToSection",
+        "name": "For the sauce",
+        "itemListElement": [
+          { "@type": "HowToStep", "text": "Melt the remaining sugar and butter with the oat milk." },
+          { "@type": "HowToStep", "text": "Let it bubble until it coats the back of a spoon." }
+        ]
+      }
+    ]
+  }
+}
+</script>
+</head><body><article><h1>Sticky toffee pudding</h1><p>Worth the hour.</p></article></body></html>

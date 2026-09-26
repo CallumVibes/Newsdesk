@@ -365,6 +365,95 @@ async function reuse(browser) {
   return out;
 }
 
+/* The recipe card. jsdom reports no strike-through, no checkbox and no list markers, so
+   whether a recipe reads as a recipe is a question only a browser can answer. */
+async function recipeCard(browser, opts) {
+  const page = await open(browser, opts);
+  const out = await page.evaluate(async () => {
+    const nd = window.ndApi, S = nd.S;
+    const LD = JSON.stringify({
+      '@context': 'https://schema.org', '@type': 'Recipe', name: 'Smoky butter bean stew',
+      prepTime: 'PT15M', cookTime: 'PT35M', totalTime: 'PT50M', recipeYield: '4',
+      recipeIngredient: ['2 tbsp olive oil', '1 onion, finely sliced', '1 tsp smoked paprika',
+                         '2 x 400g tins butter beans, drained', '400g tin chopped tomatoes'],
+      recipeInstructions: [
+        { '@type': 'HowToStep', text: 'Warm the oil in a wide pan over a low heat.' },
+        { '@type': 'HowToStep', text: 'Add the onion and cook gently until soft.' },
+        { '@type': 'HowToStep', text: 'Tip in the beans and simmer for twenty-five minutes.' }
+      ]
+    });
+    const html = '<html><head><script type="application/ld+json">' + LD
+      + '<\/script></head><body></body></html>';
+    const rec = nd.recipeFrom(html);
+
+    const it = { id: 'rc:stew', src: 'rc', kitchen: 'A Kitchen', title: 'Smoky butter bean stew',
+                 summary: 'A stew.', link: 'https://example.com/stew', image: '', html: '',
+                 date: Date.now(), when: 0, order: 0, fetched: Date.now() };
+    S.view = [it];
+    S.idx = 0;
+    nd.openReader(it);
+    nd.renderBody(nd.recipeBlocks(rec));
+    await new Promise((r) => requestAnimationFrame(() => r()));
+
+    const body = document.getElementById('rdBody');
+    const ings = [...body.querySelectorAll('ul.ings li')];
+    const steps = [...body.querySelectorAll('ol.steps li')];
+    const meta = body.querySelector('p.rd-meta');
+    const cs = (n, pseudo) => getComputedStyle(n, pseudo || null);
+    const r = {
+      parsed: !!rec,
+      ingCount: ings.length,
+      stepCount: steps.length,
+      metaText: meta ? meta.textContent : '',
+      /* On the item, not on the list around it: the reader sets list-style:none on every
+         li in the body, so asking the ol what its list-style-type is answers "decimal"
+         while no number is drawn at all. */
+      stepMarker: steps.length ? cs(steps[0]).listStyleType : '',
+      stepDisplay: steps.length ? cs(steps[0]).display : '',
+      stepDash: steps.length ? cs(steps[0], '::before').content : '',
+      ingMarker: ings.length ? cs(ings[0]).listStyleType : '',
+      // Room for a thumb, and a box to aim at, only where there is a thumb.
+      ingPadLeft: ings.length ? Math.round(parseFloat(cs(ings[0]).paddingLeft)) : -1,
+      ingHeight: ings.length ? Math.round(ings[0].getBoundingClientRect().height) : -1,
+      /* An element with no ::before rule computes content as "normal", not "none". The
+         box is a rule that sets content to an empty string, so that is what to look for. */
+      boxContent: ings.length ? cs(ings[0], '::before').content : '',
+      boxWidth: ings.length ? cs(ings[0], '::before').width : '',
+      // The dash rule sets a background; an unticked box that inherited it looked ticked.
+      boxFill: ings.length ? cs(ings[0], '::before').backgroundColor : '',
+      doneFill: '',
+      struckBefore: ings.length ? cs(ings[0]).textDecorationLine : '',
+      headings: [...body.querySelectorAll('h3')].map((n) => n.textContent)
+    };
+
+    // Tick the first ingredient off, the way a thumb would.
+    if (ings.length) ings[0].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    await new Promise((res) => requestAnimationFrame(() => res()));
+    const nowFirst = body.querySelector('ul.ings li');
+    r.tickedClass = nowFirst ? nowFirst.className : '';
+    r.doneFill = nowFirst ? cs(nowFirst, '::before').backgroundColor : '';
+    r.struckAfter = nowFirst ? cs(nowFirst).textDecorationLine : '';
+    r.dimmed = nowFirst ? cs(nowFirst).color !== cs(body.querySelectorAll('ul.ings li')[1]).color : false;
+
+    // It survives the card being drawn again, which is what reopening the recipe does.
+    nd.renderBody(nd.recipeBlocks(rec));
+    await new Promise((res) => requestAnimationFrame(() => res()));
+    const redrawn = [...document.querySelectorAll('#rdBody ul.ings li')];
+    r.keptAfterRedraw = redrawn.length ? /done/.test(redrawn[0].className) : false;
+    r.othersUntouched = redrawn.slice(1).every((n) => !/done/.test(n.className));
+
+    // Ticking it again puts it back.
+    redrawn[0].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    await new Promise((res) => requestAnimationFrame(() => res()));
+    r.untickedClass = document.querySelector('#rdBody ul.ings li').className;
+
+    r.noPageScroll = document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1;
+    return r;
+  });
+  await page.close();
+  return out;
+}
+
 /* A phone shows nine rows and the list is a hundred and twenty long. Drawing the lot
    before the first one appears is most of what a rebuild costs, and only a browser
    with real heights can say whether the rest arrives before anyone reaches it. */
@@ -724,6 +813,8 @@ async function stripFade(browser) {
   const tm = await tabMotion(browser);
   const sf = await stripFade(browser);
   const ru = await reuse(browser);
+  const rcPhone = await recipeCard(browser, { w: 412, h: 915 });
+  const rcTv = await recipeCard(browser, { w: 1920, h: 1080, tv: true });
   await browser.close();
 
   suite('The price band holds one line', (t) => {
@@ -892,6 +983,55 @@ async function stripFade(browser) {
     t.is(ru.newRows, 12, 'stories that really are new are still drawn');
     t.is(ru.newIds, true, 'and they are the new ones');
     t.same(ru.newLit, [100, 100, 100, 100, 100], 'with their own pictures faded in');
+  });
+
+  suite('A recipe reads as a recipe, not as an article', (t) => {
+    const p = rcPhone;
+    t.is(p.parsed, true, 'the recipe is read out of the page');
+    t.is(p.ingCount, 5, 'every ingredient is drawn, short ones included');
+    t.is(p.stepCount, 3, 'and every step');
+    t.same(p.headings, ['Ingredients', 'Method'], 'under headings that say which is which');
+    t.ok(/50 min/.test(p.metaText) && /Serves 4/.test(p.metaText),
+      'with the time and the servings above them (' + p.metaText + ')');
+    t.is(p.stepMarker, 'decimal', 'the method is numbered, because the order matters');
+    t.is(p.stepDisplay, 'list-item', 'and drawn as a list item, so the number appears');
+    t.is(p.stepDash, 'none', 'with the reader\'s dash set aside, which would sit on the number');
+    t.is(p.ingMarker, 'none', 'the ingredients are not numbered, because their order does not matter');
+    t.ok(p.ingPadLeft >= 16, 'each ingredient leaves room for its box (' + p.ingPadLeft + 'px)');
+    t.ok(p.ingHeight >= 32, 'and is tall enough to hit with a thumb (' + p.ingHeight + 'px)');
+    t.is(p.struckBefore, 'none', 'nothing is struck through to begin with');
+    t.is(p.boxContent, '""', 'each one has a box drawn beside it');
+    t.ok(parseFloat(p.boxWidth) >= 10, 'big enough to see (' + p.boxWidth + ')');
+    /* An empty box has to look empty. The dash rule it shares a pseudo-element with sets
+       a background, so without saying otherwise every box was filled from the start. */
+    t.ok(/rgba\(0, 0, 0, 0\)|transparent/.test(p.boxFill),
+      'and empty until it is ticked (' + p.boxFill + ')');
+    t.is(p.noPageScroll, true, 'and none of it pushes the page sideways');
+
+    // The tick itself.
+    t.is(p.tickedClass, 'ing done', 'tapping one ticks it off');
+    t.ok(/line-through/.test(p.struckAfter), 'striking it through');
+    t.is(p.dimmed, true, 'and dimming it against the ones still to go');
+    t.not(/rgba\(0, 0, 0, 0\)|transparent/.test(p.doneFill),
+      'filling its box in (' + p.doneFill + ')');
+    t.ok(p.doneFill !== p.boxFill, 'so a ticked box does not look like an untouched one');
+    t.is(p.keptAfterRedraw, true, 'the tick survives the card being drawn again');
+    t.is(p.othersUntouched, true, 'and only that one is struck through');
+    t.is(p.untickedClass, 'ing', 'tapping it again puts it back');
+
+    /* A television is across the room. The box is not drawn there, because a checkbox
+       you cannot reach is worse than none at all - but the recipe still reads. */
+    const v = rcTv;
+    t.is(v.ingCount, 5, 'a television draws the ingredients too');
+    t.is(v.stepCount, 3, 'and the method');
+    t.is(v.stepMarker, 'decimal', 'still numbered');
+    t.is(v.stepDash, 'none', 'still without the dash over the number');
+    /* The dash rule still owns the ingredient's ::before on a television, so its content
+       is set aside rather than absent - what matters is that no box is drawn. */
+    t.is(v.boxContent, 'none', 'and no box beside the ingredients, since there is no thumb');
+    t.is(v.ingPadLeft, 0, 'and no room set aside beside them for a box that is not there');
+    t.is(v.tickedClass, 'ing', 'and nothing is ticked by a click it cannot receive');
+    t.is(v.noPageScroll, true, 'and it fits the screen');
   });
 
   suite('An archive photograph is shown whole, and large', (t) => {

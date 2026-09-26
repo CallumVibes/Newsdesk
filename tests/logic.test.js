@@ -1117,12 +1117,38 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.is(nd.rcKeep({ title: '' }), false, 'and neither is a post with no title');
 
     t.ok(nd.RC_KITCHENS.length >= 4, 'it pools several kitchens, not one');
+    const urls = [];
     nd.RC_KITCHENS.forEach((k) => {
-      t.ok(/^https:\/\//.test(k.url), k.name + ' is fetched over https');
-      t.ok(k.name && k.name.length > 2, 'and is named, since the row shows the kitchen');
+      t.ok(k.name && k.name.length > 2, k.name + ' is named, since the row shows the kitchen');
+      t.ok(k.feeds && k.feeds.length >= 1, 'and has at least one feed to try');
+      k.feeds.forEach((u) => {
+        t.ok(/^https:\/\//.test(u), k.name + ' is fetched over https');
+        urls.push(u);
+      });
+      // The page is the fallback: asked what its feed is when none of the above answer.
+      t.ok(/^https:\/\//.test(k.page || ''), k.name + ' has a page to fall back on');
+      t.is(nd.rcMine(k, k.feeds[0]), true, k.name + '\'s own feed counts as its own');
     });
-    const urls = nd.RC_KITCHENS.map((k) => k.url);
-    t.is(new Set(urls).size, urls.length, 'and none is listed twice');
+    t.is(new Set(urls).size, urls.length, 'and no feed is listed twice');
+
+    // The one the reader asked for, and the path it used to point at, both listed.
+    const vfl = nd.RC_KITCHENS.filter((k) => /veganfoodandliving/.test(k.page || ''))[0];
+    t.ok(vfl, 'Vegan Food & Living is one of the kitchens');
+    t.is(vfl.page, 'https://www.veganfoodandliving.com/vegan-recipes/',
+      'listed under the page its recipes are actually on');
+    t.ok(vfl.feeds.some((u) => /\/vegan-recipes\/feed\//.test(u)),
+      'with that page\'s feed tried first');
+    t.ok(vfl.feeds.some((u) => /\/recipes\/feed\//.test(u) && !/vegan-recipes/.test(u)),
+      'and the path it pointed at before kept behind it');
+
+    /* A category page offers the whole site's feed as well as its own, and the site's
+       would put the newsroom in among the dinners. */
+    t.is(nd.rcMine(vfl, 'https://www.veganfoodandliving.com/feed/'), false,
+      'the site-wide feed is not the recipe kitchen\'s');
+    t.is(nd.rcMine(vfl, 'https://www.veganfoodandliving.com/news/feed/'), false,
+      'and neither is the newsroom\'s');
+    t.is(nd.rcMine(vfl, 'https://www.veganfoodandliving.com/vegan-recipes/feed/'), true,
+      'while the one under its own page is');
   });
 
   suite('A recipe row reads as a recipe', (t) => {
@@ -2831,6 +2857,486 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.ok((hh.requests || []).length > 0, 'though it did ask the routes that need asking');
   });
 
+  /* A recipe is not an article. The generic reader looks for the densest run of
+     paragraphs, and a recipe's substance is two lists - collectBlocks even drops list
+     items under twenty characters, and "2 tbsp olive oil" is sixteen, so the ingredients
+     were thrown away by design. schema.org/Recipe is what the kitchens all publish,
+     because it is what puts a recipe card in a search result.
+
+     The fixtures here are constructed from that specification and from the shapes the
+     common WordPress recipe plugins write, NOT captured from the kitchens - this
+     environment cannot reach them. They cover the four documented ways a method can
+     arrive and the awkward ways the other fields do. */
+  suite('A recipe is read as a recipe', (t) => {
+    const graph = nd.recipeFrom(readFixture('recipe-graph.html'));
+    t.ok(graph, 'a Recipe inside a @graph is found among the page\'s other objects');
+    t.is(graph.ingredients.length, 7, 'with all seven ingredients');
+    t.is(graph.ingredients[0], '2 tbsp olive oil',
+      'including the short ones the article reader throws away');
+    t.is(graph.steps.length, 5, 'and the method as five steps');
+    t.is(graph.steps[0], 'Warm the oil in a wide pan over a low heat.', 'in the order given');
+    t.is(graph.total, 50, 'the total time read from an ISO duration');
+    t.is(graph.prep, 15, 'and the prep');
+    t.is(graph.cook, 35, 'and the cooking');
+    t.is(graph.serves, '4', 'and how many it feeds');
+    t.is(graph.image, 'https://pics.test/stew-1200.jpg', 'taking the first of the pictures');
+
+    // The same thing written every awkward way at once.
+    const html = nd.recipeFrom(readFixture('recipe-html.html'));
+    t.ok(html, 'a Recipe at the top level is found too');
+    t.is(html.ingredients.length, 6, 'ingredients given as one string, a line each, are split');
+    t.is(html.ingredients[0], '250g red lentils', 'the first of them read whole');
+    t.is(html.ingredients[5], 'Salt & pepper', 'and an entity decoded rather than shown raw');
+    t.is(html.steps.length, 4, 'a method given as one blob of HTML is split on its list items');
+    t.ok(/thirty seconds/.test(html.steps[1]), 'with the markup inside a step taken out');
+    t.not(/<strong>/.test(html.steps[1]), 'and no tags left in the words');
+    t.ok(/doesn\u2019t catch/.test(html.steps[3]), 'and a curly apostrophe decoded');
+    t.is(html.total, 45, 'a duration written the long way round still reads (P0DT0H45M)');
+    t.is(html.serves, 'Serves 6 generously', 'and a yield that is already a sentence is left alone');
+    t.is(html.image, 'https://pics.test/dal.jpg', 'a picture given as an object is unwrapped');
+
+    /* A recipe in parts. Each HowToSection holds its own steps, so anything that looks
+       only one level down finds no method at all. */
+    const secs = nd.recipeFrom(readFixture('recipe-sections.html'));
+    t.ok(secs, 'a Recipe reached through mainEntity is found');
+    t.is(secs.steps.length, 5, 'the steps inside both HowToSections are gathered (3 + 2)');
+    t.is(secs.steps[0], 'Cover the dates with boiling water and leave them to soften.',
+      'the first section first');
+    t.is(secs.steps[4], 'Let it bubble until it coats the back of a spoon.', 'and the second after it');
+    t.is(secs.ingredients.length, 6, 'with its ingredients');
+    t.is(secs.total, 0, 'no total time is given');
+    t.is(secs.serves, '8', 'and a yield given as a list reads as its first entry');
+
+    /* A round-up is not a recipe, and neither is a Recipe object with nothing in it.
+       Both have to come back as nothing, or the reader shows an empty Ingredients
+       heading where the article should be. */
+    t.is(nd.recipeFrom(readFixture('recipe-none.html')), null,
+      'a round-up post with no recipe in it is not made into one');
+    t.is(nd.recipeFrom('<html><body><p>Nothing at all.</p></body></html>'), null,
+      'nor is a page with no JSON-LD');
+    t.is(nd.recipeFrom(''), null, 'nor nothing');
+  });
+
+  suite('The times a recipe gives are read to the letter', (t) => {
+    t.is(nd.ldMinutes('PT30M'), 30, 'PT30M is half an hour');
+    t.is(nd.ldMinutes('PT1H'), 60, 'PT1H is an hour');
+    t.is(nd.ldMinutes('PT1H15M'), 75, 'PT1H15M is an hour and a quarter');
+    t.is(nd.ldMinutes('P0DT0H30M'), 30, 'and the long way round is still half an hour');
+    t.is(nd.ldMinutes('PT2H30M15S'), 150, 'seconds are ignored rather than refused');
+    t.is(nd.ldMinutes('P1D'), 1440, 'a whole day reads as one');
+    /* A bare number is not a duration. It might be minutes and it might be seconds, and
+       a wrong time on the page is worse than no time at all. */
+    t.is(nd.ldMinutes('30'), 0, 'a bare number is not read as anything');
+    t.is(nd.ldMinutes('half an hour'), 0, 'nor are words');
+    t.is(nd.ldMinutes(''), 0, 'nor nothing');
+    t.is(nd.ldMinutes(null), 0, 'nor null');
+    t.is(nd.ldMinutes('PT'), 0, 'nor a duration with no duration in it');
+
+    // How a cook says it, rather than how JSON does.
+    t.is(nd.timeWords(25), '25 min', 'under an hour is minutes');
+    t.is(nd.timeWords(60), '1 hr', 'an hour is an hour');
+    t.is(nd.timeWords(90), '1 hr 30 min', 'and ninety minutes is an hour and a half');
+    t.is(nd.timeWords(150), '2 hrs 30 min', 'two hours takes the plural');
+    t.is(nd.timeWords(120), '2 hrs', 'with nothing after it when it is round');
+    t.is(nd.timeWords(0), '', 'and no time says nothing rather than "0 min"');
+  });
+
+  /* What the reader is given to draw: how long and how many first, because that is what
+     decides whether you are cooking it tonight. */
+  suite('The recipe card leads with what you decide on', (t) => {
+    const blocks = nd.recipeBlocks(nd.recipeFrom(readFixture('recipe-graph.html')));
+    t.is(blocks[0].k, 'meta', 'the times come first');
+    t.ok(/50 min/.test(blocks[0].t), 'saying how long it all takes');
+    t.ok(/15 min prep, 35 min cooking/.test(blocks[0].t), 'and how that splits');
+    t.ok(/Serves 4/.test(blocks[0].t), 'and how many it feeds');
+    const kinds = blocks.map((b) => b.k);
+    t.is(kinds.indexOf('sec') , 1, 'then a heading');
+    t.is(blocks[1].t, 'Ingredients', 'which is the ingredients');
+    t.is(kinds.filter((k) => k === 'ing').length, 7, 'then every ingredient, as its own block');
+    t.is(blocks[kinds.indexOf('step') - 1].t, 'Method', 'then a heading for the method');
+    t.is(kinds.filter((k) => k === 'step').length, 5, 'then every step');
+
+    // A recipe with a yield that already reads as a sentence is not given another.
+    const dal = nd.recipeBlocks(nd.recipeFrom(readFixture('recipe-html.html')));
+    t.ok(/Serves 6 generously/.test(dal[0].t), 'a yield that says "serves" is left as it is');
+    t.not(/Serves Serves/.test(dal[0].t), 'rather than having the word put on twice');
+
+    // Only prep and cook given, so the total is added up rather than left out.
+    const stp = nd.recipeBlocks(nd.recipeFrom(readFixture('recipe-sections.html')));
+    t.ok(/1 hr 30 min/.test(stp[0].t), 'with no total given, prep and cooking are added up');
+  });
+
+  /* The recipes were the one source fetched with a single URL and nothing behind it.
+     Every other source in the app tries the feeds it knows, then asks the site. A feed
+     path is a thing a site moves without telling anybody, and a kitchen whose path had
+     moved just went quiet - "5 of 6 kitchens" and no way to tell which, or why. */
+  const RC_REPLY = {};
+  const kitchen = await boot({ settle: 400, reply: (u) => {
+    // Every loader shares this stub, so only the recipe URLs are answered here.
+    const bare = u.replace(/[?&]_=\d+$/, '');
+    return RC_REPLY[bare] || null;
+  } });
+  const rc = {};
+  {
+    const nd2 = kitchen.nd;
+    const feed = (title) => '<?xml version="1.0"?><rss version="2.0"><channel>'
+      + '<item><title>' + title + '</title><link>https://example.com/'
+      + encodeURIComponent(title) + '</link><pubDate>' + new Date(Date.now() - HOUR).toUTCString()
+      + '</pubDate><description>How to make it.</description></item></channel></rss>';
+    const page = (feedHref) => '<html><head><link rel="alternate" type="application/rss+xml"'
+      + ' href="' + feedHref + '"></head><body>Recipes</body></html>';
+    const ask = (k) => { const reqs = []; return nd2.rcFeed(k, reqs).then((items) => ({ items, reqs })); };
+
+    // The feed the reader asked for answers, and nothing else is tried.
+    RC_REPLY['https://www.veganfoodandliving.com/vegan-recipes/feed/'] =
+      { ok: true, body: feed('Smoky butter bean stew') };
+    const vfl = nd2.RC_KITCHENS.filter((k) => /veganfoodandliving/.test(k.page))[0];
+    rc.first = await ask(vfl);
+
+    // It 404s, so the path it used to be on is tried behind it.
+    RC_REPLY['https://www.veganfoodandliving.com/vegan-recipes/feed/'] = { ok: false, status: 404, body: '' };
+    RC_REPLY['https://www.veganfoodandliving.com/recipes/feed/'] =
+      { ok: true, body: feed('Old path pea soup') };
+    rc.second = await ask(vfl);
+
+    // Both are gone, so the page is asked what its feed is - and it says.
+    RC_REPLY['https://www.veganfoodandliving.com/recipes/feed/'] = { ok: false, status: 404, body: '' };
+    RC_REPLY[vfl.page] = { ok: true, body: page('https://www.veganfoodandliving.com/vegan-recipes/rss/') };
+    RC_REPLY['https://www.veganfoodandliving.com/vegan-recipes/rss/'] =
+      { ok: true, body: feed('Discovered chickpea curry') };
+    rc.found = await ask(vfl);
+
+    /* The page offers the whole site's feed instead. That is the newsroom, not the
+       kitchen, so it is not taken and the kitchen goes quiet honestly. */
+    RC_REPLY[vfl.page] = { ok: true, body: page('https://www.veganfoodandliving.com/feed/') };
+    RC_REPLY['https://www.veganfoodandliving.com/feed/'] =
+      { ok: true, body: feed('Dairy industry responds to advertising ruling') };
+    rc.wrongFeed = await ask(vfl);
+
+    // Nothing answers at all, and every URL tried is on the record.
+    delete RC_REPLY[vfl.page];
+    rc.silent = await ask(vfl);
+
+    /* A page whose feed advertises another page, on and on. Bounded, or one kitchen
+       could spend a refresh chasing its own tail. */
+    const chain = { name: 'A hall of mirrors', feeds: ['https://mirror.test/a/feed/'],
+                    page: 'https://mirror.test/a/' };
+    for (let n = 0; n < 40; n++) {
+      RC_REPLY['https://mirror.test/a/' + n + '/feed/'] = { ok: false, status: 404, body: '' };
+    }
+    RC_REPLY['https://mirror.test/a/feed/'] = { ok: false, status: 404, body: '' };
+    RC_REPLY['https://mirror.test/a/'] = { ok: true, body:
+      '<html><head>' + Array.from({ length: 40 }, (_, n) =>
+        '<link rel="alternate" type="application/rss+xml" href="https://mirror.test/a/' + n + '/feed/">'
+      ).join('') + '</head><body></body></html>' };
+    rc.bounded = await ask(chain);
+
+    /* The page is asked once, however many of the kitchen's feeds turned out to be
+       dead. Asking it again per dead feed would cost a fetch each time and could never
+       learn anything new. */
+    const once = { name: 'Asked once', feeds: ['https://once.test/a/feed/', 'https://once.test/b/feed/'],
+                   page: 'https://once.test/' };
+    RC_REPLY['https://once.test/a/feed/'] = { ok: false, status: 404, body: '' };
+    RC_REPLY['https://once.test/b/feed/'] = { ok: false, status: 404, body: '' };
+    RC_REPLY['https://once.test/'] = { ok: true, body: '<html><head></head><body>nothing here</body></html>' };
+    kitchen.calls.fetched.length = 0;
+    rc.once = await ask(once);
+    rc.pageAsks = kitchen.calls.fetched.filter((u) => u === 'https://once.test/').length;
+
+    /* The page's own fetch counts towards the limit like any other. Five dead feeds and
+       a page leaves nothing over, so none of what the page offers is even tried. */
+    const tight = { name: 'Right up to the line', page: 'https://tight.test/',
+                    feeds: Array.from({ length: 5 }, (_, n) => 'https://tight.test/f' + n + '/feed/') };
+    tight.feeds.forEach((u) => { RC_REPLY[u] = { ok: false, status: 404, body: '' }; });
+    for (let n = 0; n < 5; n++) {
+      RC_REPLY['https://tight.test/x' + n + '/feed/'] = { ok: false, status: 404, body: '' };
+    }
+    RC_REPLY['https://tight.test/'] = { ok: true, body: '<html><head>'
+      + Array.from({ length: 5 }, (_, n) =>
+          '<link rel="alternate" type="application/rss+xml" href="https://tight.test/x' + n + '/feed/">'
+        ).join('') + '</head></html>' };
+    kitchen.calls.fetched.length = 0;
+    rc.tight = await ask(tight);
+    rc.tightFetches = kitchen.calls.fetched.length;
+  }
+
+  /* The parser is only worth having if opening a recipe reaches it. A recipe's feed entry
+     is a sentence of description - the ingredients and the method are on the page - so it
+     is fetched on opening rather than hidden behind a Full story button. */
+  {
+    const nd2 = kitchen.nd, S2 = nd2.S, doc = kitchen.window.document;
+    const dish = { id: 'rc:stew', src: 'rc', kitchen: 'A Kitchen', title: 'Smoky butter bean stew',
+      summary: 'A stew for a Tuesday.', link: 'https://kitchen.test/stew', image: '', html: '',
+      date: Date.now(), when: 0, order: 0, fetched: Date.now() };
+    RC_REPLY['https://kitchen.test/stew'] = { ok: true, body: readFixture('recipe-graph.html') };
+    rc.auto = nd2.autoFull(dish);
+    rc.autoNoLink = nd2.autoFull(Object.assign({}, dish, { link: '' }));
+    S2.view = [dish];
+    S2.idx = 0;
+    kitchen.calls.fetched.length = 0;
+    nd2.openReader(dish);
+    rc.askedOnOpen = kitchen.calls.fetched.slice();
+    await new Promise((r) => setTimeout(r, 200));
+    const body = doc.getElementById('rdBody');
+    rc.openIngs = [].map.call(body.querySelectorAll('ul.ings li'), (n) => n.textContent);
+    rc.openSteps = body.querySelectorAll('ol.steps li').length;
+    rc.openMeta = (body.querySelector('p.rd-meta') || {}).textContent || '';
+    rc.openHeads = [].map.call(body.querySelectorAll('h3'), (n) => n.textContent);
+    rc.fullAction = nd2.readerActions(dish).map((a) => a.id);
+
+    /* A kitchen also posts round-ups, which have no Recipe in them. Those must fall
+       through to the article reader rather than showing an empty Ingredients heading. */
+    const roundup = Object.assign({}, dish, { id: 'rc:ten', link: 'https://kitchen.test/ten',
+      title: 'Ten things to cook this autumn' });
+    RC_REPLY['https://kitchen.test/ten'] = { ok: true, body: readFixture('recipe-none.html') };
+    S2.view = [roundup];
+    S2.idx = 0;
+    nd2.openReader(roundup);
+    await new Promise((r) => setTimeout(r, 200));
+    rc.roundupIngs = body.querySelectorAll('ul.ings li').length;
+    rc.roundupParas = body.querySelectorAll('p').length;
+    rc.roundupText = body.textContent;
+    nd2.closeReader();
+    S2.view = [];
+  }
+
+  suite('Opening a recipe puts the recipe on the screen', (t) => {
+    t.is(rc.auto, true, 'a recipe is fetched on opening, not offered behind a button');
+    t.is(rc.autoNoLink, false, 'unless there is no page to fetch');
+    t.ok(rc.askedOnOpen.indexOf('https://kitchen.test/stew') >= 0,
+      'so opening one asks for its page straight away');
+    t.not(rc.fullAction.indexOf('full') >= 0 && rc.openIngs.length > 0,
+      'and there is no Full story button left to press');
+
+    t.is(rc.openIngs.length, 7, 'the ingredients are on the screen');
+    t.is(rc.openIngs[0], '2 tbsp olive oil', 'the short ones included');
+    t.is(rc.openSteps, 5, 'and the method, as numbered steps');
+    t.same(rc.openHeads, ['Ingredients', 'Method'], 'under their own headings');
+    t.ok(/50 min/.test(rc.openMeta), 'with how long it takes above them');
+    t.ok(/Serves 4/.test(rc.openMeta), 'and how many it feeds');
+
+    // A round-up is read as what it is.
+    t.is(rc.roundupIngs, 0, 'a round-up post grows no ingredients list');
+    t.ok(rc.roundupParas >= 2, 'it is read as the article it is (' + rc.roundupParas + ' paragraphs)');
+    t.ok(/squashes are in/.test(rc.roundupText), 'with the words that were actually on the page');
+  });
+
+  /* Ticking an ingredient off. A hand covered in flour has better things to do than keep
+     its place in a list, so the strike-through is remembered - per recipe, and keyed on
+     the words rather than the position, since a kitchen that reorders its list would
+     otherwise strike the wrong things through. */
+  suite('An ingredient stays ticked off', (t) => {
+    const nd2 = kitchen.nd, S2 = nd2.S, ls = kitchen.window.localStorage;
+    const dal = { id: 'rc:dal' }, stew = { id: 'rc:stew' };
+    S2.ticked = {};
+    ls.removeItem(nd2.TICK_KEY);
+
+    t.same(nd2.ticksFor(dal), {}, 'nothing is ticked to begin with');
+    t.is(nd2.toggleTick(dal, '250g red lentils'), true, 'tapping one ticks it off');
+    t.is(nd2.toggleTick(dal, '250g red lentils'), false, 'and tapping it again puts it back');
+    t.is(nd2.toggleTick(dal, '250g red lentils'), true, 'and again ticks it once more');
+
+    // Each ingredient on its own, or ticking one would strike the lot through.
+    nd2.toggleTick(dal, '1 tbsp coconut oil');
+    t.is(Object.keys(nd2.ticksFor(dal)).length, 2, 'two ticked means two remembered');
+    // Separate marks: unticking one has to leave the other struck through.
+    t.is(nd2.toggleTick(dal, '1 tbsp coconut oil'), false, 'unticking one of them');
+    t.is(Object.keys(nd2.ticksFor(dal)).length, 1, 'leaves the other ticked');
+    nd2.toggleTick(dal, '1 tbsp coconut oil');
+
+    // And per recipe: tomorrow's dinner does not start half struck through.
+    t.same(nd2.ticksFor(stew), {}, 'another recipe is untouched by it');
+    nd2.toggleTick(stew, '2 tbsp olive oil');
+    t.is(Object.keys(nd2.ticksFor(stew)).length, 1, 'and keeps its own');
+    t.is(Object.keys(nd2.ticksFor(dal)).length, 2, 'while the first keeps its two');
+
+    // Written down, or the app closing loses the shop.
+    const held = JSON.parse(ls.getItem(nd2.TICK_KEY) || 'null');
+    t.ok(held && held['rc:dal'] && held['rc:stew'], 'both are written to storage');
+    S2.ticked = {};
+    nd2.loadTicks();
+    t.is(Object.keys(nd2.ticksFor(dal)).length, 2, 'and read back when the app opens');
+
+    // Untick everything and the recipe drops out rather than leaving an empty record.
+    Object.keys(nd2.ticksFor(stew)).length && nd2.toggleTick(stew, '2 tbsp olive oil');
+    t.same(nd2.ticksFor(stew), {}, 'unticking the last one leaves nothing behind');
+    t.not(!!(JSON.parse(ls.getItem(nd2.TICK_KEY) || '{}')['rc:stew']),
+      'and the recipe is not kept as an empty record');
+
+    /* A dozen recipes is plenty; the rest are meals already cooked, and this shares a
+       storage quota with the briefings, which cannot be fetched again. */
+    for (let n = 0; n < nd2.TICK_KEEP + 6; n++) nd2.toggleTick({ id: 'rc:m' + n }, 'an ingredient');
+    t.ok(Object.keys(S2.ticked).length <= nd2.TICK_KEEP,
+      'no more than ' + nd2.TICK_KEEP + ' recipes are kept (' + Object.keys(S2.ticked).length + ')');
+    t.is(Object.keys(nd2.ticksFor({ id: 'rc:m' + (nd2.TICK_KEEP + 5) })).length, 1,
+      'the most recent being one of them');
+
+    t.is(nd2.toggleTick(null, 'x'), false, 'nothing is not a recipe to tick');
+    t.is(nd2.toggleTick({}, 'x'), false, 'and neither is one with no id');
+    S2.ticked = {};
+    ls.removeItem(nd2.TICK_KEY);
+  });
+
+  suite('A kitchen whose feed has moved is still found', (t) => {
+    const nd2RcTries = kitchen.nd.RC_TRIES;
+    t.is(rc.first.items.length, 1, 'the feed asked for serves the recipes');
+    t.is(rc.first.items[0].title, 'Smoky butter bean stew', 'which is what comes back');
+    t.is(rc.first.reqs.length, 1, 'and nothing else is asked, since it answered');
+
+    t.is(rc.second.items[0].title, 'Old path pea soup',
+      'a feed that has 404d falls through to the one behind it');
+    t.same(rc.second.reqs.map((r) => r.status), [404, 200],
+      'with both attempts on the record for the panel to show');
+    t.same(rc.second.reqs.map((r) => r.got), [0, 1], 'and what each of them served');
+
+    t.is(rc.found.items[0].title, 'Discovered chickpea curry',
+      'and with every feed gone, the page is asked what its feed is');
+    t.ok(rc.found.reqs.some((r) => /vegan-recipes\/rss/.test(r.url)),
+      'the one it named being tried and recorded');
+
+    t.is(rc.wrongFeed.items.length, 0,
+      'a page offering the site-wide feed is not taken up on it');
+    t.not(rc.wrongFeed.reqs.some((r) => /\.com\/feed\//.test(r.url)),
+      'the newsroom feed is never even fetched, so it cannot leak into the dinners');
+
+    t.is(rc.silent.items.length, 0, 'a kitchen that cannot be read anywhere serves nothing');
+    t.is(rc.silent.reqs.length, 2, 'having said which two feeds it tried');
+    t.ok(rc.silent.reqs.every((r) => r.url && !r.ok), 'and that neither of them answered');
+
+    t.is(rc.bounded.items.length, 0, 'a page offering forty dead feeds still serves nothing');
+    /* Against a fixed number, not against RC_TRIES: measuring the limit with the limit
+       passes whatever the limit is raised to, which is no measurement at all. */
+    t.ok(nd2RcTries <= 8, 'a kitchen is allowed a handful of fetches (' + nd2RcTries + ')');
+    t.ok(rc.bounded.reqs.length <= 8,
+      'and is not chased past them (' + rc.bounded.reqs.length + ' fetched of 40 offered)');
+    t.ok(rc.bounded.reqs.length <= nd2RcTries, 'the limit being the one it declares');
+
+    t.is(rc.once.items.length, 0, 'a kitchen whose page offers nothing serves nothing');
+    t.is(rc.pageAsks, 1, 'and its page is asked exactly once, not once per dead feed');
+
+    /* Five dead feeds and the page itself is six fetches, which is the lot: what the
+       page then offers is not tried at all, because the page fetch counted too. */
+    t.is(rc.tightFetches, nd2RcTries,
+      'a kitchen costs no more than its limit, the page fetch included (' + rc.tightFetches + ')');
+    t.is(rc.tight.reqs.length, 5, 'so the five feeds are tried and the five offered are not');
+  });
+
+  /* The evening edition repeated the morning's news. Four editions a day, and each was
+     shown the one before it and nothing else - so the evening one was told what midday
+     said, knew nothing of the morning, and with no new news retold the morning's
+     stories as though they had just happened. The vegan section holds forty-eight
+     hours of stories, which is why it read the same twice in one day. */
+  const HOUR_MS = 3600e3;
+  // Pinned to the afternoon so every edition time below lands on the same local day,
+  // whatever the machine's clock is set to.
+  const AFTERNOON = new Date(2026, 4, 14, 17, 3, 0).getTime();
+  const evening = await boot({ settle: 400, device: 'touch', now: AFTERNOON });
+  const brief = {};
+  {
+    const nd2 = evening.nd, S2 = nd2.S, w = evening.window;
+    const edition = (name, hoursAgo, headline, para) => ({
+      headline: headline, paragraphs: [para], at: AFTERNOON - hoursAgo * HOUR_MS,
+      slotName: name, slotKey: '2026-05-14|' + name.toLowerCase(), model: 'test'
+    });
+    const morning = edition('Morning', 12, 'A quiet start',
+      'Michelle Farnham has completed twenty-one days inside a pig farrowing crate.');
+    const midday = edition('Midday', 5, 'Little has moved',
+      'Whitworths has launched a meat-free mince in 900 Tesco stores.');
+
+    /* Yesterday's editions are kept for days, and they are not what this edition is
+       carrying on from - the whole point of the block is what has been said today. */
+    const lastNight = edition('Night', 20, 'Yesterday drawing to a close',
+      'The bridge at Whitney-on-Wye reopened to traffic yesterday evening.');
+
+    /* The morning one is only in storage, never in this page's memory - which is the
+       state a page open since breakfast is in when the background job writes an
+       edition in a WebView of its own. */
+    S2.briefs = [midday];
+    w.localStorage.setItem(nd2.BRIEFS_KEY, JSON.stringify([morning, lastNight]));
+
+    const at = (hoursAgo) => AFTERNOON - hoursAgo * HOUR_MS;
+    const news = (src, id, title, hoursAgo, kicker) => story({
+      src: src, id: src + ':' + id, title: title, kicker: kicker || 'UK',
+      summary: 'What happened, in a sentence.', date: at(hoursAgo),
+      link: 'https://example.com/' + id });
+    const all = [
+      news('kg', 'k1', 'Something that happened this afternoon', 1),
+      news('kg', 'k2', 'Something that happened before breakfast', 14),
+      news('kg', 'k3', 'Something from yesterday evening', 20),
+      news('vf', 'v1', 'Activist completes twenty-one days in a farrowing crate', 30),
+      news('vf', 'v2', 'Whitworths meat-free mince reaches 900 Tesco stores', 40),
+      news('ht', 'h1', 'A council decision in Hereford', 2)
+    ];
+    brief.said = nd2.briefsToday(AFTERNOON);
+    const t = nd2.buildToday(all, true);
+    brief.input = nd2.briefInput(t, nd2.briefSlot(AFTERNOON).slot);
+    brief.system = nd2.BRIEF_SYSTEM;
+    brief.fresh = all.map((it) => [it.id, nd2.isNewsSince(it, AFTERNOON - 5 * HOUR_MS)]);
+
+    // And the same day with nothing at all having come in since midday.
+    const stale = all.filter((it) => it.date < AFTERNOON - 5 * HOUR_MS);
+    brief.quiet = nd2.briefInput(nd2.buildToday(stale, true), nd2.briefSlot(AFTERNOON).slot);
+
+    // A day with no earlier edition asks for nothing to be carried on from.
+    S2.briefs = [];
+    w.localStorage.removeItem(nd2.BRIEFS_KEY);
+    brief.first = nd2.briefInput(nd2.buildToday(all, true), nd2.briefSlot(AFTERNOON).slot);
+  }
+
+  suite('An edition carries on from the day, not from the last edition', (t) => {
+    t.is(brief.said.length, 2, 'both of today\'s editions are found');
+    t.same(brief.said.map((b) => b.slotName), ['Morning', 'Midday'],
+      'oldest first, so the day reads in order');
+    t.not(/Whitney-on-Wye/.test(brief.input),
+      'and last night\'s edition is left out: this is what has been said today');
+    t.ok(/Michelle Farnham/.test(brief.input),
+      'the morning edition is put in front of the writer, though only storage had it');
+    t.ok(/Whitworths has launched/.test(brief.input), 'and the midday one with it');
+    t.ok(/ALREADY SAID EARLIER TODAY/.test(brief.input), 'under a heading that says what they are');
+    t.ok(/Do not say any of it again/.test(brief.input), 'and tells the writer not to say it again');
+
+    // What has come in since midday, and what has not.
+    const marked = brief.input.split('\n').filter((l) => /^- \[/.test(l));
+    const isNew = (bit) => marked.some((l) => l.indexOf(bit) >= 0 && /\[NEW\]/.test(l));
+    t.is(isNew('this afternoon'), true, 'a story from this afternoon is marked new');
+    t.is(isNew('A council decision'), true, 'and so is the local one from an hour ago');
+    t.is(isNew('before breakfast'), false, 'one from before the midday edition is not');
+    t.is(isNew('farrowing crate'), false, 'nor is the vegan story the morning already told');
+    t.ok(/SINCE YOUR LAST EDITION/.test(brief.input), 'the writer is told what the mark means');
+    t.ok(/Lead with those/.test(brief.input), 'and to lead with them');
+
+    // The case the reader saw: nothing new, and nothing to pad it out with.
+    t.ok(/Nothing above is new/.test(brief.quiet), 'a quiet afternoon is described as one');
+    t.ok(/short edition/.test(brief.quiet), 'and a short edition asked for');
+    t.not(/\[NEW\]/.test(brief.quiet), 'with nothing marked new, because nothing is');
+
+    // The first edition of the day has nothing to carry on from and is not told it has.
+    t.not(/ALREADY SAID EARLIER TODAY/.test(brief.first), 'the first edition of a day carries on from nothing');
+    t.not(/SINCE YOUR LAST EDITION/.test(brief.first), 'and is asked nothing about what is new');
+    t.not(/\[NEW\]/.test(brief.first), 'so nothing is marked on it');
+
+    // The rules the input leans on have to be in the rules.
+    t.ok(/every edition you have written today/.test(brief.system),
+      'the writer is told the block holds the whole day');
+    t.ok(/\[NEW\]/.test(brief.system), 'and what the mark on a story means');
+    t.ok(/fewer paragraphs/.test(brief.system), 'and that a quiet day is a shorter briefing');
+
+    // Story by story, against the midday edition.
+    t.same(brief.fresh, [['kg:k1', true], ['kg:k2', false], ['kg:k3', false],
+                         ['vf:v1', false], ['vf:v2', false], ['ht:h1', true]],
+      'only the two that came in after midday count as new');
+
+    const since = AFTERNOON - 5 * HOUR_MS;
+    const asks = (o) => evening.nd.isNewsSince(story(o), since);
+    t.is(asks({ src: 'lm', id: 'lm:1', title: 'A market day', date: AFTERNOON,
+                when: AFTERNOON + 48 * HOUR_MS }), false,
+      'a diary entry is never new: it is something coming up, not something that happened');
+    t.is(asks({ src: 'kg', id: 'kg:n', title: 'No date', date: 0 }), false,
+      'and a story with no date is not called new on a guess');
+    t.is(evening.nd.isNewsSince(story({ src: 'kg', id: 'kg:m', title: 'Now', date: AFTERNOON }), 0),
+      false, 'nor is anything at all when there is no earlier edition to be new since');
+  });
+
   /* refresh() clears S.busy[s] when the source's promise settles, and only then. So a
      promise nobody ever answers leaves that source reading "Updating…" for the life of
      the app and never refreshed again. There was one slot to be answered in, with no
@@ -3083,6 +3589,8 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     pizzaDay.close();
     halfDown.close();
     mkt.close();
+    evening.close();
+    kitchen.close();
   });
 }).catch((e) => {
   console.error(e && e.stack || e);

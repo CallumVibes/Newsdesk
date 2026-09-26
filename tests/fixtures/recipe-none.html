@@ -1,0 +1,31 @@
+<!--
+  PROVENANCE: constructed, not captured. See recipe-graph.html.
+
+  What a kitchen posts that is not dinner: a round-up that links to recipes without being
+  one. There is JSON-LD in it, and an ItemList, but no Recipe - so the recipe reader has to
+  find nothing here and let the article reader have it, rather than showing an empty
+  Ingredients heading. There is also a Recipe-shaped object with nothing in it, which is
+  what a stub looks like, and which is likewise not worth a card.
+-->
+<html><head>
+<title>Ten things to cook this autumn</title>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    { "@type": "Article", "headline": "Ten things to cook this autumn" },
+    { "@type": "ItemList", "itemListElement": [
+      { "@type": "ListItem", "position": 1, "url": "https://example.com/squash-soup" },
+      { "@type": "ListItem", "position": 2, "url": "https://example.com/plum-cake" }
+    ] }
+  ]
+}
+</script>
+<script type="application/ld+json">
+{ "@context": "https://schema.org", "@type": "Recipe", "name": "A stub with nothing in it" }
+</script>
+</head><body><article>
+<h1>Ten things to cook this autumn</h1>
+<p>The evenings have turned and the squashes are in, so here is what we have been making in the test kitchen over the past few weeks and what we would cook again.</p>
+<p>Most of them take under an hour and none of them need anything you cannot buy in a normal shop, which was rather the point of putting the list together in the first place.</p>
+</article></body></html>

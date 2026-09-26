@@ -1,0 +1,51 @@
+<!--
+  PROVENANCE: constructed, not captured.
+
+  The environment's network policy denies the recipe kitchens, so this is built from the
+  schema.org/Recipe specification and the shape WP Recipe Maker writes - a @graph with the
+  Recipe among the page's other objects, ingredients as a list of strings, and the method
+  as HowToStep objects. Every other fixture in this folder is real markup; this one is not,
+  and the parser it checks should be re-checked against a live page when one can be reached.
+-->
+<html><head>
+<title>Smoky butter bean stew</title>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    { "@type": "WebSite", "name": "A Kitchen" },
+    { "@type": "WebPage", "name": "Smoky butter bean stew" },
+    {
+      "@type": ["Recipe", "NewsArticle"],
+      "name": "Smoky butter bean stew",
+      "image": ["https://pics.test/stew-1200.jpg", "https://pics.test/stew-600.jpg"],
+      "prepTime": "PT15M",
+      "cookTime": "PT35M",
+      "totalTime": "PT50M",
+      "recipeYield": "4",
+      "recipeIngredient": [
+        "2 tbsp olive oil",
+        "1 onion, finely sliced",
+        "2 garlic cloves, crushed",
+        "1 tsp smoked paprika",
+        "2 x 400g tins butter beans, drained",
+        "400g tin chopped tomatoes",
+        "A handful of flat-leaf parsley"
+      ],
+      "recipeInstructions": [
+        { "@type": "HowToStep", "text": "Warm the oil in a wide pan over a low heat." },
+        { "@type": "HowToStep", "text": "Add the onion and cook gently for ten minutes until soft." },
+        { "@type": "HowToStep", "text": "Stir in the garlic and paprika and cook for a minute more." },
+        { "@type": "HowToStep", "text": "Tip in the beans and tomatoes, half fill the tomato tin with water and add that too." },
+        { "@type": "HowToStep", "text": "Simmer for twenty-five minutes, then scatter over the parsley." }
+      ]
+    }
+  ]
+}
+</script>
+</head><body>
+<article>
+<h1>Smoky butter bean stew</h1>
+<p>This is the sort of thing that gets made on a Tuesday, and it keeps for two days in the fridge, which is most of the point of it.</p>
+</article>
+</body></html>
