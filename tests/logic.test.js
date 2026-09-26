@@ -1117,12 +1117,38 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.is(nd.rcKeep({ title: '' }), false, 'and neither is a post with no title');
 
     t.ok(nd.RC_KITCHENS.length >= 4, 'it pools several kitchens, not one');
+    const urls = [];
     nd.RC_KITCHENS.forEach((k) => {
-      t.ok(/^https:\/\//.test(k.url), k.name + ' is fetched over https');
-      t.ok(k.name && k.name.length > 2, 'and is named, since the row shows the kitchen');
+      t.ok(k.name && k.name.length > 2, k.name + ' is named, since the row shows the kitchen');
+      t.ok(k.feeds && k.feeds.length >= 1, 'and has at least one feed to try');
+      k.feeds.forEach((u) => {
+        t.ok(/^https:\/\//.test(u), k.name + ' is fetched over https');
+        urls.push(u);
+      });
+      // The page is the fallback: asked what its feed is when none of the above answer.
+      t.ok(/^https:\/\//.test(k.page || ''), k.name + ' has a page to fall back on');
+      t.is(nd.rcMine(k, k.feeds[0]), true, k.name + '\'s own feed counts as its own');
     });
-    const urls = nd.RC_KITCHENS.map((k) => k.url);
-    t.is(new Set(urls).size, urls.length, 'and none is listed twice');
+    t.is(new Set(urls).size, urls.length, 'and no feed is listed twice');
+
+    // The one the reader asked for, and the path it used to point at, both listed.
+    const vfl = nd.RC_KITCHENS.filter((k) => /veganfoodandliving/.test(k.page || ''))[0];
+    t.ok(vfl, 'Vegan Food & Living is one of the kitchens');
+    t.is(vfl.page, 'https://www.veganfoodandliving.com/vegan-recipes/',
+      'listed under the page its recipes are actually on');
+    t.ok(vfl.feeds.some((u) => /\/vegan-recipes\/feed\//.test(u)),
+      'with that page\'s feed tried first');
+    t.ok(vfl.feeds.some((u) => /\/recipes\/feed\//.test(u) && !/vegan-recipes/.test(u)),
+      'and the path it pointed at before kept behind it');
+
+    /* A category page offers the whole site's feed as well as its own, and the site's
+       would put the newsroom in among the dinners. */
+    t.is(nd.rcMine(vfl, 'https://www.veganfoodandliving.com/feed/'), false,
+      'the site-wide feed is not the recipe kitchen\'s');
+    t.is(nd.rcMine(vfl, 'https://www.veganfoodandliving.com/news/feed/'), false,
+      'and neither is the newsroom\'s');
+    t.is(nd.rcMine(vfl, 'https://www.veganfoodandliving.com/vegan-recipes/feed/'), true,
+      'while the one under its own page is');
   });
 
   suite('A recipe row reads as a recipe', (t) => {
@@ -2831,6 +2857,144 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.ok((hh.requests || []).length > 0, 'though it did ask the routes that need asking');
   });
 
+  /* The recipes were the one source fetched with a single URL and nothing behind it.
+     Every other source in the app tries the feeds it knows, then asks the site. A feed
+     path is a thing a site moves without telling anybody, and a kitchen whose path had
+     moved just went quiet - "5 of 6 kitchens" and no way to tell which, or why. */
+  const RC_REPLY = {};
+  const kitchen = await boot({ settle: 400, reply: (u) => {
+    // Every loader shares this stub, so only the recipe URLs are answered here.
+    const bare = u.replace(/[?&]_=\d+$/, '');
+    return RC_REPLY[bare] || null;
+  } });
+  const rc = {};
+  {
+    const nd2 = kitchen.nd;
+    const feed = (title) => '<?xml version="1.0"?><rss version="2.0"><channel>'
+      + '<item><title>' + title + '</title><link>https://example.com/'
+      + encodeURIComponent(title) + '</link><pubDate>' + new Date(Date.now() - HOUR).toUTCString()
+      + '</pubDate><description>How to make it.</description></item></channel></rss>';
+    const page = (feedHref) => '<html><head><link rel="alternate" type="application/rss+xml"'
+      + ' href="' + feedHref + '"></head><body>Recipes</body></html>';
+    const ask = (k) => { const reqs = []; return nd2.rcFeed(k, reqs).then((items) => ({ items, reqs })); };
+
+    // The feed the reader asked for answers, and nothing else is tried.
+    RC_REPLY['https://www.veganfoodandliving.com/vegan-recipes/feed/'] =
+      { ok: true, body: feed('Smoky butter bean stew') };
+    const vfl = nd2.RC_KITCHENS.filter((k) => /veganfoodandliving/.test(k.page))[0];
+    rc.first = await ask(vfl);
+
+    // It 404s, so the path it used to be on is tried behind it.
+    RC_REPLY['https://www.veganfoodandliving.com/vegan-recipes/feed/'] = { ok: false, status: 404, body: '' };
+    RC_REPLY['https://www.veganfoodandliving.com/recipes/feed/'] =
+      { ok: true, body: feed('Old path pea soup') };
+    rc.second = await ask(vfl);
+
+    // Both are gone, so the page is asked what its feed is - and it says.
+    RC_REPLY['https://www.veganfoodandliving.com/recipes/feed/'] = { ok: false, status: 404, body: '' };
+    RC_REPLY[vfl.page] = { ok: true, body: page('https://www.veganfoodandliving.com/vegan-recipes/rss/') };
+    RC_REPLY['https://www.veganfoodandliving.com/vegan-recipes/rss/'] =
+      { ok: true, body: feed('Discovered chickpea curry') };
+    rc.found = await ask(vfl);
+
+    /* The page offers the whole site's feed instead. That is the newsroom, not the
+       kitchen, so it is not taken and the kitchen goes quiet honestly. */
+    RC_REPLY[vfl.page] = { ok: true, body: page('https://www.veganfoodandliving.com/feed/') };
+    RC_REPLY['https://www.veganfoodandliving.com/feed/'] =
+      { ok: true, body: feed('Dairy industry responds to advertising ruling') };
+    rc.wrongFeed = await ask(vfl);
+
+    // Nothing answers at all, and every URL tried is on the record.
+    delete RC_REPLY[vfl.page];
+    rc.silent = await ask(vfl);
+
+    /* A page whose feed advertises another page, on and on. Bounded, or one kitchen
+       could spend a refresh chasing its own tail. */
+    const chain = { name: 'A hall of mirrors', feeds: ['https://mirror.test/a/feed/'],
+                    page: 'https://mirror.test/a/' };
+    for (let n = 0; n < 40; n++) {
+      RC_REPLY['https://mirror.test/a/' + n + '/feed/'] = { ok: false, status: 404, body: '' };
+    }
+    RC_REPLY['https://mirror.test/a/feed/'] = { ok: false, status: 404, body: '' };
+    RC_REPLY['https://mirror.test/a/'] = { ok: true, body:
+      '<html><head>' + Array.from({ length: 40 }, (_, n) =>
+        '<link rel="alternate" type="application/rss+xml" href="https://mirror.test/a/' + n + '/feed/">'
+      ).join('') + '</head><body></body></html>' };
+    rc.bounded = await ask(chain);
+
+    /* The page is asked once, however many of the kitchen's feeds turned out to be
+       dead. Asking it again per dead feed would cost a fetch each time and could never
+       learn anything new. */
+    const once = { name: 'Asked once', feeds: ['https://once.test/a/feed/', 'https://once.test/b/feed/'],
+                   page: 'https://once.test/' };
+    RC_REPLY['https://once.test/a/feed/'] = { ok: false, status: 404, body: '' };
+    RC_REPLY['https://once.test/b/feed/'] = { ok: false, status: 404, body: '' };
+    RC_REPLY['https://once.test/'] = { ok: true, body: '<html><head></head><body>nothing here</body></html>' };
+    kitchen.calls.fetched.length = 0;
+    rc.once = await ask(once);
+    rc.pageAsks = kitchen.calls.fetched.filter((u) => u === 'https://once.test/').length;
+
+    /* The page's own fetch counts towards the limit like any other. Five dead feeds and
+       a page leaves nothing over, so none of what the page offers is even tried. */
+    const tight = { name: 'Right up to the line', page: 'https://tight.test/',
+                    feeds: Array.from({ length: 5 }, (_, n) => 'https://tight.test/f' + n + '/feed/') };
+    tight.feeds.forEach((u) => { RC_REPLY[u] = { ok: false, status: 404, body: '' }; });
+    for (let n = 0; n < 5; n++) {
+      RC_REPLY['https://tight.test/x' + n + '/feed/'] = { ok: false, status: 404, body: '' };
+    }
+    RC_REPLY['https://tight.test/'] = { ok: true, body: '<html><head>'
+      + Array.from({ length: 5 }, (_, n) =>
+          '<link rel="alternate" type="application/rss+xml" href="https://tight.test/x' + n + '/feed/">'
+        ).join('') + '</head></html>' };
+    kitchen.calls.fetched.length = 0;
+    rc.tight = await ask(tight);
+    rc.tightFetches = kitchen.calls.fetched.length;
+  }
+
+  suite('A kitchen whose feed has moved is still found', (t) => {
+    const nd2RcTries = kitchen.nd.RC_TRIES;
+    t.is(rc.first.items.length, 1, 'the feed asked for serves the recipes');
+    t.is(rc.first.items[0].title, 'Smoky butter bean stew', 'which is what comes back');
+    t.is(rc.first.reqs.length, 1, 'and nothing else is asked, since it answered');
+
+    t.is(rc.second.items[0].title, 'Old path pea soup',
+      'a feed that has 404d falls through to the one behind it');
+    t.same(rc.second.reqs.map((r) => r.status), [404, 200],
+      'with both attempts on the record for the panel to show');
+    t.same(rc.second.reqs.map((r) => r.got), [0, 1], 'and what each of them served');
+
+    t.is(rc.found.items[0].title, 'Discovered chickpea curry',
+      'and with every feed gone, the page is asked what its feed is');
+    t.ok(rc.found.reqs.some((r) => /vegan-recipes\/rss/.test(r.url)),
+      'the one it named being tried and recorded');
+
+    t.is(rc.wrongFeed.items.length, 0,
+      'a page offering the site-wide feed is not taken up on it');
+    t.not(rc.wrongFeed.reqs.some((r) => /\.com\/feed\//.test(r.url)),
+      'the newsroom feed is never even fetched, so it cannot leak into the dinners');
+
+    t.is(rc.silent.items.length, 0, 'a kitchen that cannot be read anywhere serves nothing');
+    t.is(rc.silent.reqs.length, 2, 'having said which two feeds it tried');
+    t.ok(rc.silent.reqs.every((r) => r.url && !r.ok), 'and that neither of them answered');
+
+    t.is(rc.bounded.items.length, 0, 'a page offering forty dead feeds still serves nothing');
+    /* Against a fixed number, not against RC_TRIES: measuring the limit with the limit
+       passes whatever the limit is raised to, which is no measurement at all. */
+    t.ok(nd2RcTries <= 8, 'a kitchen is allowed a handful of fetches (' + nd2RcTries + ')');
+    t.ok(rc.bounded.reqs.length <= 8,
+      'and is not chased past them (' + rc.bounded.reqs.length + ' fetched of 40 offered)');
+    t.ok(rc.bounded.reqs.length <= nd2RcTries, 'the limit being the one it declares');
+
+    t.is(rc.once.items.length, 0, 'a kitchen whose page offers nothing serves nothing');
+    t.is(rc.pageAsks, 1, 'and its page is asked exactly once, not once per dead feed');
+
+    /* Five dead feeds and the page itself is six fetches, which is the lot: what the
+       page then offers is not tried at all, because the page fetch counted too. */
+    t.is(rc.tightFetches, nd2RcTries,
+      'a kitchen costs no more than its limit, the page fetch included (' + rc.tightFetches + ')');
+    t.is(rc.tight.reqs.length, 5, 'so the five feeds are tried and the five offered are not');
+  });
+
   /* The evening edition repeated the morning's news. Four editions a day, and each was
      shown the one before it and nothing else - so the evening one was told what midday
      said, knew nothing of the morning, and with no new news retold the morning's
@@ -3200,6 +3364,7 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     halfDown.close();
     mkt.close();
     evening.close();
+    kitchen.close();
   });
 }).catch((e) => {
   console.error(e && e.stack || e);
