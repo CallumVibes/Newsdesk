@@ -10,6 +10,12 @@
  */
 'use strict';
 const { boot } = require('./lib/app');
+const fs = require('fs');
+const path = require('path');
+/* Real markup, trimmed from pages the archive actually served. */
+function readFixture(name) {
+  return fs.readFileSync(path.join(__dirname, 'fixtures', name), 'utf8');
+}
 const { suite, run } = require('./lib/check');
 
 const HOUR = 3600e3, DAY = 24 * HOUR;
@@ -1171,48 +1177,93 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
      them by the shape of an item's address rather than by any markup, because the
      markup is the part that gets rebuilt. These fixtures are the same three items
      laid out four different ways; all four have to come back the same. */
-  suite("Reading the archive's listing pages", (t) => {
-    const base = 'https://herefordshirehistory.org.uk/archive';
-    const shapes = {
-      'cards with figures': `<div class="results">
-        <article class="card"><a href="/view/4313231-withington-station">
-          <figure><img src="/thumb/4313231.jpg" alt="Withington Station"></figure>
-          <h3>Withington Station</h3></a></article>
-        <article class="card"><a href="/view/7548873-broad-street-hereford-1904">
-          <img data-src="/thumb/7548873.jpg" alt=""><h3>Broad Street, Hereford, 1904</h3></a></article>
-        <article class="card"><a href="/view/551-the-old-house"><h3>The Old House</h3></a></article>
-      </div>`,
-      'a bare list': `<ul>
-        <li><a href="/view/4313231-withington-station">Withington Station</a></li>
-        <li><a href="/view/7548873-broad-street-hereford-1904">Broad Street, Hereford, 1904</a></li>
-        <li><a href="/view/551-the-old-house">The Old House</a></li></ul>`,
-      'a table': `<table><tbody>
-        <tr><td><a href="https://herefordshirehistory.org.uk/view/4313231-withington-station">Withington Station</a></td></tr>
-        <tr><td><a href="https://herefordshirehistory.org.uk/view/7548873-broad-street-hereford-1904">Broad Street, Hereford, 1904</a></td></tr>
-        <tr><td><a href="https://herefordshirehistory.org.uk/view/551-the-old-house">The Old House</a></td></tr>
-        </tbody></table>`,
-      'nothing but pictures': `<div>
-        <a href="/view/4313231-withington-station"><img src="/t/1.jpg" alt="Withington Station"></a>
-        <a href="/view/7548873-broad-street-hereford-1904"><img src="/t/2.jpg" title="Broad Street, Hereford, 1904"></a>
-        <a href="/view/551-the-old-house"><img src="/t/3.jpg" alt="The Old House"></a></div>`
-    };
-    Object.keys(shapes).forEach((k) => {
-      const got = nd.hhaLinks(shapes[k], base);
-      t.is(got.length, 3, k + ': all three items are found');
-      t.same(got.map((x) => x.title),
-        ['Withington Station', 'Broad Street, Hereford, 1904', 'The Old House'],
-        k + ': and named');
-      t.same(got.map((x) => x.ref), ['4313231', '7548873', '551'], k + ': keeping the catalogue number');
-      t.is(got[0].link, 'https://herefordshirehistory.org.uk/view/4313231-withington-station',
-        k + ': with the address made absolute');
-    });
-    const cards = nd.hhaLinks(shapes['cards with figures'], base);
-    t.is(cards[0].image, 'https://herefordshirehistory.org.uk/thumb/4313231.jpg', 'a thumbnail comes too');
-    t.is(cards[1].image, 'https://herefordshirehistory.org.uk/thumb/7548873.jpg',
-      'including one the page was waiting to load');
-    t.is(cards[2].image, '', 'and an item without a picture is not given one');
-    t.is(cards[0].kicker, 'Archive', 'every row says where it came from');
+  /* The archive is a PastView site, and these fixtures are its own markup, trimmed
+     from pages it actually served. The first version of this route was written from
+     search-result snippets and looked for /view/<id>-<slug>; the live site writes the
+     full path instead, so it matched nothing at all, every day, silently. */
+  suite('Reading the archive as it is actually written', (t) => {
+    const leaf = readFixture('hha-leaf.html');
+    const shelf = readFixture('hha-shelf.html');
+    const leafAt = 'https://herefordshirehistory.org.uk/archive/images-by-subject/richard-jenkins-collection/transport';
+    const shelfAt = 'https://herefordshirehistory.org.uk/archive/hereford-images';
+
+    const items = nd.hhaLinks(leaf, leafAt);
+    t.is(items.length, 6, 'every picture on the page is found');
+    t.is(items[0].title, 'Man in a cap posing with a bicycle', 'named by its caption');
+    t.is(items[0].ref, '1658012', 'keeping its catalogue number');
+    t.is(items[0].link,
+      'https://herefordshirehistory.org.uk/archive/images-by-subject/richard-jenkins-collection/transport/1658012-man-in-a-cap-posing-with-a-bicycle',
+      'and its address, without the question mark the site hangs off every link');
+    t.ok(/^https:\/\/herefordshirehistory\.org\.uk\/img\//.test(items[0].image),
+      'with the picture that goes on the row');
+    t.is(items[0].kicker, 'Archive', 'and where it came from');
+
+    // A catalogued year sorts the row in among the rest.
+    const dated = items.filter((x) => /Abbey Dore, devils acre/.test(x.title))[0];
+    t.ok(dated, 'the Watkins photograph is there');
+    t.is(dated.year, 1926, 'with the year read off its caption');
+
+    // The old shape is still an address the site answers, so it is still read.
+    t.is(nd.hhaItemRef('https://herefordshirehistory.org.uk/view/4313231-withington-station'),
+      '4313231', '/view/<number>-<name> is the same item by a shorter name');
+    t.is(nd.hhaItemRef('https://herefordshirehistory.org.uk/archive/a/b/4313231-x'), '4313231',
+      'as is the long one');
+
+    /* A shelf of shelves. The page holds no pictures and says so by the class it puts
+       on every link, and one of these is called "1960-floods-hereford" - which is a
+       year and a name, indistinguishable from a catalogue number and a name if you
+       only look at the address. */
+    t.same(nd.hhaLinks(shelf, shelfAt), [], 'a page of shelves offers no pictures');
+    const folders = nd.hhaFolders(shelf, shelfAt);
+    t.is(folders.length, 3, 'it offers shelves instead');
+    t.ok(folders.some((u) => /1960-floods-hereford$/.test(u)),
+      'the one named after a year among them, as a shelf');
+    t.ok(folders.every((u) => u.indexOf(shelfAt + '/') === 0), 'each one step below this page');
+    t.not(folders.some((u) => /\?$/.test(u)), 'and none carrying the trailing question mark');
+
+    // Which way round it reads is the site's own word, then the number.
+    t.is(nd.hhaItemRef('https://herefordshirehistory.org.uk/archive/hereford-images/1960-floods-hereford',
+      'archive-collection-link archive-list-item-link'), '',
+      'a link the site calls a collection is never a picture');
+    t.is(nd.hhaItemRef('https://herefordshirehistory.org.uk/archive/hereford-images/1960-floods-hereford'), '',
+      'and with no class to go on, four figures is a year rather than a catalogue number');
+    t.is(nd.hhaItemRef('https://herefordshirehistory.org.uk/archive/x/1658012-a-picture'), '1658012',
+      'while seven figures is a catalogue number');
+    t.is(nd.hhaItemRef('https://herefordshirehistory.org.uk/archive/x/1960-floods',
+      'archive-item-link'), '1960',
+      'unless the site says outright that it is a picture');
+    /* And the other way round: a shelf whose name happens to begin with something as
+       long as a catalogue number is still a shelf, because the site said so. The
+       number alone cannot save us there. */
+    t.is(nd.hhaItemRef('https://herefordshirehistory.org.uk/archive/x/1658012-flood-photographs',
+      'archive-collection-link archive-list-item-link'), '',
+      'a shelf numbered like a picture is still a shelf when the site says so');
+    t.is(nd.hhaFolders(
+      '<a class="archive-collection-link" href="/archive/x/1658012-flood-photographs">Floods</a>',
+      'https://herefordshirehistory.org.uk/archive/x').length, 1,
+      'and it is offered as a shelf to go down');
+    // Only one step down: a shelf's own shelves are not this page's.
+    t.same(nd.hhaFolders(
+      '<a class="archive-collection-link" href="/archive/x/a">A</a>'
+      + '<a class="archive-collection-link" href="/archive/x/a/deeper">Deeper</a>'
+      + '<a class="archive-collection-link" href="/archive">Up</a>',
+      'https://herefordshirehistory.org.uk/archive/x'),
+      ['https://herefordshirehistory.org.uk/archive/x/a'],
+      'one step down only, and never back up the way you came');
+
+    // Nothing from anywhere else, whatever it is called.
+    t.is(nd.hhaItemRef('https://evil.example/archive/x/1658012-a-picture'), '',
+      'and nothing on another site is an item here');
+    t.same(nd.hhaFolders(shelf, ''), [], 'shelves are only shelves relative to a page');
+    t.same(nd.hhaLinks('', leafAt), [], 'an empty page gives nothing');
+
+    // A caption catalogued as a file name is a caption with an extension on it.
+    t.is(nd.hhaLinks(
+      '<a class="archive-item-link" href="/archive/x/1658099-bayliss-postcard-001">'
+      + 'Bayliss postcard 001.jpg</a>', nd.HHA_HOME)[0].title,
+      'Bayliss postcard 001', 'a file extension is not part of the caption');
   });
+
 
   suite('Everything else on the page is not an item', (t) => {
     const page = `<nav><a href="/">Home</a><a href="/about">About</a><a href="/links">Links</a>
@@ -1244,7 +1295,7 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.is(nd.hhaFromSlug('cathedral'), 'Cathedral', 'but one plain word is');
     // Which means an item the page says nothing about is dropped rather than shown as a code.
     const got = nd.hhaLinks('<a href="/view/7548873-ca11003"><img src="/t.jpg" alt=""></a>'
-      + '<a href="/view/551-the-old-house"><img src="/t.jpg" alt=""></a>', nd.HHA_HOME);
+      + '<a href="/view/7548874-the-old-house"><img src="/t.jpg" alt=""></a>', nd.HHA_HOME);
     t.same(got.map((x) => x.title), ['The Old House'],
       'an item with nothing but a shelf mark is left out rather than shown as CA11003');
     /* A listing is free to link the bare number, and some do. The number is the item;
@@ -2013,16 +2064,22 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
                     content_urls: { desktop: { page: 'https://en.wikipedia.org/wiki/Wye_Valley_Railway' } } }] }] }) };
       }
       if (/herefordshirehistory\.org\.uk/.test(url)) {
-        /* Each listing page offers its own three items, the way three collections
-           would, and every one of them links the Old House. Nine and one is exactly
-           HHA_KEEP, so the day's window takes the lot and these checks do not depend
-           on which day they are run. Catalogue numbers are numbers, as the archive's
-           own addresses have them. */
-        const n = /people-and-portraits/.test(url) ? 2 : /transport/.test(url) ? 3 : 1;
+        /* Whichever collection the day picks, it answers with pictures on its own
+           page, so there is no shelf to follow and these checks do not depend on
+           which day they are run. Four is under HHA_KEEP, so the day's window takes
+           the lot. Catalogue numbers are seven figures, as the archive's are. */
+        const at = url.replace(/\?$/, '');
         return { ok: true, body: [1, 2, 3].map((i) =>
-          `<a href="/view/${n}0${i}-a-picture-of-${n}${i}"><img src="/t/${n}${i}.jpg" alt="">`
-          + `<h3>A picture of ${n}${i}${n === 1 && i === 1 ? ', 1904' : ''}</h3></a>`).join('')
-          + '<a href="/view/999-the-old-house">The Old House, 1621</a>' };
+          `<a class="archive-item-link" href="${at}/165801${i}-a-picture-of-${i}">`
+          + `<img src="/img/t${i}" alt="">`
+          + `<div class="archive-item-title">A picture of ${i}${i === 1 ? ', 1904' : ''}</div></a>`).join('')
+          + `<a class="archive-item-link" href="${at}/1658099-the-old-house">The Old House, 1621</a>`
+          /* The archive catalogues twenty-four photographs of Church Street as
+             twenty-four photographs of Church Street. As rows they read as the same
+             row over and over. */
+          + [7, 8, 9].map((i) =>
+            `<a class="archive-item-link" href="${at}/165802${i}-church-street-hereford">`
+            + `Church Street, Hereford</a>`).join('') };
       }
       return null;
     }
@@ -2041,18 +2098,18 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.ok(titles.some((x) => /Wye Valley railway/.test(x)), 'something Wikipedia has for the day');
     t.ok(titles.some((x) => /A picture of/.test(x)), 'and pictures from the archive');
 
-    // The archive is asked for every page it knows, one after another.
+    /* One collection, chosen by the day, and it had pictures on it - so that is the
+       only thing asked for. The archive is a county library's, not a newsroom's. */
     const asked = hist.calls.fetched.filter((u) => /herefordshirehistory/.test(u));
-    t.is(asked.length, hist.nd.HHA_PAGES.length, 'every listing page is asked for');
-    t.same(asked, hist.nd.HHA_PAGES, 'the ones it was given, in order');
+    t.is(asked.length, 1, 'one page is asked for, not all of them');
+    t.ok(hist.nd.HHA_ROOTS.indexOf(asked[0]) >= 0, 'and it is one of the collections it knows');
 
-    // The same item linked from three collections is one row, not three - and it is
-    // deduped before the day picks its ten, or the window would spend places on
-    // copies and the tab would come up short.
-    t.is(titles.filter((x) => /The Old House/.test(x)).length, 1,
-      'an item linked from more than one collection lands once');
-    t.is(titles.filter((x) => /A picture of|The Old House/.test(x)).length, hist.nd.HHA_KEEP,
-      'and the day gets a full window of different things, not copies of one');
+    // Four distinct pictures, each once.
+    t.is(titles.filter((x) => /The Old House/.test(x)).length, 1, 'each picture lands once');
+    t.is(titles.filter((x) => /A picture of|The Old House/.test(x)).length, 4,
+      'and all four of them are there');
+    t.is(titles.filter((x) => /Church Street/.test(x)).length, 1,
+      'and three photographs catalogued under one caption read as one row, not three');
 
     // Dated things read in order; the archive's undated pictures follow rather than
     // leading the tab from the year nought.
@@ -2065,11 +2122,11 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.is(items[0].year, 1621, 'so the oldest thing here leads');
 
     // A row has to be readable: a year on it if there is one, and a picture where there is one.
-    const pic = items.filter((x) => /A picture of 11/.test(x.title))[0];
+    const pic = items.filter((x) => /A picture of 1,/.test(x.title))[0];
     t.ok(pic, 'the catalogued picture is there');
     t.is(pic.year, 1904, 'with the year off its title');
     t.is(hist.nd.timeLabel(pic), '1904', 'which is what the row shows where a story shows its age');
-    const undated = items.filter((x) => /A picture of 12/.test(x.title))[0];
+    const undated = items.filter((x) => /A picture of 2$/.test(x.title))[0];
     t.is(hist.nd.timeLabel(undated), '', 'and an undated picture shows nothing rather than a guess');
   });
 
@@ -2090,10 +2147,15 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
           kind: { value: 'Born' }, item: { value: 'http://www.wikidata.org/entity/Q235719' } }] } }) };
       }
       if (/onthisday/.test(url)) return { ok: true, body: '{}' };
-      // The one that is down does not answer at all
-      if (/herefordshirehistory\.org\.uk\/archive/.test(url)) throw new Error('Timed out');
-      // The one that answers with an error answers, at least
-      if (/people-and-portraits/.test(url)) return { ok: false, status: 503, body: '' };
+      /* The collection the day picks turns out to be a shelf of shelves, and the
+         shelf taken down from it is the thing that is broken. The collection itself
+         answered perfectly: it held the way on rather than the pictures. */
+      if (/herefordshirehistory\.org\.uk/.test(url)) {
+        if (/\/a-shelf-of-pictures/.test(url)) return { ok: false, status: 503, body: '' };
+        const at = url.replace(/\?$/, '');
+        return { ok: true, body:
+          `<a class="archive-collection-link" href="${at}/a-shelf-of-pictures">A shelf of pictures</a>` };
+      }
       /* Two kitchens: one serving dinner, one whose feed is working perfectly and has
          nothing on it but a giveaway. The second is the case that used to be
          invisible - it answered, so it was not a failure, and it gave nothing, so it
@@ -2108,24 +2170,33 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     }
   });
 
-  suite('One page of the archive being down costs only that page', (t) => {
+  suite('A shelf being down costs the archive and nothing else', (t) => {
     const hh = halfDown.nd.S.by.hh || {};
     const titles = (hh.items || []).map((x) => x.title);
-    t.is(titles.filter((x) => /A transport picture/.test(x)).length, 3,
-      'the page that answered still contributes every one of its items');
-    t.ok(titles.indexOf('Nell Gwyn') >= 0, 'and the national routes beside it are untouched');
-    t.ok(/county archive/.test(hh.method || ''), 'the archive is still named as a source');
+    t.ok(titles.indexOf('Nell Gwyn') >= 0, 'the national routes beside it are untouched');
     t.not(hh.error, 'and the tab is not in error over it');
+    t.not(/county archive/.test(hh.method || ''),
+      'the archive is not named as a source, since it gave nothing');
 
-    // What went wrong is recorded rather than swallowed, because the panel shows it.
-    const reqs = hh.requests || [];
-    const asked = reqs.filter((r) => /herefordshirehistory/.test(r.url));
-    t.is(asked.length, halfDown.nd.HHA_PAGES.length, 'all three pages are still accounted for');
-    t.is(asked.filter((r) => r.ok).length, 1, 'one of them worked');
-    t.is(asked.filter((r) => !r.ok).length, 2, 'and two are marked as not having');
-    const dead = asked.filter((r) => /\/archive$/.test(r.url))[0];
-    t.ok(dead && !dead.ok, 'the one that never answered is among them');
-    t.ok(dead && /Timed out/.test(dead.error || ''), 'with what went wrong beside it');
+    // Two requests: the collection, then the shelf taken down from it.
+    const asked = (hh.requests || []).filter((r) => /herefordshirehistory/.test(r.url));
+    t.is(asked.length, 2, 'the collection was asked for, and then one shelf of it');
+    const top = asked[0], shelf = asked[1];
+    t.is(top.ok, true, 'the collection answered');
+    t.is(top.got, 0, 'with no pictures of its own');
+    t.ok(/a-shelf-of-pictures$/.test(shelf.url), 'so a shelf was taken down from it');
+    t.is(shelf.ok, false, 'and that is the thing that was broken');
+
+    /* A collection holding no pictures is what a collection of collections looks
+       like, not a page that failed. Having led somewhere, it is not something the
+       panel should be reporting. */
+    const quiet = halfDown.nd.quietReqs(hh).map((x) => x.url);
+    t.not(quiet.some((u) => u === top.url),
+      'the collection is not listed as having gone quiet - it led the way on');
+    t.ok(quiet.some((u) => /a-shelf-of-pictures$/.test(u)),
+      'while the shelf that would not answer is');
+    t.ok(halfDown.nd.quietReqs(hh).some((r) => /503|HTTP/.test(halfDown.nd.reqLine(r))),
+      'with what went wrong beside it');
   });
 
   /* Wikidata has more than one Herefordshire and only one of them is any use. The
@@ -2207,17 +2278,17 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     // Without a count, a route that answered with nothing is indistinguishable from
     // one that was never asked - which is exactly the state this went out in.
     const reqs = (hist.nd.S.by.hh || {}).requests || [];
-    t.ok(reqs.length >= 5, 'every route and every listing page is accounted for');
+    t.ok(reqs.length >= 3, 'every route it asked is accounted for');
     t.ok(reqs.every((r) => typeof r.got === 'number'), 'and every one of them counted what it got');
     t.same(hist.nd.quietReqs(hist.nd.S.by.hh), [],
       'on a day when all three answer, the panel has nothing to report');
 
-    // The day the archive answers with nothing, the panel names the pages that did.
+    // The day the archive answers with nothing, the panel names what did not answer.
     const halfReqs = (halfDown.nd.S.by.hh || {}).requests || [];
     const named = halfDown.nd.quietReqs(halfDown.nd.S.by.hh).map((x) => x.url);
-    t.ok(named.some((u) => /\/archive$/.test(u)), 'the page that never answered is named');
-    t.ok(named.some((u) => /people-and-portraits/.test(u)), 'so is the one that answered with an error');
-    t.not(named.some((u) => /transport/.test(u)), 'and the one that worked is not');
+    t.ok(named.some((u) => /a-shelf-of-pictures$/.test(u)), 'the shelf that would not answer is named');
+    t.not(named.some((u) => /a-shelf-of-pictures$/.test(u) === false && /herefordshirehistory/.test(u)),
+      'and the collection that led to it is not, having led somewhere');
     t.ok(halfReqs.some((r) => /onthisday/.test(r.url) && r.got === 0),
       'a national route that simply had a quiet day is counted too');
 
@@ -2225,10 +2296,8 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     halfDown.window.nd.key('menu');
     const panel = halfDown.window.document.getElementById('sheetBody').textContent;
     t.ok(/Nothing came from:/.test(panel), 'the panel says so in as many words');
-    t.ok(/herefordshirehistory\.org\.uk\/archive - Timed out/.test(panel),
-      'naming the page and what happened to it');
-    t.ok(/people-and-portraits - HTTP 503/.test(panel), 'and the one that answered with an error');
-    t.not(/transport - /.test(panel), 'while the page that worked is not listed as a problem');
+    t.ok(/a-shelf-of-pictures - HTTP 503/.test(panel),
+      'naming the shelf and what happened to it');
 
     /* A kitchen whose feed works and has nothing on it but a giveaway answered, so it
        was not a failure, and gave nothing, so it was not a source. It used to be
