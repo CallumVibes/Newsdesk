@@ -334,6 +334,27 @@ suite('No page freezes another page', (t) => {
     'and coming back starts them again');
 });
 
+/* The page hands over three things and Kotlin builds the message out of them. The
+   page now leans on that: where a story has a link it sends the headline and lets
+   Kotlin put the address underneath, so a share that stopped appending the address
+   would send a bare headline and nobody would be able to read the story. */
+suite('The share the page composes is the share Kotlin sends', (t) => {
+  const kt = read(KT + 'MainActivity.kt');
+  const fn = kt.slice(kt.indexOf('fun share('), kt.indexOf('fun calendar('));
+  t.ok(/fun share\(/.test(kt), 'Kotlin still offers a share');
+  t.ok(/EXTRA_TEXT/.test(fn), 'and puts a body on the intent');
+  t.ok(/EXTRA_SUBJECT/.test(fn), 'with the headline as the subject');
+  // The two halves of the contract the page is written against.
+  t.ok(/url\.isEmpty\(\)[^\n]*\\n\\n[^\n]*url|\+\s*url/.test(fn),
+    'the address is appended to the body, not just carried as the subject');
+  t.ok(/text\.isEmpty\(\)/.test(fn),
+    'and an empty body falls back to the headline rather than sending nothing');
+  const page = read(PAGE);
+  t.ok(/function shareText\(/.test(page), 'the page composes what goes above it');
+  t.ok(/Native\.share\(it\.title, shareText\(it\), it\.link/.test(page),
+    'and hands over the headline, that body, and the address');
+});
+
 suite('No key is committed', (t) => {
   const cfg = read('app/src/main/assets/config.js');
   t.ok(/ppqKey:\s*""/.test(cfg), 'config.js ships with an empty key, filled in from the secret');

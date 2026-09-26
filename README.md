@@ -286,6 +286,13 @@ buttons; on a television, press ▼ once you have read to the bottom and the str
   something in it. What is kept is a copy, so a saved story still opens and reads after its source
   has dropped it from the feed — which all of them do within days.
 - **Share** hands it to whatever the phone has: messages, mail, a notes app.
+
+  A news story is somebody else's article, and what is worth sending is the article — so it goes as
+  **the headline, a blank line, and the link**. It used to send 400 characters of the app's own
+  summary, cut off mid-sentence, with the link at the 402nd character and the headline nowhere in
+  the message at all (it was the subject line, which most messaging apps throw away). A briefing is
+  the exception: it has no link and no rest, so all of it goes, in its paragraphs. A story with
+  nothing to link to sends the words it has.
 - **Add to calendar** opens your calendar's own new-event screen, filled in, for an event whose
   date could be read. Nothing is written to your calendar by the app; you save it, or you don't.
 

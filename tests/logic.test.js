@@ -1754,17 +1754,66 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.ok(c.shared[0].text.length > 400, 'rather than the first four hundred characters');
     t.ok(/Paragraph 5 /.test(c.shared[0].text), 'the last paragraph included');
 
-    // A story is unchanged: it still shares a taste and a link to the rest.
-    const long = story({ src: 'ht', id: 's', title: 'A story',
-      summary: 'x'.repeat(900), link: 'https://example.com/s' });
-    t.is(nd.shareText(long).length, 400, 'a story still shares a taste of itself');
-    c.shared.length = 0;
-    S.reader = { item: long, full: false, loading: false, y: 0, act: -1, acts: [] };
-    nd.readerActions(long).filter((a) => a.id === 'share')[0].run();
-    t.is(c.shared[0].url, 'https://example.com/s', 'and the link to the rest of it');
     t.is(nd.shareText(null), '', 'nothing shares as nothing');
-    t.is(nd.shareText({ brief: { paragraphs: [] }, summary: 'fallback' }), 'fallback',
-      'and a briefing with no paragraphs falls back to what it has');
+    t.is(nd.shareText({ brief: { paragraphs: [] }, title: 'A story', summary: 'fallback' }),
+      'A story\n\nfallback', 'and a briefing with no paragraphs falls back to what it has');
+    S.reader = null; c.shared.length = 0;
+  });
+
+  /* What Kotlin makes of the three things it is handed, copied from MainActivity so
+     the message a person actually receives is what is being checked here rather than
+     the arguments on the way to it. */
+  function shareBody(title, text, url) {
+    return ((text === '' ? title : text) + (url === '' ? '' : '\n\n' + url)).trim();
+  }
+
+  suite('A news article shares as the article', (t) => {
+    const nd = phone.nd, S = nd.S, c = phone.calls;
+    const send = (it) => {
+      c.shared.length = 0;
+      S.reader = { item: it, full: false, loading: false, y: 0, act: -1, acts: [] };
+      nd.readerActions(it).filter((a) => a.id === 'share')[0].run();
+      const s = c.shared[0];
+      return { subject: s.title, url: s.url, body: shareBody(s.title, s.text, s.url) };
+    };
+
+    const it = story({ src: 'ht', id: 'a',
+      title: 'Woman taken to hospital after car crashes into bridge on A49',
+      summary: 'Police say the road was shut for several hours. '.repeat(12),
+      link: 'https://www.herefordtimes.com/news/12345.a49-crash/' });
+    t.ok(it.summary.length > 400, 'the summary is longer than the message used to be');
+
+    const sent = send(it);
+    t.is(sent.body, it.title + '\n\n' + it.link,
+      'the headline, a blank line, and the address - and nothing else');
+    t.ok(sent.body.indexOf(it.link) < 70,
+      'so the link is near the top rather than past four hundred characters');
+    t.not(/Police say the road/.test(sent.body),
+      'the app\'s copy of the opening of somebody else\'s article does not go');
+    t.is(sent.subject, it.title, 'the headline is still the subject line as well');
+    t.is(sent.url, it.link, 'and the address is handed over as the address');
+
+    // A diary entry is a story with a link like any other.
+    const ev = story({ src: 'lm', id: 'e', title: 'Christmas Fayre',
+      summary: 'In the square.', when: Date.now() + DAY, link: 'https://example.com/e' });
+    t.is(send(ev).body, 'Christmas Fayre\n\nhttps://example.com/e',
+      'and so does an event');
+
+    // Nothing to link to: the words are all there is, so they go.
+    const noLink = story({ src: 'hh', id: 'h', title: 'A picture of Broad Street, 1904',
+      summary: 'From the county archive.', link: '' });
+    t.is(send(noLink).body, 'A picture of Broad Street, 1904\n\nFrom the county archive.',
+      'a story with nowhere to send you sends what it has');
+    t.is(send(story({ src: 'hh', id: 'h2', title: 'Only a headline', summary: '', link: '' })).body,
+      'Only a headline', 'and one with only a headline sends that');
+
+    // The briefing is the exception, and stays the exception.
+    const paras = ['First paragraph of it.', 'Second paragraph of it.'];
+    const brief = nd.briefAsItem({ headline: 'A quiet start', at: Date.now(),
+      slotName: 'Morning briefing', slotKey: 'k', paragraphs: paras }, 0);
+    t.is(send(brief).body, paras.join('\n\n'),
+      'a briefing has no link and no rest, so all of it still goes');
+
     S.reader = null; c.shared.length = 0;
   });
 
