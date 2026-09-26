@@ -3388,11 +3388,28 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     kitchen.window.__spoke(true);
     voice.speakingAfterDone = !!S2.speaking;
 
-    // A device with no voice says so rather than leaving it reading for ever.
+    /* A voice that never arrives says why. There are two nothings that feel identical from
+       the outside - no engine installed, and an engine reading to a muted phone - and the
+       second is the likelier, so they are told apart. */
     nd2.readAloud();
-    kitchen.window.__spoke(false);
+    kitchen.window.__spoke(false, 'novoice');
     voice.speakingAfterFail = !!S2.speaking;
     voice.failNote = doc.getElementById('rdNote').textContent;
+    voice.failFoot = doc.getElementById('rdFoot').className;
+
+    nd2.readAloud();
+    kitchen.window.__spoke(false, 'silent');
+    voice.mutedNote = doc.getElementById('rdNote').textContent;
+
+    nd2.readAloud();
+    kitchen.window.__spoke(false, '');
+    voice.vagueNote = doc.getElementById('rdNote').textContent;
+
+    // And a finished reading leaves no message sitting there.
+    nd2.readAloud();
+    kitchen.window.__spoke(true, '');
+    voice.doneNote = doc.getElementById('rdNote').textContent;
+    voice.doneFoot = doc.getElementById('rdFoot').className;
 
     // Leaving the story stops it, and so does opening another.
     nd2.readAloud();
@@ -3446,8 +3463,17 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
 
     t.is(voice.speakingAfterDone, false, 'reaching the end puts the button back by itself');
     t.is(voice.speakingAfterFail, false, 'and so does a device that has no voice');
-    t.ok(/no voice to read with/.test(voice.failNote),
+    t.ok(/no voice installed/.test(voice.failNote),
       'which says so rather than leaving it reading for ever');
+    /* And the message is given a row of its own, or on a phone it shares one with four
+       buttons and is squeezed to no width at all - which is how a silent failure came to
+       be a silent failure with no explanation either. */
+    t.ok(/saying/.test(voice.failFoot), 'with the foot making room for it to be read');
+    t.ok(/volume/.test(voice.mutedNote),
+      'a muted phone is told apart from a missing voice (' + voice.mutedNote + ')');
+    t.ok(voice.vagueNote.length > 0, 'and a failure with no reason still says something');
+    t.is(voice.doneNote, '', 'a reading that finished leaves no message behind');
+    t.not(/saying/.test(voice.doneFoot), 'and the foot goes back to one row');
 
     /* Every way you stop listening. A voice carrying on from the last article while you
        read the next is worse than no voice at all. */

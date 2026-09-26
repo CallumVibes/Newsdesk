@@ -488,7 +488,23 @@ async function actionStrip(browser, opts) {
     const endBottom = end ? end.getBoundingClientRect().bottom : 0;
     const footTop = foot.getBoundingClientRect().top;
 
+    /* And with something to say. The note shares the foot with the buttons, and by the
+       fourth of them it had no width left - so the one message that explains why nothing
+       was read out could not be read either. */
+    nd.note('Turn the volume up: the media volume is all the way down.', true);
+    await new Promise((r) => requestAnimationFrame(() => r()));
+    const noteEl = document.getElementById('rdNote');
+    const nr = noteEl.getBoundingClientRect();
+    const noteW = Math.round(nr.width);
+    const noteVisible = noteW > 120 && nr.height > 8 && nr.right <= vw + 1 && nr.top >= -1;
+    const noteClipped = noteEl.scrollWidth > noteEl.clientWidth + 1;
+    const footWithNote = Math.round(foot.getBoundingClientRect().height);
+    const padWithNote = Math.round(parseFloat(getComputedStyle(inner).paddingBottom));
+    nd.note('');
+    await new Promise((r) => requestAnimationFrame(() => r()));
+
     return {
+      noteW, noteVisible, noteClipped, footWithNote, padWithNote,
       labels: btns.map((n) => n.textContent),
       ids: nd.readerActions(ev).map((a) => a.id),
       offScreen: btns.filter((n, i) => rects[i].right > vw + 1 || rects[i].left < -1)
@@ -1059,6 +1075,13 @@ async function stripFade(browser) {
       t.ok(r.pad >= r.footH, name + ': the story leaves room for the foot ('
         + r.pad + 'px under a ' + r.footH + 'px foot)');
       t.is(r.endClear, true, name + ': so the end of the story can be read clear of it');
+      /* The message that explains a silence has to be readable, or a silent failure is a
+         silent failure with no explanation either - which is how this one arrived. */
+      t.is(r.noteVisible, true, name + ': a message in the foot is wide enough to read ('
+        + r.noteW + 'px)');
+      t.is(r.noteClipped, false, name + ': and not cut off');
+      t.ok(r.padWithNote >= r.footWithNote, name + ': with the story still clear of it ('
+        + r.padWithNote + 'px under ' + r.footWithNote + 'px)');
     });
     // Short labels on a phone; the television has room for the full words.
     t.ok(stripPixel.labels.indexOf('Listen') >= 0, 'a phone says Listen rather than Read aloud');
