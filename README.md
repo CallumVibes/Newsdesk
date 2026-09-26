@@ -208,6 +208,26 @@ Breaking whatever words are in it. It is kept out of **Today** and **All**, wher
 among the morning's headlines would read as a mistake, but it is fetched, cached and searched like
 any other source.
 
+### Keeping it quick
+
+Three things were measured on a full load — 254 stories, every source answering — and fixed:
+
+**One listener, not one per row.** A rebuild drew 120 rows and hung a tap handler on every one,
+then threw all 120 away when the next source landed. Nine sources land per refresh. The list
+outlives the rows, so the listener lives there and each row just records which row it is. Rebuild
+went from **21.3ms to 8.9ms**.
+
+**One redraw per landing became one every 300ms.** The first source to land draws at once — the
+reader is looking at an empty screen — and the eight behind it are gathered into one more
+(`REBUILD_GAP`). The last landing always gets its redraw, or the stories that arrived with it would
+wait for the next refresh.
+
+**The cache stopped keeping page text.** It was 82% of the cache, and it is the one thing in there
+that can be had again for the asking: a story opened without it offers **Full story** and fetches
+it, exactly as a story that never had any already does. A briefing cannot be refetched, and the two
+were competing for the same 5MB. The cache went from **0.64MB to 0.11MB**. Saved stories still keep
+their text, so they read offline.
+
 ### When a route goes quiet
 
 A source with three routes behind it can lose two of them and still look perfectly well: the tab

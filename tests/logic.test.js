@@ -1598,6 +1598,137 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     S.by = empty; S.top = null;
   });
 
+  /* A rebuild drew a hundred and twenty rows and hung a tap handler on every one,
+     then threw them all away when the next source landed - nine times over a
+     refresh. The list outlives the rows, so the listener lives there instead. */
+  suite('One listener for the list, not one per row', (t) => {
+    const nd = phone.nd, S = nd.S, doc = phone.window.document, now = Date.now();
+    const empty = { cw:{items:[]}, kg:{items:[]}, yh:{items:[]}, bb:{items:[]},
+                    vf:{items:[]}, lm:{items:[]} };
+    S.mode = 'home';
+    S.tab = nd.TABS.findIndex((x) => x.id === 'local');
+    S.by = Object.assign({}, empty, { ht: { items: [
+      story({ src:'ht', id:'a', title:'The first story', date: now }),
+      story({ src:'ht', id:'b', title:'The second story', date: now - 60e3 }),
+      story({ src:'ht', id:'c', title:'The third story', date: now - 120e3 }) ] } });
+    nd.rebuild(null);
+
+    const rows = doc.querySelectorAll('#list li.row');
+    t.is(rows.length, 3, 'three rows are drawn');
+    t.same([].map.call(rows, (r) => r.getAttribute('data-i')), ['0', '1', '2'],
+      'each says which row of the list it is');
+
+    // A tap lands on the words inside a row, not the row itself.
+    const title = rows[1].querySelector('.ttl');
+    title.dispatchEvent(new phone.window.MouseEvent('click', { bubbles: true, cancelable: true }));
+    t.is(S.mode, 'reader', 'tapping a headline opens the reader');
+    t.is(S.reader && S.reader.item.id, 'b', 'on the story that was tapped, not another');
+    t.is(S.idx, 1, 'and the list remembers where you were');
+    nd.closeReader();
+
+    // rowOf is what finds the row from whatever was actually touched.
+    t.is(nd.rowOf(title), rows[1], 'the row is found from the words inside it');
+    t.is(nd.rowOf(rows[2]), rows[2], 'and from the row itself');
+    t.is(nd.rowOf(doc.getElementById('list')), null, 'the list is not a row');
+    t.is(nd.rowOf(null), null, 'and nothing is not a row');
+
+    // A tap on the list but not on a story must not open the last thing tapped.
+    S.mode = 'home';
+    doc.getElementById('list').dispatchEvent(
+      new phone.window.MouseEvent('click', { bubbles: true, cancelable: true }));
+    t.is(S.mode, 'home', 'tapping the list itself opens nothing');
+
+    // A row left over from a longer list must not open a story that is no longer there.
+    S.by.ht.items = S.by.ht.items.slice(0, 1);
+    nd.rebuild(null);
+    const stale = doc.createElement('li');
+    stale.className = 'row';
+    stale.setAttribute('data-i', '9');
+    doc.getElementById('list').appendChild(stale);
+    S.idx = 0;
+    stale.dispatchEvent(new phone.window.MouseEvent('click', { bubbles: true, cancelable: true }));
+    t.is(S.mode, 'home', 'a row pointing past the end of the list opens nothing');
+    // openReader would refuse the story anyway; what it would not undo is the cursor
+    // being moved to a row that is not there, which every later redraw reads.
+    t.is(S.idx, 0, 'and does not leave the cursor pointing past the end either');
+    S.by = empty;
+  });
+
+  /* Nine sources land within a few seconds of each other, and each landing rebuilt
+     and redrew the whole list. */
+  suite('A refresh redraws the list a few times, not nine', (t) => {
+    const nd = phone.nd, doc = phone.window.document;
+    const list = doc.getElementById('list');
+    // The first landing has to reach the screen at once: the reader is looking at an
+    // empty list and wants something on it. rebuild is synchronous, so this is too.
+    nd.S.by.ht = { items: [story({ src: 'ht', id: 'first', title: 'The first to land' })] };
+    list.innerHTML = '';
+    nd.rebuildSoon(null);
+    t.is(list.querySelectorAll('li.row').length, 1, 'the first landing draws at once');
+
+    let draws = 0;
+    const obs = new phone.window.MutationObserver(() => { draws++; });
+    obs.observe(list, { childList: true });
+    // Eight more landings inside the same gap, the way a cold start delivers them.
+    for (let i = 0; i < 8; i++) nd.rebuildSoon(null);
+    t.is(list.querySelectorAll('li.row').length, 1,
+      'and the eight behind it do not each redraw on the spot');
+
+    return new Promise((done) => {
+      setTimeout(() => {
+        obs.disconnect();
+        /* innerHTML = '' plus the rows appended is a couple of batches per redraw, so
+           this counts redraws generously and still has to be far short of nine. */
+        t.ok(draws > 0, 'the gathered ones do land, rather than being lost');
+        t.ok(draws <= 6, 'as one redraw rather than eight (' + draws + ' batches)');
+        t.is(nd.REBUILD_GAP, 300, 'gathered over three tenths of a second');
+        done();
+      }, nd.REBUILD_GAP + 220);
+    });
+  });
+
+  /* Everything the app keeps shares one origin quota, and the page text was four
+     fifths of the cache. It is also the one thing in there that can be had again for
+     the asking, which a briefing cannot. */
+  suite('The cache keeps what cannot be fetched again', (t) => {
+    const nd = phone.nd, S = nd.S, ls = phone.window.localStorage;
+    const big = '<p>' + 'Recipe step text. '.repeat(900) + '</p>';
+    S.by = {
+      rc: { items: [story({ src: 'rc', id: 'r1', title: 'A dhal', html: big, image: 'https://x/i.jpg' })],
+            method: '2 of 6 kitchens', at: 123, error: '', requests: [{ url: 'u', ok: true, got: 1 }] },
+      ht: { items: [story({ src: 'ht', id: 'h1', title: 'A story with no page text' })] }
+    };
+    const kept = nd.forCache(S.by);
+    t.is('html' in kept.rc.items[0], false, 'the page text is not written down');
+    t.is(kept.rc.items[0].title, 'A dhal', 'everything else about the story is');
+    t.is(kept.rc.items[0].image, 'https://x/i.jpg', 'the picture included, which the list needs');
+    t.is(kept.rc.method, '2 of 6 kitchens', 'and what the panel says about the source');
+    t.same(kept.rc.requests, [{ url: 'u', ok: true, got: 1 }], 'and what it tried');
+    t.is(kept.rc.at, 123, 'and when it answered');
+    t.is(kept.ht.items[0].id, 'h1', 'a story that never had page text is untouched');
+
+    // The original is not damaged: the reader is still holding it in memory.
+    t.is(S.by.rc.items[0].html, big, 'and the story in hand keeps its text to read');
+
+    // A story without page text is not a dead end: it offers to go and get it.
+    t.is(nd.canLoadFull(kept.rc.items[0].link ? kept.rc.items[0] : { link: 'https://example.com/x' }), true,
+      'a story with no text still offers the full story');
+
+    // What actually reaches storage.
+    nd.saveNow();
+    let raw = '';
+    try { raw = ls.getItem(nd.CACHE_KEY) || ''; } catch (e) {}
+    t.ok(raw.length > 0, 'the cache is written');
+    t.not(/Recipe step text/.test(raw), 'with none of the page text in it');
+    t.ok(/A dhal/.test(raw), 'and the headlines still there');
+    t.ok(raw.length < big.length, 'so the whole cache is smaller than the one recipe was');
+
+    t.same(nd.forCache(null), {}, 'nothing to keep is nothing written');
+    t.same(nd.forCache({ ht: null }), { ht: null }, 'and a source that has never answered is left alone');
+    S.by = { cw:{items:[]}, kg:{items:[]}, ht:{items:[]}, yh:{items:[]},
+             bb:{items:[]}, vf:{items:[]}, lm:{items:[]} };
+  });
+
   suite('What you can do with a story, on a phone', (t) => {
     const S = phone.nd.S;
     S.saved = [];
