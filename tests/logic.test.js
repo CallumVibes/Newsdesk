@@ -2600,10 +2600,29 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.ok(titles.some((x) => /Wye Valley railway/.test(x)), 'something Wikipedia has for the day');
     t.ok(titles.some((x) => /A picture of/.test(x)), 'and pictures from the archive');
 
-    /* One collection, chosen by the day, and it had pictures on it - so that is the
-       only thing asked for. The archive is a county library's, not a newsroom's. */
+    /* One collection, chosen by the day, and it had pictures on it - so that is the only
+       listing asked for. The archive is a county library's, not a newsroom's.
+
+       Each picture is then asked its own page once, because that is the only place the
+       date is written down, and the answer is kept for good. So the cost is one listing
+       plus the pictures shown, on the first refresh of a day, and one listing on every
+       refresh after it. */
     const asked = hist.calls.fetched.filter((u) => /herefordshirehistory/.test(u));
-    t.is(asked.length, 1, 'one page is asked for, not all of them');
+    const listings = asked.filter((u) => !/\/\d{5,}-/.test(u));
+    const dates = asked.filter((u) => /\/\d{5,}-/.test(u));
+    t.is(listings.length, 1, 'one listing page is asked for, not all of them');
+    t.ok(dates.length <= hist.nd.HHA_KEEP,
+      'and no more date lookups than there are pictures (' + dates.length + ')');
+    t.is(dates.length, new Set(dates).size, 'none of them asked twice');
+    t.ok(dates.length >= 1, 'and the pictures are dated rather than left bare');
+    const pics = items.filter((x) => x.kicker === 'Archive');
+    t.ok(pics.length > 0, 'there are pictures on the tab to date');
+    /* Every one of them was asked, and the answer written down - including "it has none",
+       so tomorrow does not ask again. The stub here serves no item pages, so what is
+       recorded is that each was asked and had nothing to give. */
+    const held = hist.nd.S.hhaDates || {};
+    t.ok(pics.every((x) => held.hasOwnProperty(x.ref)),
+      'each was asked its own page for a date, and the answer kept');
     t.ok(hist.nd.HHA_ROOTS.indexOf(asked[0]) >= 0, 'and it is one of the collections it knows');
 
     // Four distinct pictures, each once.
@@ -3348,6 +3367,136 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
       'a kitchen costs no more than its limit, the page fetch included (' + rc.tightFetches + ')');
     t.is(rc.tight.reqs.filter((r) => !r.note).length, 5,
       'so the five feeds are tried and the five offered are not');
+  });
+
+  /* A photograph with no date on it is a photograph you cannot place. The listing gives a
+     catalogue number, a caption and a thumbnail and nothing else - so rows read "Archive /
+     Brimfield Common" with no way to tell 1890 from 1975. The item's own page does say,
+     in JSON-LD, under a "Date" key of the archive's own devising. */
+  const dates = {};
+  {
+    const nd2 = kitchen.nd, S2 = nd2.S, ls = kitchen.window.localStorage, c = kitchen.calls;
+    const page = readFixture('hha-item.html');
+    S2.hhaDates = {};
+    ls.removeItem(nd2.HHA_DATES_KEY);
+    const pic = (ref) => ({ ref: ref, title: 'A picture', link: 'https://hha.test/' + ref + '-a-picture',
+                            kicker: 'Archive', year: 0 });
+    RC_REPLY['https://hha.test/111-a-picture'] = { ok: true, body: page };
+    RC_REPLY['https://hha.test/222-a-picture'] = { ok: true, body: '<html><body>no date</body></html>' };
+
+    c.fetched.length = 0;
+    dates.first = await nd2.hhaFillDates([pic('111'), pic('222')]);
+    dates.firstFetches = c.fetched.filter((u) => /hha\.test/.test(u)).length;
+
+    c.fetched.length = 0;
+    dates.again = await nd2.hhaFillDates([pic('111'), pic('222')]);
+    dates.againFetches = c.fetched.filter((u) => /hha\.test/.test(u)).length;
+
+    /* A page that never answers. nfetch waits forty seconds before it gives up, and a
+       caption is not worth holding the whole of History for forty seconds. */
+    const realFetch = kitchen.window.Native.fetch;
+    kitchen.window.Native.fetch = function () {};          // answers nothing, ever
+    const began = Date.now();
+    /* Bounded, because the fault being checked for is a promise that never settles:
+       awaiting one of those hangs the whole run instead of failing a line of it. */
+    const bell = new Promise((r) => setTimeout(() => r('never settled'), 3000));
+    const got = await Promise.race([nd2.hhaFillDates([pic('333')], 60), bell]);
+    dates.hungMs = Date.now() - began;
+    dates.hung = got === 'never settled' ? [{}] : got;
+    dates.hungSettled = got !== 'never settled';
+    kitchen.window.Native.fetch = realFetch;
+    dates.hungDated = dates.hung[0].dated;
+    dates.hungRemembered = (nd2.S.hhaDates || {}).hasOwnProperty('333');
+
+
+    dates.held = JSON.parse(ls.getItem(nd2.HHA_DATES_KEY) || 'null');
+    S2.hhaDates = {};
+    nd2.loadHhaDates();
+    dates.reloaded = nd2.S.hhaDates['111'];
+
+    /* Last, because it fills the cache up: it is bounded, sharing a quota with the
+       briefings, which cannot be fetched again. */
+    for (let n = 0; n < nd2.HHA_DATES_KEEP + 20; n++) nd2.rememberHhaDate('r' + n, '1900');
+    dates.capped = Object.keys(nd2.S.hhaDates).length;
+    dates.newestKept = nd2.S.hhaDates['r' + (nd2.HHA_DATES_KEEP + 19)];
+    S2.hhaDates = {};
+    ls.removeItem(nd2.HHA_DATES_KEY);
+  }
+
+  suite('A photograph says when it was taken', (t) => {
+    const nd2 = kitchen.nd;
+    const page = readFixture('hha-item.html');
+    t.is(nd2.hhaDate(page), 'C1910s', 'the date is read off the item page');
+
+    /* As the archive wrote it. "C1910s" is a claim about a decade; 1910 would be a claim
+       about a year that the librarian did not make. */
+    t.not(/^1910$/.test(nd2.hhaDate(page)), 'in the archive\'s own words, not rounded to a year');
+
+    // The published date of the web page is not the date of the photograph.
+    t.not(/2020|2025/.test(nd2.hhaDate(page)), 'and not the day the record went online');
+
+    /* Both places it is written, each on its own - or one of them can be broken without
+       anything noticing, because the other quietly covers for it. */
+    const noLd = page.replace(/<script[\s\S]*?<\/script>/, '');
+    t.not(/ld\+json/.test(noLd), 'the JSON-LD is gone from this copy');
+    t.is(nd2.hhaDate(noLd), 'C1910s', 'the Image Details table alone is enough');
+    const noTable = page.replace(/<table[\s\S]*?<\/table>/, '');
+    t.not(/<table/.test(noTable), 'the table is gone from this one');
+    t.ok(/ld\+json/.test(noTable), 'leaving only the JSON-LD');
+    t.is(nd2.hhaDate(noTable), 'C1910s', 'and the JSON-LD alone is enough as well');
+
+    t.is(nd2.hhaDate('<html><body><p>Nothing here.</p></body></html>'), '',
+      'a page with no date gives none');
+    t.is(nd2.hhaDate(''), '', 'and nothing gives nothing');
+
+    /* The year inside the words, for sorting. No word boundary in front of the digits:
+       the archive's commonest form has a letter on either side of the year. */
+    t.is(nd2.hhaDateYear('C1910s'), 1910, 'a decade reads as its first year');
+    t.is(nd2.hhaDateYear('c.1904'), 1904, 'and a circa year as that year');
+    t.is(nd2.hhaDateYear('1904'), 1904, 'a plain year as itself');
+    t.is(nd2.hhaDateYear('1900-1910'), 1900, 'a range as the year it starts');
+    t.is(nd2.hhaDateYear('Circa 1885'), 1885, 'and words in front of it make no difference');
+    t.is(nd2.hhaDateYear('Unknown'), 0, 'no year in the words, no year');
+    t.is(nd2.hhaDateYear(''), 0, 'nor in none');
+
+    /* Asked once, ever. Ten pictures are chosen by the day, so the cost is ten lookups on
+       the first refresh of a morning and none for the rest of it. */
+    t.is(dates.first[0].dated, 'C1910s', 'the picture carries the date it was given');
+    t.is(dates.first[0].year, 1910, 'and the year inside it, for sorting');
+    t.is(dates.first[1].dated, undefined, 'one with no date on its page carries none');
+    t.is(dates.firstFetches, 2, 'each was asked once');
+
+    // And not again, including the one that had nothing to give.
+    t.is(dates.againFetches, 0, 'asking a second time costs no fetches at all');
+    t.is(dates.again[0].dated, 'C1910s', 'the date coming from what was kept');
+    t.is(dates.again[0].year, 1910, 'with its year');
+    t.is(dates.again[1].dated, '', 'and a picture known to have none is not asked again');
+
+    // Written down, so tomorrow morning starts with what today learned.
+    t.is(dates.held && dates.held['111'], 'C1910s', 'the date is kept in storage');
+    t.is(dates.held && dates.held['222'], '', 'and so is knowing there was none');
+    t.is(dates.reloaded, 'C1910s', 'and read back when the app opens');
+
+    // A row shows it where there is one.
+    t.is(nd2.timeLabel({ src: 'hh', dated: 'C1910s', year: 1910 }), 'C1910s',
+      'the row shows the archive\'s words');
+    t.is(nd2.timeLabel({ src: 'hh', dated: '', year: 1904 }), '1904',
+      'and falls back to a year where that is all there is');
+    t.is(nd2.timeLabel({ src: 'hh', dated: '', year: 0 }), '',
+      'and says nothing rather than guessing');
+    t.is(nd2.longLabel({ src: 'hh', dated: 'C1910s', year: 1910 }), 'C1910s',
+      'and so does the story behind it');
+
+    /* A page that will not answer is given up on rather than held on to. The picture still
+       shows, without a date, and is asked again tomorrow rather than written off. */
+    t.is(dates.hungSettled, true, 'a page that never answers is given up on rather than waited for');
+    t.ok(dates.hungMs < 2000, 'and quickly (' + dates.hungMs + 'ms)');
+    t.is(dates.hungDated, undefined, 'the picture carries no date');
+    t.is(dates.hungRemembered, false, 'and is not written down as having none');
+
+    t.ok(dates.capped <= nd2.HHA_DATES_KEEP,
+      'the cache is bounded (' + dates.capped + ' of ' + (nd2.HHA_DATES_KEEP + 20) + ' offered)');
+    t.is(dates.newestKept, '1900', 'keeping the most recent rather than the first');
   });
 
   /* A pull on Local sat spinning for sixteen seconds. The stories it was pulling for had
