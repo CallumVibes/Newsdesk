@@ -3350,6 +3350,81 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
       'so the five feeds are tried and the five offered are not');
   });
 
+  /* A pull on Local sat spinning for sixteen seconds. The stories it was pulling for had
+     been on the screen for ten of them: the spinner and the status line both asked anyBusy,
+     which is all nine sources, so they waited for the recipes. */
+  suite('A refresh answers to the tab you are on', (t) => {
+    const nd2 = kitchen.nd, S2 = nd2.S;
+    const at = (id) => nd2.TABS.findIndex((x) => x.id === id);
+    const order = nd2.ORDER_OF();
+
+    // Every source, once, with the tab's own at the front.
+    S2.tab = at('local');
+    const local = nd2.refreshOrder();
+    t.is(local.length, order.length, 'every source is still fetched');
+    t.same(local.slice().sort(), order.slice().sort(), 'and none of them twice');
+    const mine = nd2.TABS[S2.tab].srcs;
+    t.same(local.slice(0, mine.length).slice().sort(), mine.slice().sort(),
+      'the tab\'s own sources come first (' + local.join(' ') + ')');
+    t.is(local.indexOf('rc') > local.indexOf('ht'), true, 'and the recipes come after them');
+
+    S2.tab = at('recipes');
+    const recipes = nd2.refreshOrder();
+    t.is(recipes[0], 'rc', 'on Recipes it is the kitchens that go first');
+    t.is(recipes.length, order.length, 'with everything else still behind them');
+
+    /* What the spinner waits for. Only this tab's sources, or a pull on Local waits for
+       six recipe kitchens to finish fetching things it is not showing. */
+    order.forEach((k) => { S2.busy[k] = false; });
+    S2.tab = at('local');
+    t.is(nd2.tabBusy(), false, 'nothing loading, nothing to wait for');
+    S2.busy.rc = true;
+    t.is(nd2.anyBusy(), true, 'the recipes are loading');
+    t.is(nd2.tabBusy(), false, 'but Local is not waiting on them');
+    S2.busy.ht = true;
+    t.is(nd2.tabBusy(), true, 'while its own source keeps it waiting');
+    S2.busy.ht = false;
+    t.is(nd2.tabBusy(), false, 'and letting go of that one is enough');
+
+    /* Saved draws on every source, so it waits for every source - which is right, and the
+       same as it ever was. */
+    S2.tab = at('saved');
+    t.same(nd2.TABS[S2.tab].srcs.slice().sort(), order.slice().sort(),
+      'Saved can hold a story from anywhere');
+    t.is(nd2.tabBusy(), true, 'so it waits for all of them while one is loading');
+
+    /* A tab number left over from a build with more tabs in it - which is what dropping the
+       Breaking tab leaves in storage. There is no tab there to ask about, so it reports what
+       the app is doing rather than claiming to be finished before anything started. */
+    S2.tab = 99;
+    t.is(nd2.TABS[S2.tab], undefined, 'a stored tab number can point past the end');
+    t.is(nd2.tabBusy(), true, 'and then it says what the app is doing');
+    S2.busy.rc = false;
+    t.is(nd2.tabBusy(), false, 'and is done when the app is');
+    S2.tab = at('local');
+
+    // The status line follows the same rule, since it is the other thing that looked stuck.
+    S2.tab = at('local');
+    S2.busy.rc = true;
+    nd2.updateStatus();
+    const doc = kitchen.window.document;
+    t.not(/Updating/.test(doc.getElementById('status').textContent),
+      'the status line does not say Updating for a source this tab does not show');
+    S2.busy.ht = true;
+    nd2.updateStatus();
+    t.ok(/Updating/.test(doc.getElementById('status').textContent),
+      'and does for one it does');
+    order.forEach((k) => { S2.busy[k] = false; });
+    nd2.updateStatus();
+
+    /* A relay that will not answer used to hold Citadel Wire for nine seconds, all on its
+       own, which was most of the wait. */
+    t.ok(nd2.CW_NOSTR_WAIT_MS <= 4000,
+      'a Nostr relay is given four seconds, not nine (' + nd2.CW_NOSTR_WAIT_MS + 'ms)');
+    t.ok(nd2.CW_NOSTR_WAIT_MS >= 2000,
+      'but long enough for one that is going to answer (' + nd2.CW_NOSTR_WAIT_MS + 'ms)');
+  });
+
   /* A story read out loud. What is read is taken off the screen, so it is always what you
      are looking at - the summary before the article has been fetched, the article after,
      and a recipe's ingredients and method in the order you would cook them. */

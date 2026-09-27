@@ -488,6 +488,39 @@ suite('The voice does not read a field its own constructor has not set yet', (t)
   t.ok(/volume/i.test(why), 'the muted one mentioning the volume');
 });
 
+/* A refresh took sixteen seconds, and most of it was queueing. Every fetch the page makes
+   goes through one fixed pool of threads, and a refresh makes fifty-odd of them - so four
+   threads meant thirteen waves of round trips. Measured against a simulated pool at four
+   hundred milliseconds a fetch: four threads 5.2s, eight 2.8s, twelve 2.0s, unlimited 1.6s.
+   The threads wait on sockets rather than work, so another one costs a stack. */
+suite('There are enough threads to fetch with', (t) => {
+  ['MainActivity.kt', 'Briefings.kt'].forEach((f) => {
+    const kt = read(KT + f);
+    const m = kt.match(/newFixedThreadPool\((\d+)\)/);
+    t.ok(m, f + ' fetches through a pool of its own');
+    const n = m ? parseInt(m[1], 10) : 0;
+    t.ok(n >= 8, f + ' has enough threads not to queue a refresh behind itself (' + n + ')');
+    t.ok(n <= 16, f + ' and not so many that a stick runs out of stacks (' + n + ')');
+  });
+
+  /* The prices share that pool with the stories, and the stories are the point. Asking for
+     the prices first handed them the threads and left the tab you were looking at behind a
+     Bitcoin quote. */
+  const page = read(PAGE);
+  const fn = page.slice(page.indexOf('function refresh() {'), page.indexOf('function anyBusy()'));
+  t.ok(/refreshMarket\(\)/.test(fn), 'a refresh still fetches the prices');
+  t.ok(fn.indexOf('refreshOrder()') < fn.indexOf('refreshMarket()'),
+    'but after the sources, not before them');
+  t.ok(/refreshOrder\(\)\.forEach/.test(fn), 'and the sources in the order the tab wants');
+
+  // The spinner and the status line ask about this tab, not about all nine sources.
+  t.ok(/setUpPull\(ind, \$\('listWrap'\),[\s\S]{0,120}refresh, tabBusy\)/.test(page),
+    'the list\'s pull waits for the tab it is on, not for everything');
+  const st = page.slice(page.indexOf('function updateStatus()'), page.indexOf('function switchTab'));
+  t.ok(/tabBusy\(\)/.test(st), 'and so does the status line');
+  t.not(/anyBusy\(\)/.test(st), 'rather than for every source in the app');
+});
+
 suite('No key is committed', (t) => {
   const cfg = read('app/src/main/assets/config.js');
   t.ok(/ppqKey:\s*""/.test(cfg), 'config.js ships with an empty key, filled in from the secret');
