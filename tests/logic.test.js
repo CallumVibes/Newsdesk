@@ -2600,10 +2600,29 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.ok(titles.some((x) => /Wye Valley railway/.test(x)), 'something Wikipedia has for the day');
     t.ok(titles.some((x) => /A picture of/.test(x)), 'and pictures from the archive');
 
-    /* One collection, chosen by the day, and it had pictures on it - so that is the
-       only thing asked for. The archive is a county library's, not a newsroom's. */
+    /* One collection, chosen by the day, and it had pictures on it - so that is the only
+       listing asked for. The archive is a county library's, not a newsroom's.
+
+       Each picture is then asked its own page once, because that is the only place the
+       date is written down, and the answer is kept for good. So the cost is one listing
+       plus the pictures shown, on the first refresh of a day, and one listing on every
+       refresh after it. */
     const asked = hist.calls.fetched.filter((u) => /herefordshirehistory/.test(u));
-    t.is(asked.length, 1, 'one page is asked for, not all of them');
+    const listings = asked.filter((u) => !/\/\d{5,}-/.test(u));
+    const dates = asked.filter((u) => /\/\d{5,}-/.test(u));
+    t.is(listings.length, 1, 'one listing page is asked for, not all of them');
+    t.ok(dates.length <= hist.nd.HHA_KEEP,
+      'and no more date lookups than there are pictures (' + dates.length + ')');
+    t.is(dates.length, new Set(dates).size, 'none of them asked twice');
+    t.ok(dates.length >= 1, 'and the pictures are dated rather than left bare');
+    const pics = items.filter((x) => x.kicker === 'Archive');
+    t.ok(pics.length > 0, 'there are pictures on the tab to date');
+    /* Every one of them was asked, and the answer written down - including "it has none",
+       so tomorrow does not ask again. The stub here serves no item pages, so what is
+       recorded is that each was asked and had nothing to give. */
+    const held = hist.nd.S.hhaDates || {};
+    t.ok(pics.every((x) => held.hasOwnProperty(x.ref)),
+      'each was asked its own page for a date, and the answer kept');
     t.ok(hist.nd.HHA_ROOTS.indexOf(asked[0]) >= 0, 'and it is one of the collections it knows');
 
     // Four distinct pictures, each once.
@@ -3350,6 +3369,211 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
       'so the five feeds are tried and the five offered are not');
   });
 
+  /* A photograph with no date on it is a photograph you cannot place. The listing gives a
+     catalogue number, a caption and a thumbnail and nothing else - so rows read "Archive /
+     Brimfield Common" with no way to tell 1890 from 1975. The item's own page does say,
+     in JSON-LD, under a "Date" key of the archive's own devising. */
+  const dates = {};
+  {
+    const nd2 = kitchen.nd, S2 = nd2.S, ls = kitchen.window.localStorage, c = kitchen.calls;
+    const page = readFixture('hha-item.html');
+    S2.hhaDates = {};
+    ls.removeItem(nd2.HHA_DATES_KEY);
+    const pic = (ref) => ({ ref: ref, title: 'A picture', link: 'https://hha.test/' + ref + '-a-picture',
+                            kicker: 'Archive', year: 0 });
+    RC_REPLY['https://hha.test/111-a-picture'] = { ok: true, body: page };
+    RC_REPLY['https://hha.test/222-a-picture'] = { ok: true, body: '<html><body>no date</body></html>' };
+
+    c.fetched.length = 0;
+    dates.first = await nd2.hhaFillDates([pic('111'), pic('222')]);
+    dates.firstFetches = c.fetched.filter((u) => /hha\.test/.test(u)).length;
+
+    c.fetched.length = 0;
+    dates.again = await nd2.hhaFillDates([pic('111'), pic('222')]);
+    dates.againFetches = c.fetched.filter((u) => /hha\.test/.test(u)).length;
+
+    /* A page that never answers. nfetch waits forty seconds before it gives up, and a
+       caption is not worth holding the whole of History for forty seconds. */
+    const realFetch = kitchen.window.Native.fetch;
+    kitchen.window.Native.fetch = function () {};          // answers nothing, ever
+    const began = Date.now();
+    /* Bounded, because the fault being checked for is a promise that never settles:
+       awaiting one of those hangs the whole run instead of failing a line of it. */
+    const bell = new Promise((r) => setTimeout(() => r('never settled'), 3000));
+    const got = await Promise.race([nd2.hhaFillDates([pic('333')], 60), bell]);
+    dates.hungMs = Date.now() - began;
+    dates.hung = got === 'never settled' ? [{}] : got;
+    dates.hungSettled = got !== 'never settled';
+    kitchen.window.Native.fetch = realFetch;
+    dates.hungDated = dates.hung[0].dated;
+    dates.hungRemembered = (nd2.S.hhaDates || {}).hasOwnProperty('333');
+
+
+    dates.held = JSON.parse(ls.getItem(nd2.HHA_DATES_KEY) || 'null');
+    S2.hhaDates = {};
+    nd2.loadHhaDates();
+    dates.reloaded = nd2.S.hhaDates['111'];
+
+    /* Last, because it fills the cache up: it is bounded, sharing a quota with the
+       briefings, which cannot be fetched again. */
+    for (let n = 0; n < nd2.HHA_DATES_KEEP + 20; n++) nd2.rememberHhaDate('r' + n, '1900');
+    dates.capped = Object.keys(nd2.S.hhaDates).length;
+    dates.newestKept = nd2.S.hhaDates['r' + (nd2.HHA_DATES_KEEP + 19)];
+    S2.hhaDates = {};
+    ls.removeItem(nd2.HHA_DATES_KEY);
+  }
+
+  suite('A photograph says when it was taken', (t) => {
+    const nd2 = kitchen.nd;
+    const page = readFixture('hha-item.html');
+    t.is(nd2.hhaDate(page), 'C1910s', 'the date is read off the item page');
+
+    /* As the archive wrote it. "C1910s" is a claim about a decade; 1910 would be a claim
+       about a year that the librarian did not make. */
+    t.not(/^1910$/.test(nd2.hhaDate(page)), 'in the archive\'s own words, not rounded to a year');
+
+    // The published date of the web page is not the date of the photograph.
+    t.not(/2020|2025/.test(nd2.hhaDate(page)), 'and not the day the record went online');
+
+    /* Both places it is written, each on its own - or one of them can be broken without
+       anything noticing, because the other quietly covers for it. */
+    const noLd = page.replace(/<script[\s\S]*?<\/script>/, '');
+    t.not(/ld\+json/.test(noLd), 'the JSON-LD is gone from this copy');
+    t.is(nd2.hhaDate(noLd), 'C1910s', 'the Image Details table alone is enough');
+    const noTable = page.replace(/<table[\s\S]*?<\/table>/, '');
+    t.not(/<table/.test(noTable), 'the table is gone from this one');
+    t.ok(/ld\+json/.test(noTable), 'leaving only the JSON-LD');
+    t.is(nd2.hhaDate(noTable), 'C1910s', 'and the JSON-LD alone is enough as well');
+
+    t.is(nd2.hhaDate('<html><body><p>Nothing here.</p></body></html>'), '',
+      'a page with no date gives none');
+    t.is(nd2.hhaDate(''), '', 'and nothing gives nothing');
+
+    /* The year inside the words, for sorting. No word boundary in front of the digits:
+       the archive's commonest form has a letter on either side of the year. */
+    t.is(nd2.hhaDateYear('C1910s'), 1910, 'a decade reads as its first year');
+    t.is(nd2.hhaDateYear('c.1904'), 1904, 'and a circa year as that year');
+    t.is(nd2.hhaDateYear('1904'), 1904, 'a plain year as itself');
+    t.is(nd2.hhaDateYear('1900-1910'), 1900, 'a range as the year it starts');
+    t.is(nd2.hhaDateYear('Circa 1885'), 1885, 'and words in front of it make no difference');
+    t.is(nd2.hhaDateYear('Unknown'), 0, 'no year in the words, no year');
+    t.is(nd2.hhaDateYear(''), 0, 'nor in none');
+
+    /* Asked once, ever. Ten pictures are chosen by the day, so the cost is ten lookups on
+       the first refresh of a morning and none for the rest of it. */
+    t.is(dates.first[0].dated, 'C1910s', 'the picture carries the date it was given');
+    t.is(dates.first[0].year, 1910, 'and the year inside it, for sorting');
+    t.is(dates.first[1].dated, undefined, 'one with no date on its page carries none');
+    t.is(dates.firstFetches, 2, 'each was asked once');
+
+    // And not again, including the one that had nothing to give.
+    t.is(dates.againFetches, 0, 'asking a second time costs no fetches at all');
+    t.is(dates.again[0].dated, 'C1910s', 'the date coming from what was kept');
+    t.is(dates.again[0].year, 1910, 'with its year');
+    t.is(dates.again[1].dated, '', 'and a picture known to have none is not asked again');
+
+    // Written down, so tomorrow morning starts with what today learned.
+    t.is(dates.held && dates.held['111'], 'C1910s', 'the date is kept in storage');
+    t.is(dates.held && dates.held['222'], '', 'and so is knowing there was none');
+    t.is(dates.reloaded, 'C1910s', 'and read back when the app opens');
+
+    // A row shows it where there is one.
+    t.is(nd2.timeLabel({ src: 'hh', dated: 'C1910s', year: 1910 }), 'C1910s',
+      'the row shows the archive\'s words');
+    t.is(nd2.timeLabel({ src: 'hh', dated: '', year: 1904 }), '1904',
+      'and falls back to a year where that is all there is');
+    t.is(nd2.timeLabel({ src: 'hh', dated: '', year: 0 }), '',
+      'and says nothing rather than guessing');
+    t.is(nd2.longLabel({ src: 'hh', dated: 'C1910s', year: 1910 }), 'C1910s',
+      'and so does the story behind it');
+
+    /* A page that will not answer is given up on rather than held on to. The picture still
+       shows, without a date, and is asked again tomorrow rather than written off. */
+    t.is(dates.hungSettled, true, 'a page that never answers is given up on rather than waited for');
+    t.ok(dates.hungMs < 2000, 'and quickly (' + dates.hungMs + 'ms)');
+    t.is(dates.hungDated, undefined, 'the picture carries no date');
+    t.is(dates.hungRemembered, false, 'and is not written down as having none');
+
+    t.ok(dates.capped <= nd2.HHA_DATES_KEEP,
+      'the cache is bounded (' + dates.capped + ' of ' + (nd2.HHA_DATES_KEEP + 20) + ' offered)');
+    t.is(dates.newestKept, '1900', 'keeping the most recent rather than the first');
+  });
+
+  /* A pull on Local sat spinning for sixteen seconds. The stories it was pulling for had
+     been on the screen for ten of them: the spinner and the status line both asked anyBusy,
+     which is all nine sources, so they waited for the recipes. */
+  suite('A refresh answers to the tab you are on', (t) => {
+    const nd2 = kitchen.nd, S2 = nd2.S;
+    const at = (id) => nd2.TABS.findIndex((x) => x.id === id);
+    const order = nd2.ORDER_OF();
+
+    // Every source, once, with the tab's own at the front.
+    S2.tab = at('local');
+    const local = nd2.refreshOrder();
+    t.is(local.length, order.length, 'every source is still fetched');
+    t.same(local.slice().sort(), order.slice().sort(), 'and none of them twice');
+    const mine = nd2.TABS[S2.tab].srcs;
+    t.same(local.slice(0, mine.length).slice().sort(), mine.slice().sort(),
+      'the tab\'s own sources come first (' + local.join(' ') + ')');
+    t.is(local.indexOf('rc') > local.indexOf('ht'), true, 'and the recipes come after them');
+
+    S2.tab = at('recipes');
+    const recipes = nd2.refreshOrder();
+    t.is(recipes[0], 'rc', 'on Recipes it is the kitchens that go first');
+    t.is(recipes.length, order.length, 'with everything else still behind them');
+
+    /* What the spinner waits for. Only this tab's sources, or a pull on Local waits for
+       six recipe kitchens to finish fetching things it is not showing. */
+    order.forEach((k) => { S2.busy[k] = false; });
+    S2.tab = at('local');
+    t.is(nd2.tabBusy(), false, 'nothing loading, nothing to wait for');
+    S2.busy.rc = true;
+    t.is(nd2.anyBusy(), true, 'the recipes are loading');
+    t.is(nd2.tabBusy(), false, 'but Local is not waiting on them');
+    S2.busy.ht = true;
+    t.is(nd2.tabBusy(), true, 'while its own source keeps it waiting');
+    S2.busy.ht = false;
+    t.is(nd2.tabBusy(), false, 'and letting go of that one is enough');
+
+    /* Saved draws on every source, so it waits for every source - which is right, and the
+       same as it ever was. */
+    S2.tab = at('saved');
+    t.same(nd2.TABS[S2.tab].srcs.slice().sort(), order.slice().sort(),
+      'Saved can hold a story from anywhere');
+    t.is(nd2.tabBusy(), true, 'so it waits for all of them while one is loading');
+
+    /* A tab number left over from a build with more tabs in it - which is what dropping the
+       Breaking tab leaves in storage. There is no tab there to ask about, so it reports what
+       the app is doing rather than claiming to be finished before anything started. */
+    S2.tab = 99;
+    t.is(nd2.TABS[S2.tab], undefined, 'a stored tab number can point past the end');
+    t.is(nd2.tabBusy(), true, 'and then it says what the app is doing');
+    S2.busy.rc = false;
+    t.is(nd2.tabBusy(), false, 'and is done when the app is');
+    S2.tab = at('local');
+
+    // The status line follows the same rule, since it is the other thing that looked stuck.
+    S2.tab = at('local');
+    S2.busy.rc = true;
+    nd2.updateStatus();
+    const doc = kitchen.window.document;
+    t.not(/Updating/.test(doc.getElementById('status').textContent),
+      'the status line does not say Updating for a source this tab does not show');
+    S2.busy.ht = true;
+    nd2.updateStatus();
+    t.ok(/Updating/.test(doc.getElementById('status').textContent),
+      'and does for one it does');
+    order.forEach((k) => { S2.busy[k] = false; });
+    nd2.updateStatus();
+
+    /* A relay that will not answer used to hold Citadel Wire for nine seconds, all on its
+       own, which was most of the wait. */
+    t.ok(nd2.CW_NOSTR_WAIT_MS <= 4000,
+      'a Nostr relay is given four seconds, not nine (' + nd2.CW_NOSTR_WAIT_MS + 'ms)');
+    t.ok(nd2.CW_NOSTR_WAIT_MS >= 2000,
+      'but long enough for one that is going to answer (' + nd2.CW_NOSTR_WAIT_MS + 'ms)');
+  });
+
   /* A story read out loud. What is read is taken off the screen, so it is always what you
      are looking at - the summary before the article has been fetched, the article after,
      and a recipe's ingredients and method in the order you would cook them. */
@@ -3388,11 +3612,49 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     kitchen.window.__spoke(true);
     voice.speakingAfterDone = !!S2.speaking;
 
-    // A device with no voice says so rather than leaving it reading for ever.
+    /* A voice that never arrives says why. There are two nothings that feel identical from
+       the outside - no engine installed, and an engine reading to a muted phone - and the
+       second is the likelier, so they are told apart. */
     nd2.readAloud();
-    kitchen.window.__spoke(false);
+    kitchen.window.__spoke(false, 'novoice');
     voice.speakingAfterFail = !!S2.speaking;
     voice.failNote = doc.getElementById('rdNote').textContent;
+    voice.failFoot = doc.getElementById('rdFoot').className;
+
+    nd2.readAloud();
+    kitchen.window.__spoke(false, 'silent');
+    voice.mutedNote = doc.getElementById('rdNote').textContent;
+    voice.afterMuted = nd2.readerActions(dish).map((a) => a.id);
+
+    /* A phone with no speech engine installed at all - which is how one without Google's
+       services arrives. The button has to become a way out rather than the same no. */
+    nd2.readAloud();
+    kitchen.window.__spoke(false, 'noengine');
+    voice.noEngineNote = doc.getElementById('rdNote').textContent;
+    voice.afterNoEngine = nd2.readerActions(dish).map((a) => a.id);
+    const voiceAct = nd2.readerActions(dish).filter((a) => a.id === 'voice')[0] || {};
+    voice.voiceLabel = voiceAct.label;
+    voice.voiceShort = voiceAct.short;
+    c.voiceSettings = 0;
+    if (voiceAct.run) voiceAct.run();
+    voice.settingsOpened = c.voiceSettings;
+    voice.settingsNote = doc.getElementById('rdNote').textContent;
+
+    // Having installed one, trying again has to be possible without restarting the app.
+    nd2.readAloud();
+    voice.afterRetry = nd2.readerActions(dish).map((a) => a.id);
+    voice.retrySent = c.spoken.length;
+    nd2.hush();
+
+    nd2.readAloud();
+    kitchen.window.__spoke(false, '');
+    voice.vagueNote = doc.getElementById('rdNote').textContent;
+
+    // And a finished reading leaves no message sitting there.
+    nd2.readAloud();
+    kitchen.window.__spoke(true, '');
+    voice.doneNote = doc.getElementById('rdNote').textContent;
+    voice.doneFoot = doc.getElementById('rdFoot').className;
 
     // Leaving the story stops it, and so does opening another.
     nd2.readAloud();
@@ -3446,8 +3708,37 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
 
     t.is(voice.speakingAfterDone, false, 'reaching the end puts the button back by itself');
     t.is(voice.speakingAfterFail, false, 'and so does a device that has no voice');
-    t.ok(/no voice to read with/.test(voice.failNote),
-      'which says so rather than leaving it reading for ever');
+    t.ok(/would not start/.test(voice.failNote),
+      'which says so rather than leaving it reading for ever (' + voice.failNote + ')');
+    /* And the message is given a row of its own, or on a phone it shares one with four
+       buttons and is squeezed to no width at all - which is how a silent failure came to
+       be a silent failure with no explanation either. */
+    t.ok(/saying/.test(voice.failFoot), 'with the foot making room for it to be read');
+    t.ok(/volume/.test(voice.mutedNote),
+      'a muted phone is told apart from a missing voice (' + voice.mutedNote + ')');
+    t.ok(voice.afterMuted.indexOf('read') >= 0,
+      'and leaves the button offering to read, since turning the volume up is the fix');
+
+    /* No engine installed at all. A button that says no and offers nothing to do about it
+       is a dead end, so it becomes the way to the settings where a voice is chosen. */
+    t.ok(/No speech engine is installed/.test(voice.noEngineNote),
+      'a phone with no engine is told so plainly');
+    t.ok(/RHVoice/.test(voice.noEngineNote) && /SherpaTTS/.test(voice.noEngineNote),
+      'and told what would do the job (' + voice.noEngineNote + ')');
+    t.ok(/F-Droid/.test(voice.noEngineNote), 'and where to get it');
+    t.ok(voice.afterNoEngine.indexOf('voice') >= 0, 'the button becomes Voice settings');
+    t.not(voice.afterNoEngine.indexOf('read') >= 0, 'rather than offering the same no again');
+    t.is(voice.voiceLabel, 'Voice settings', 'saying so on a television');
+    t.is(voice.voiceShort, 'Voice', 'and shorter on a phone, where the strip is tight');
+    t.is(voice.settingsOpened, 1, 'pressing it opens the system speech settings');
+    t.ok(/Text-to-speech/.test(voice.settingsNote), 'saying where to look once there');
+
+    // And with a voice installed, it goes back to reading without the app being restarted.
+    t.ok(voice.afterRetry.indexOf('read') >= 0, 'asking again puts the Read button back');
+    t.ok(voice.retrySent > 0, 'and hands the words over to try again');
+    t.ok(voice.vagueNote.length > 0, 'and a failure with no reason still says something');
+    t.is(voice.doneNote, '', 'a reading that finished leaves no message behind');
+    t.not(/saying/.test(voice.doneFoot), 'and the foot goes back to one row');
 
     /* Every way you stop listening. A voice carrying on from the last article while you
        read the next is worse than no voice at all. */

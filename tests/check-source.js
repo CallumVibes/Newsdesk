@@ -412,6 +412,115 @@ suite('Both languages are lit the same way', (t) => {
   t.ok(/paintWindow\(\)/.test(theme), 'and turning the theme over repaints them');
 });
 
+/* The Read aloud button did nothing at all - no voice, no error, no message - and the
+   reason was four characters of Kotlin. TextToSpeech's constructor takes the callback that
+   says the engine is ready, and on a device where the service is already bound it calls it
+   before the constructor returns. The field the instance is assigned to is therefore still
+   null inside that callback, and the first version of this read the field there and gave up
+   where it found nothing. It is not reachable from any test here - there is no engine in
+   jsdom and none in Chromium - so what can be checked is the shape: the callback records
+   what happened and nothing else, and the work is done after a post, by which time the
+   constructor has certainly returned. */
+suite('The voice does not read a field its own constructor has not set yet', (t) => {
+  const kt = read(KT + 'MainActivity.kt');
+  t.ok(/class Speaker\(/.test(kt), 'the speaker is there');
+  const make = kt.slice(kt.indexOf('private fun make()'), kt.indexOf('private fun began('));
+  t.ok(make.length > 20, 'and makes its engine in one place');
+  t.ok(/TextToSpeech\(/.test(make), 'constructing the engine there');
+  t.ok(/main\.post\s*\{/.test(make),
+    'and handing the result on through a post, not acting on it in the callback');
+  /* The whole of the bug: reading tts inside the listener. Assigning it is what the line
+     is for, so only a read counts - anything using it as a receiver or a value. */
+  const body = make.slice(make.indexOf('OnInitListener'));
+  t.not(/\btts\s*[?.]/.test(body), 'the callback never reads the field through tts. or tts?.');
+  t.not(/=\s*tts\b/.test(body), 'nor assigns from it');
+  t.not(/\btts\s*\?:/.test(body), 'nor bails out on it being null, which is what it used to do');
+
+  const began = kt.slice(kt.indexOf('private fun began('), kt.indexOf('private fun mine('));
+  t.ok(began.length > 20, 'the work happens in began instead');
+  t.ok(/val t = tts/.test(began), 'which is where the field is read');
+  t.ok(/setOnUtteranceProgressListener/.test(began), 'and where the progress listener is set');
+  t.ok(/ready = true/.test(began), 'and where it is marked ready to speak');
+  /* And it says which kind of nothing. A phone with no speech engine installed at all -
+     which is how a GrapheneOS phone without Google's services arrives - wants a different
+     answer from an engine that is there and would not start. */
+  t.ok(/anyEngine\(\)/.test(began), 'asking whether there is an engine at all');
+  t.ok(/"novoice"/.test(began) && /"noengine"/.test(began),
+    'and telling the two apart rather than leaving it silent');
+  /* Which way round matters and nothing here can see it run - there is no speech engine in
+     jsdom and none in Chromium - so the mapping is pinned: an engine that is installed and
+     would not start is novoice, and none installed at all is noengine. Swapped, the phone
+     with no engine would be told to go and pick another one. */
+  t.ok(/if \(anyEngine\(\)\) "novoice" else "noengine"/.test(began.replace(/\s+/g, ' ')),
+    'an installed engine that failed is novoice; none at all is noengine, and not the reverse');
+  const any = kt.slice(kt.indexOf('private fun anyEngine'), kt.indexOf('private fun began('));
+  t.ok(/INTENT_ACTION_TTS_SERVICE/.test(any), 'by asking what speech services are installed');
+  t.ok(/catch \(e: Exception\) \{\s*true/.test(any.replace(/\n\s*/g, ' ')),
+    'and where it cannot tell, saying there is one - so the engine is tried, never refused');
+  /* From Android 11 an app sees only the packages it declares an interest in, so without
+     this the query answers empty however many engines are installed. */
+  const man = read('app/src/main/AndroidManifest.xml');
+  t.ok(/<queries>/.test(man), 'the manifest says which packages it wants to see');
+  t.ok(/android\.intent\.action\.TTS_SERVICE/.test(man), 'naming the speech services');
+
+  // A dead end is no use: there has to be somewhere to go and get a voice.
+  t.ok(/fun voiceSettings\(\)/.test(kt), 'the app can open the speech settings');
+  t.ok(/com\.android\.settings\.TTS_SETTINGS/.test(kt), 'which is where a voice is chosen');
+  const page0 = read(PAGE);
+  t.ok(/noengine:/.test(page0), 'and the page has words for a phone with no engine');
+  /* Named engines, not a shrug. Both open source and both read without the network,
+     which is the point of naming them rather than sending someone searching. */
+  t.ok(/RHVoice/.test(page0) && /SherpaTTS/.test(page0),
+    'naming two engines that would do the job');
+  t.ok(/F-Droid/.test(page0), 'and where to get them');
+
+  /* A voice reading to a muted phone is the same nothing as no voice, and likelier. The
+     two are told apart before a word is queued. */
+  const say = kt.slice(kt.indexOf('private fun say('), kt.indexOf('fun split('));
+  t.ok(/muted\(\)/.test(say), 'a muted phone is checked before anything is queued');
+  t.ok(/ended\(false, "silent"\)/.test(say), 'and said to be muted rather than voiceless');
+  t.ok(/STREAM_MUSIC/.test(kt), 'read off the volume the voice will come out of');
+
+  // Both reasons have words for them on the page, or the page would say nothing useful.
+  const page = read(PAGE);
+  const why = page.slice(page.indexOf('var SPOKE_WHY'), page.indexOf('window.__spoke'));
+  t.ok(/novoice:/.test(why) && /silent:/.test(why), 'the page has words for both');
+  t.ok(/volume/i.test(why), 'the muted one mentioning the volume');
+});
+
+/* A refresh took sixteen seconds, and most of it was queueing. Every fetch the page makes
+   goes through one fixed pool of threads, and a refresh makes fifty-odd of them - so four
+   threads meant thirteen waves of round trips. Measured against a simulated pool at four
+   hundred milliseconds a fetch: four threads 5.2s, eight 2.8s, twelve 2.0s, unlimited 1.6s.
+   The threads wait on sockets rather than work, so another one costs a stack. */
+suite('There are enough threads to fetch with', (t) => {
+  ['MainActivity.kt', 'Briefings.kt'].forEach((f) => {
+    const kt = read(KT + f);
+    const m = kt.match(/newFixedThreadPool\((\d+)\)/);
+    t.ok(m, f + ' fetches through a pool of its own');
+    const n = m ? parseInt(m[1], 10) : 0;
+    t.ok(n >= 8, f + ' has enough threads not to queue a refresh behind itself (' + n + ')');
+    t.ok(n <= 16, f + ' and not so many that a stick runs out of stacks (' + n + ')');
+  });
+
+  /* The prices share that pool with the stories, and the stories are the point. Asking for
+     the prices first handed them the threads and left the tab you were looking at behind a
+     Bitcoin quote. */
+  const page = read(PAGE);
+  const fn = page.slice(page.indexOf('function refresh() {'), page.indexOf('function anyBusy()'));
+  t.ok(/refreshMarket\(\)/.test(fn), 'a refresh still fetches the prices');
+  t.ok(fn.indexOf('refreshOrder()') < fn.indexOf('refreshMarket()'),
+    'but after the sources, not before them');
+  t.ok(/refreshOrder\(\)\.forEach/.test(fn), 'and the sources in the order the tab wants');
+
+  // The spinner and the status line ask about this tab, not about all nine sources.
+  t.ok(/setUpPull\(ind, \$\('listWrap'\),[\s\S]{0,120}refresh, tabBusy\)/.test(page),
+    'the list\'s pull waits for the tab it is on, not for everything');
+  const st = page.slice(page.indexOf('function updateStatus()'), page.indexOf('function switchTab'));
+  t.ok(/tabBusy\(\)/.test(st), 'and so does the status line');
+  t.not(/anyBusy\(\)/.test(st), 'rather than for every source in the app');
+});
+
 suite('No key is committed', (t) => {
   const cfg = read('app/src/main/assets/config.js');
   t.ok(/ppqKey:\s*""/.test(cfg), 'config.js ships with an empty key, filled in from the secret');
