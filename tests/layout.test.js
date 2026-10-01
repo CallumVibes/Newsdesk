@@ -88,6 +88,48 @@ function sheet() {
   };
 }
 
+/* The failure line in the sources panel, with the sentence PPQ actually sent back.
+   The user's screenshot of it stopped at "Key limit exceeded (total limit). Manage it
+   using", which looked like the page clipping a long unbreakable URL - it is not. Chromium
+   breaks a URL at its own slashes, the line wraps, and scrolled to the foot the last of it
+   still sits clear of the panel's edge; what the screenshot cut off, something else cut
+   off. Checked here so it stays that way, and so that the panel is made to say what the
+   message means rather than only passing PPQ's words along. */
+async function briefError(browser, opts) {
+  const ERR = 'Key limit exceeded (total limit). Manage it using '
+    + 'https://api.ppq.ai/account/keys?id=0123456789abcdef0123456789abcdef';
+  const page = await open(browser, opts);
+  await page.evaluate((err) => {
+    const nd = window.ndApi, day = nd.dayKey(Date.now());
+    // config.js carries no key in the repo, so the panel would otherwise say it is off.
+    nd.CFG.ppqKey = 'sk-ppq-testkeyNOnw';
+    nd.S.brief = { error: err, tried: Date.now(), deadDay: day, countDay: day, count: 6,
+                   headline: 'A quiet morning', paragraphs: ['One.'], at: Date.now(),
+                   slotName: 'Afternoon briefing', slotKey: 'x', model: 'claude-sonnet-5' };
+  }, ERR);
+  await page.evaluate(() => window.nd.key('menu'));
+  await page.waitForTimeout(250);
+  const out = await page.evaluate(() => {
+    const wrap = document.getElementById('sheetWrap');
+    const wr = wrap.getBoundingClientRect();
+    const lns = [].slice.call(document.querySelectorAll('#sheetBody .src-block .ln'));
+    let past = 0, inside = 0;
+    lns.forEach((n) => {
+      const r = n.getBoundingClientRect();
+      past = Math.max(past, Math.round(r.right - wr.right), n.scrollWidth - n.clientWidth);
+      inside = Math.max(inside, r.height);
+    });
+    return {
+      past: past,
+      sideways: Math.round(wrap.scrollWidth - wrap.clientWidth),
+      text: lns.map((n) => n.textContent).join(' | '),
+      tallest: Math.round(inside)
+    };
+  });
+  await page.close();
+  return Object.assign(out, { err: ERR });
+}
+
 async function open(browser, opts) {
   const page = await browser.newPage({
     viewport: { width: opts.w, height: opts.h },
@@ -892,7 +934,25 @@ async function stripFade(browser) {
   const stripPixel = await actionStrip(browser, { w: 412, h: 915 });
   const stripSmall = await actionStrip(browser, { w: 360, h: 780 });
   const stripTiny = await actionStrip(browser, { w: 320, h: 640 });
+  const bePixel = await briefError(browser, { w: 412, h: 915 });
+  const beSmall = await briefError(browser, { w: 360, h: 780 });
+  const beTv = await briefError(browser, { w: 1920, h: 1080, tv: true });
   await browser.close();
+
+  suite('The briefing\'s failure is readable to the end', (t) => {
+    [['pixel', bePixel], ['small', beSmall], ['tv', beTv]].forEach(([k, b]) => {
+      t.ok(b.text.indexOf(b.err) >= 0, k + ': the whole of PPQ\'s answer is on the page');
+      t.ok(b.text.indexOf('api.ppq.ai/account/keys') >= 0,
+        k + ': the page it tells you to go to included');
+      t.is(b.past, 0, k + ': and no part of it is off the right-hand edge');
+      t.is(b.sideways, 0, k + ': so the panel does not scroll sideways to find it');
+      t.ok(b.tallest > 20, k + ': the long line wrapped onto more than one of its own');
+      // And the plain-English reading of it, which is the part that says what to do.
+      t.ok(/run out/.test(b.text), k + ': with what it means said plainly');
+      t.ok(/Refresh all asks anyway/.test(b.text),
+        k + ': and that it has stopped asking, but a refresh by hand still will');
+    });
+  });
 
   suite('The price band holds one line', (t) => {
     Object.keys(seen).forEach((k) => {

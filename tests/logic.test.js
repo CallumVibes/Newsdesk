@@ -285,6 +285,125 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
       'the day\'s allowance of paid calls grew with the editions rather than being shared out');
   });
 
+  /* The user's report: "Daily briefing isn't working". The panel said
+     "Last attempt at 12:37 failed: Key limit exceeded (total limit)", and 6 of the day's 8
+     paid calls were gone by lunchtime - so the evening edition could never be written even
+     if the key were topped up at two. A key that has refused once will refuse again. */
+  suite('When PPQ says no', (t) => {
+    t.is(nd.ppqDead('Key limit exceeded (total limit). Manage it using https://ppq.ai/keys'), true,
+      'a key that has hit its limit will say the same thing on the next call');
+    t.is(nd.ppqDead('Incorrect API key provided'), true, 'and so will a key it does not know');
+    t.is(nd.ppqDead('invalid_api_key'), true, 'however the wording runs');
+    t.is(nd.ppqDead('This key has been revoked'), true, 'or a key that has been withdrawn');
+    t.is(nd.ppqDead('Insufficient credit on this account'), true, 'or an account with nothing left');
+    t.is(nd.ppqDead('HTTP 401'), true, 'a bare 401 is the same answer with no words on it');
+    t.is(nd.ppqDead('HTTP 403'), true, 'and so is a 403');
+    // Worth another go: none of these is about the key.
+    t.is(nd.ppqDead('HTTP 500'), false, 'a server having a bad minute is worth asking again');
+    /* Worded almost the same as the one that means stop, and meaning the opposite:
+       "rate limit reached" is a minute's throttling, not a key at the end of its life. */
+    t.is(nd.ppqDead('HTTP 429'), false, 'being asked to slow down is not being refused');
+    t.is(nd.ppqDead('Rate limit reached for claude-sonnet-5'), false,
+      'a rate limit is not the key\'s limit, however alike they read');
+    t.is(nd.ppqDead('Too many requests'), false, 'nor is being told there were too many');
+    t.ok(/slow down/.test(nd.briefWhy('Rate limit reached for claude-sonnet-5')),
+      'and it is explained as the wait it is');
+    t.not(/run out/.test(nd.briefWhy('Rate limit reached')),
+      'rather than as a key with nothing left on it');
+    t.is(nd.ppqDead('Failed to connect'), false, 'nor is a dropped connection');
+    t.is(nd.ppqDead('The reply was empty'), false, 'nor a reply that came back blank');
+    t.is(nd.ppqDead('timeout'), false, 'nor one that never came back at all');
+    t.is(nd.ppqDead(''), false, 'and no error at all is not a dead key');
+
+    /* PPQ's own wording says what happened but not what it means for the app, and the
+       sentence is the only thing the panel had to offer. */
+    t.ok(/run out/.test(nd.briefWhy('Key limit exceeded (total limit)')),
+      'a spent key is explained in plain English');
+    t.ok(/ppq\.ai/.test(nd.briefWhy('Key limit exceeded (total limit)')),
+      'and says where to mend it');
+    t.ok(/Refresh all/.test(nd.briefWhy('Key limit exceeded (total limit)')),
+      'and how to ask again once it is mended');
+    t.ok(/PPQ_API_KEY/.test(nd.briefWhy('Incorrect API key provided')),
+      'a key PPQ will not accept wants replacing in the build, which is a different fix');
+    t.ok(/PPQ_API_KEY/.test(nd.briefWhy('This key has been revoked')),
+      'and so does one that has been withdrawn');
+    t.is(nd.briefWhy('HTTP 500'), '', 'and a server error gets no explanation it does not need');
+    t.is(nd.briefWhy(''), '', 'nor does no error');
+  });
+
+  suite('Whether to pay for an edition', (t) => {
+    const now = new Date(2026, 8, 30, 13, 0, 0).getTime();
+    const cur = nd.briefSlot(now);
+    const earlier = nd.briefSlot(new Date(2026, 8, 30, 7, 0, 0).getTime());
+    const today = nd.dayKey(now);
+    const done = { countDay: today, count: 2, slotKey: cur.key, retry: false };
+
+    t.is(nd.briefGate(null, cur, now, false), '', 'a fresh install writes one');
+    t.is(nd.briefGate(done, cur, now, false), 'written',
+      'this edition is written, so the next refresh does not pay for it twice');
+    t.is(nd.briefGate({ countDay: today, count: 2, slotKey: earlier.key }, cur, now, false), '',
+      'but the afternoon is due even though the morning was written');
+    t.is(nd.briefGate({ countDay: today, count: 2, slotKey: cur.key, retry: true }, cur, now, false), '',
+      'and a key just changed asks again at once');
+
+    // The allowance is a cost cap, so it holds even when the button is pressed by hand.
+    const spent = { countDay: today, count: nd.BRIEF_MAX_PER_DAY, slotKey: earlier.key };
+    t.is(nd.briefGate(spent, cur, now, false), 'spent', 'the day\'s allowance of paid calls stops it');
+    t.is(nd.briefGate(spent, cur, now, true), 'spent', 'and Refresh all cannot spend past it');
+    t.is(nd.briefGate({ countDay: nd.dayKey(now - 86400000), count: 99, slotKey: earlier.key },
+      cur, now, false), '', 'yesterday\'s spending is yesterday\'s');
+
+    /* The fix. A key that has refused is not asked again today - it would give the same
+       answer, and the asking is what used to eat the allowance. */
+    const dead = { deadDay: today, error: 'Key limit exceeded', tried: now - 6 * 60 * 60 * 1000,
+                   slotKey: earlier.key };
+    t.is(nd.briefGate(dead, cur, now, false), 'dead', 'a refused key is not asked again by itself');
+    t.is(nd.briefGate(dead, cur, now, true), '', 'but Refresh all asks, which is how a topped-up key gets going');
+    t.is(nd.briefGate({ deadDay: nd.dayKey(now - 86400000), error: 'Key limit exceeded',
+      slotKey: earlier.key }, cur, now, false), '', 'and a new day starts asking again');
+
+    // A pull-to-refresh a tap at a time should not spend the allowance on a bad minute.
+    const justFailed = { slotKey: earlier.key, tried: now - 60 * 1000, error: 'HTTP 500' };
+    t.is(nd.briefGate(justFailed, cur, now, false), 'soon', 'a failure a minute ago waits');
+    t.is(nd.briefGate(justFailed, cur, now, true), '', 'unless asked by hand');
+    t.is(nd.briefGate({ slotKey: earlier.key, tried: now - nd.BRIEF_RETRY_MS - 1000,
+      error: 'HTTP 500' }, cur, now, false), '', 'and ten minutes later it tries again');
+    t.ok(nd.BRIEF_RETRY_MS <= nd.REFRESH_MS,
+      'the wait is no longer than the gap between refreshes, so a bad minute costs no edition');
+
+    /* What a failure writes down. A refusal is not a paid call, so it does not come off
+       the day's allowance - and the whole bug was that it did. */
+    const refused = nd.briefFailed({ countDay: today, count: 3, slotKey: earlier.key },
+      'Key limit exceeded (total limit)', now);
+    t.is(refused.count, 3, 'a refused call is not charged against the day\'s allowance');
+    t.is(refused.deadDay, today, 'it is written down as the key having said no');
+    t.is(refused.tried, now, 'with the time it happened, for the panel to show');
+    t.is(nd.briefGate(refused, cur, now, false), 'dead', 'and nothing asks again by itself');
+
+    const flaked = nd.briefFailed({ countDay: today, count: 3, slotKey: earlier.key },
+      'HTTP 500', now);
+    t.is(flaked.count, 4, 'a call that went out and came back wrong is charged');
+    t.is(flaked.deadDay, undefined, 'and leaves the key alone, since the key was not the trouble');
+    t.is(nd.briefGate(flaked, cur, now, false), 'soon',
+      'it simply waits a little');
+
+    t.is(nd.briefFailed({ countDay: nd.dayKey(now - 86400000), count: 7 }, 'HTTP 500', now).count, 1,
+      'and yesterday\'s failures do not count towards today');
+
+    /* The bug as the user met it: a key that has hit its limit, and a refresh every ten
+       minutes all morning. By lunchtime there has to be an allowance left for an edition
+       the moment the key is mended. */
+    let b = { slotKey: earlier.key };
+    for (let i = 0; i < 40; i++) {
+      const at = now - (40 - i) * nd.REFRESH_MS;
+      if (nd.briefGate(b, nd.briefSlot(at), at, false)) continue;
+      b = nd.briefFailed(b, 'Key limit exceeded (total limit)', at);
+    }
+    t.is(b.count || 0, 0, 'a whole morning of refusals spends none of the day\'s allowance');
+    t.is(nd.briefGate(b, cur, now, true), '',
+      'so Refresh all can still write one the moment the key is topped up');
+  });
+
   suite('Reading PPQ\'s reply', (t) => {
     const clean = nd.parseBrief('{"headline":"A quiet day","paragraphs":["One.","Two."]}');
     t.same(clean.paragraphs, ['One.', 'Two.'], 'plain JSON comes through');
@@ -493,6 +612,22 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.is(today.sections[0].title, 'Briefings', 'Today leads with them');
     t.is(today.items[0].title, 'This afternoon', 'the latest at the top');
     t.is(today.items[1].title, 'This morning', 'this morning still there at teatime');
+
+    /* And when no later edition is coming, Today says so under the heading. Otherwise the
+       morning's sits at the top all evening reading as the latest there is, and the only
+       sign that the key has run out is in the menu - which is what "the daily briefing
+       isn't working" turned out to mean. */
+    S.brief = { deadDay: nd.dayKey(Date.now()), error: 'Key limit exceeded (total limit)' };
+    const stuck = nd.buildToday(nd.getAll());
+    t.ok(/No later edition today/.test(stuck.sections[0].note),
+      'Today says there is no later edition coming (' + stuck.sections[0].note + ')');
+    t.ok(/menu/.test(stuck.sections[0].note), 'and where the reason is written down');
+    S.brief = { deadDay: nd.dayKey(Date.now() - 86400000), error: 'Key limit exceeded' };
+    t.not(/No later edition/.test(nd.buildToday(nd.getAll()).sections[0].note),
+      'yesterday\'s refusal is yesterday\'s - today starts by asking again');
+    S.brief = S.briefs[0];
+    t.not(/No later edition/.test(nd.buildToday(nd.getAll()).sections[0].note),
+      'and says nothing of the sort on a day the key is answering');
 
     // Before the first of a new day is written there is nothing from today, and then
     // the last day's stay - all of them. At seven in the morning the evening briefing
