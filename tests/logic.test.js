@@ -285,6 +285,125 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
       'the day\'s allowance of paid calls grew with the editions rather than being shared out');
   });
 
+  /* The user's report: "Daily briefing isn't working". The panel said
+     "Last attempt at 12:37 failed: Key limit exceeded (total limit)", and 6 of the day's 8
+     paid calls were gone by lunchtime - so the evening edition could never be written even
+     if the key were topped up at two. A key that has refused once will refuse again. */
+  suite('When PPQ says no', (t) => {
+    t.is(nd.ppqDead('Key limit exceeded (total limit). Manage it using https://ppq.ai/keys'), true,
+      'a key that has hit its limit will say the same thing on the next call');
+    t.is(nd.ppqDead('Incorrect API key provided'), true, 'and so will a key it does not know');
+    t.is(nd.ppqDead('invalid_api_key'), true, 'however the wording runs');
+    t.is(nd.ppqDead('This key has been revoked'), true, 'or a key that has been withdrawn');
+    t.is(nd.ppqDead('Insufficient credit on this account'), true, 'or an account with nothing left');
+    t.is(nd.ppqDead('HTTP 401'), true, 'a bare 401 is the same answer with no words on it');
+    t.is(nd.ppqDead('HTTP 403'), true, 'and so is a 403');
+    // Worth another go: none of these is about the key.
+    t.is(nd.ppqDead('HTTP 500'), false, 'a server having a bad minute is worth asking again');
+    /* Worded almost the same as the one that means stop, and meaning the opposite:
+       "rate limit reached" is a minute's throttling, not a key at the end of its life. */
+    t.is(nd.ppqDead('HTTP 429'), false, 'being asked to slow down is not being refused');
+    t.is(nd.ppqDead('Rate limit reached for claude-sonnet-5'), false,
+      'a rate limit is not the key\'s limit, however alike they read');
+    t.is(nd.ppqDead('Too many requests'), false, 'nor is being told there were too many');
+    t.ok(/slow down/.test(nd.briefWhy('Rate limit reached for claude-sonnet-5')),
+      'and it is explained as the wait it is');
+    t.not(/run out/.test(nd.briefWhy('Rate limit reached')),
+      'rather than as a key with nothing left on it');
+    t.is(nd.ppqDead('Failed to connect'), false, 'nor is a dropped connection');
+    t.is(nd.ppqDead('The reply was empty'), false, 'nor a reply that came back blank');
+    t.is(nd.ppqDead('timeout'), false, 'nor one that never came back at all');
+    t.is(nd.ppqDead(''), false, 'and no error at all is not a dead key');
+
+    /* PPQ's own wording says what happened but not what it means for the app, and the
+       sentence is the only thing the panel had to offer. */
+    t.ok(/run out/.test(nd.briefWhy('Key limit exceeded (total limit)')),
+      'a spent key is explained in plain English');
+    t.ok(/ppq\.ai/.test(nd.briefWhy('Key limit exceeded (total limit)')),
+      'and says where to mend it');
+    t.ok(/Refresh all/.test(nd.briefWhy('Key limit exceeded (total limit)')),
+      'and how to ask again once it is mended');
+    t.ok(/PPQ_API_KEY/.test(nd.briefWhy('Incorrect API key provided')),
+      'a key PPQ will not accept wants replacing in the build, which is a different fix');
+    t.ok(/PPQ_API_KEY/.test(nd.briefWhy('This key has been revoked')),
+      'and so does one that has been withdrawn');
+    t.is(nd.briefWhy('HTTP 500'), '', 'and a server error gets no explanation it does not need');
+    t.is(nd.briefWhy(''), '', 'nor does no error');
+  });
+
+  suite('Whether to pay for an edition', (t) => {
+    const now = new Date(2026, 8, 30, 13, 0, 0).getTime();
+    const cur = nd.briefSlot(now);
+    const earlier = nd.briefSlot(new Date(2026, 8, 30, 7, 0, 0).getTime());
+    const today = nd.dayKey(now);
+    const done = { countDay: today, count: 2, slotKey: cur.key, retry: false };
+
+    t.is(nd.briefGate(null, cur, now, false), '', 'a fresh install writes one');
+    t.is(nd.briefGate(done, cur, now, false), 'written',
+      'this edition is written, so the next refresh does not pay for it twice');
+    t.is(nd.briefGate({ countDay: today, count: 2, slotKey: earlier.key }, cur, now, false), '',
+      'but the afternoon is due even though the morning was written');
+    t.is(nd.briefGate({ countDay: today, count: 2, slotKey: cur.key, retry: true }, cur, now, false), '',
+      'and a key just changed asks again at once');
+
+    // The allowance is a cost cap, so it holds even when the button is pressed by hand.
+    const spent = { countDay: today, count: nd.BRIEF_MAX_PER_DAY, slotKey: earlier.key };
+    t.is(nd.briefGate(spent, cur, now, false), 'spent', 'the day\'s allowance of paid calls stops it');
+    t.is(nd.briefGate(spent, cur, now, true), 'spent', 'and Refresh all cannot spend past it');
+    t.is(nd.briefGate({ countDay: nd.dayKey(now - 86400000), count: 99, slotKey: earlier.key },
+      cur, now, false), '', 'yesterday\'s spending is yesterday\'s');
+
+    /* The fix. A key that has refused is not asked again today - it would give the same
+       answer, and the asking is what used to eat the allowance. */
+    const dead = { deadDay: today, error: 'Key limit exceeded', tried: now - 6 * 60 * 60 * 1000,
+                   slotKey: earlier.key };
+    t.is(nd.briefGate(dead, cur, now, false), 'dead', 'a refused key is not asked again by itself');
+    t.is(nd.briefGate(dead, cur, now, true), '', 'but Refresh all asks, which is how a topped-up key gets going');
+    t.is(nd.briefGate({ deadDay: nd.dayKey(now - 86400000), error: 'Key limit exceeded',
+      slotKey: earlier.key }, cur, now, false), '', 'and a new day starts asking again');
+
+    // A pull-to-refresh a tap at a time should not spend the allowance on a bad minute.
+    const justFailed = { slotKey: earlier.key, tried: now - 60 * 1000, error: 'HTTP 500' };
+    t.is(nd.briefGate(justFailed, cur, now, false), 'soon', 'a failure a minute ago waits');
+    t.is(nd.briefGate(justFailed, cur, now, true), '', 'unless asked by hand');
+    t.is(nd.briefGate({ slotKey: earlier.key, tried: now - nd.BRIEF_RETRY_MS - 1000,
+      error: 'HTTP 500' }, cur, now, false), '', 'and ten minutes later it tries again');
+    t.ok(nd.BRIEF_RETRY_MS <= nd.REFRESH_MS,
+      'the wait is no longer than the gap between refreshes, so a bad minute costs no edition');
+
+    /* What a failure writes down. A refusal is not a paid call, so it does not come off
+       the day's allowance - and the whole bug was that it did. */
+    const refused = nd.briefFailed({ countDay: today, count: 3, slotKey: earlier.key },
+      'Key limit exceeded (total limit)', now);
+    t.is(refused.count, 3, 'a refused call is not charged against the day\'s allowance');
+    t.is(refused.deadDay, today, 'it is written down as the key having said no');
+    t.is(refused.tried, now, 'with the time it happened, for the panel to show');
+    t.is(nd.briefGate(refused, cur, now, false), 'dead', 'and nothing asks again by itself');
+
+    const flaked = nd.briefFailed({ countDay: today, count: 3, slotKey: earlier.key },
+      'HTTP 500', now);
+    t.is(flaked.count, 4, 'a call that went out and came back wrong is charged');
+    t.is(flaked.deadDay, undefined, 'and leaves the key alone, since the key was not the trouble');
+    t.is(nd.briefGate(flaked, cur, now, false), 'soon',
+      'it simply waits a little');
+
+    t.is(nd.briefFailed({ countDay: nd.dayKey(now - 86400000), count: 7 }, 'HTTP 500', now).count, 1,
+      'and yesterday\'s failures do not count towards today');
+
+    /* The bug as the user met it: a key that has hit its limit, and a refresh every ten
+       minutes all morning. By lunchtime there has to be an allowance left for an edition
+       the moment the key is mended. */
+    let b = { slotKey: earlier.key };
+    for (let i = 0; i < 40; i++) {
+      const at = now - (40 - i) * nd.REFRESH_MS;
+      if (nd.briefGate(b, nd.briefSlot(at), at, false)) continue;
+      b = nd.briefFailed(b, 'Key limit exceeded (total limit)', at);
+    }
+    t.is(b.count || 0, 0, 'a whole morning of refusals spends none of the day\'s allowance');
+    t.is(nd.briefGate(b, cur, now, true), '',
+      'so Refresh all can still write one the moment the key is topped up');
+  });
+
   suite('Reading PPQ\'s reply', (t) => {
     const clean = nd.parseBrief('{"headline":"A quiet day","paragraphs":["One.","Two."]}');
     t.same(clean.paragraphs, ['One.', 'Two.'], 'plain JSON comes through');
@@ -493,6 +612,22 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.is(today.sections[0].title, 'Briefings', 'Today leads with them');
     t.is(today.items[0].title, 'This afternoon', 'the latest at the top');
     t.is(today.items[1].title, 'This morning', 'this morning still there at teatime');
+
+    /* And when no later edition is coming, Today says so under the heading. Otherwise the
+       morning's sits at the top all evening reading as the latest there is, and the only
+       sign that the key has run out is in the menu - which is what "the daily briefing
+       isn't working" turned out to mean. */
+    S.brief = { deadDay: nd.dayKey(Date.now()), error: 'Key limit exceeded (total limit)' };
+    const stuck = nd.buildToday(nd.getAll());
+    t.ok(/No later edition today/.test(stuck.sections[0].note),
+      'Today says there is no later edition coming (' + stuck.sections[0].note + ')');
+    t.ok(/menu/.test(stuck.sections[0].note), 'and where the reason is written down');
+    S.brief = { deadDay: nd.dayKey(Date.now() - 86400000), error: 'Key limit exceeded' };
+    t.not(/No later edition/.test(nd.buildToday(nd.getAll()).sections[0].note),
+      'yesterday\'s refusal is yesterday\'s - today starts by asking again');
+    S.brief = S.briefs[0];
+    t.not(/No later edition/.test(nd.buildToday(nd.getAll()).sections[0].note),
+      'and says nothing of the sort on a day the key is answering');
 
     // Before the first of a new day is written there is nothing from today, and then
     // the last day's stay - all of them. At seven in the morning the evening briefing
@@ -1485,6 +1620,20 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.is(nd.hhaYear('Withington Station'), 0, 'a title with no year has none');
     t.is(nd.hhaYear('Catalogue 40000 items'), 0, 'and a number that is not a year is not one');
     t.is(nd.hhaYear(''), 0, 'nor is nothing');
+
+    /* The archive's own shorthand runs the letter into the digits, and a word boundary in
+       front of the year refused every one of them. This caption is real: it is the only
+       dated picture on the shelf of aerial views of Hereford, and it was filed with no
+       year at all. */
+    t.is(nd.hhaYear('Gwynne Street Warehouse, Hereford, aerial view, c1990'), 1990,
+      'a year run straight onto a circa is still a year');
+    t.is(nd.hhaYear('C1910s'), 1910, 'and so is a decade written the archive\'s way');
+    t.is(nd.hhaYear('ca1885'), 1885, 'ca as well as c');
+    /* What the boundary was there for. A shelf mark is not a year, and loosening the rule
+       far enough to read c1990 must not loosen it this far. */
+    t.is(nd.hhaYear('CA11003'), 0, 'a shelf mark is not the year 1003');
+    t.is(nd.hhaYear('Negative 21900 of 30000'), 0, 'nor is a number with a year inside it');
+    t.is(nd.hhaYear('Bayliss postcard 001'), 0, 'nor a file number');
   });
 
   suite('The day picks its own window into forty thousand things', (t) => {
@@ -3385,12 +3534,31 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     RC_REPLY['https://hha.test/222-a-picture'] = { ok: true, body: '<html><body>no date</body></html>' };
 
     c.fetched.length = 0;
-    dates.first = await nd2.hhaFillDates([pic('111'), pic('222')]);
+    dates.first = await nd2.hhaAskDates([pic('111'), pic('222')]);
     dates.firstFetches = c.fetched.filter((u) => /hha\.test/.test(u)).length;
 
     c.fetched.length = 0;
-    dates.again = await nd2.hhaFillDates([pic('111'), pic('222')]);
+    dates.again = nd2.hhaDress([pic('111'), pic('222')]);
+    await nd2.hhaAskDates(dates.again);
     dates.againFetches = c.fetched.filter((u) => /hha\.test/.test(u)).length;
+
+    /* A page the app never got to read is not an answer. Writing a failed fetch down as
+       "this photograph has no date" retires it for the life of the install, which is four
+       rows out of five reading Archive and nothing else. */
+    RC_REPLY['https://hha.test/444-a-picture'] = { ok: false, status: 503, body: '' };
+    const sulked = await nd2.hhaAskDates([pic('444')]);
+    dates.sulkedDated = sulked[0].dated;
+    dates.sulkedRemembered = (nd2.S.hhaDates || {}).hasOwnProperty('444');
+
+    /* The archive fills the field in even when it does not know, and Unknown is the
+       commonest thing in it. Asked once and not again - it will not know any better
+       tomorrow - but never shown as though it were a date. */
+    RC_REPLY['https://hha.test/555-a-picture'] =
+      { ok: true, body: '<html><head><script type="application/ld+json">'
+        + '{"@type":"ImageObject","Date":"Unknown"}</script></head><body>x</body></html>' };
+    const vague = await nd2.hhaAskDates([pic('555')]);
+    dates.vagueDated = vague[0].dated;
+    dates.vagueRemembered = (nd2.S.hhaDates || {})['555'];
 
     /* A page that never answers. nfetch waits forty seconds before it gives up, and a
        caption is not worth holding the whole of History for forty seconds. */
@@ -3400,7 +3568,7 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     /* Bounded, because the fault being checked for is a promise that never settles:
        awaiting one of those hangs the whole run instead of failing a line of it. */
     const bell = new Promise((r) => setTimeout(() => r('never settled'), 3000));
-    const got = await Promise.race([nd2.hhaFillDates([pic('333')], 60), bell]);
+    const got = await Promise.race([nd2.hhaAskDates([pic('333')], 60), bell]);
     dates.hungMs = Date.now() - began;
     dates.hung = got === 'never settled' ? [{}] : got;
     dates.hungSettled = got !== 'never settled';
@@ -3408,6 +3576,46 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     dates.hungDated = dates.hung[0].dated;
     dates.hungRemembered = (nd2.S.hhaDates || {}).hasOwnProperty('333');
 
+
+    /* The row the app actually draws is not the object the fetch filled in: hhItems
+       copies the archive's items into the app's own shape, and a field it does not copy
+       is a field the reader never sees. That is the whole of the bug the user reported -
+       "c1990" came out as 1990, and "Unknown" as nothing at all. */
+    dates.carried = nd2.hhItems([{ title: 'A picture', link: 'x', ref: '111',
+                                   kicker: 'Archive', year: 1910, dated: 'C1910s' }])[0];
+
+    /* The rows do not wait on the dates. Ten item pages queueing through the same dozen
+       threads as fifty other fetches is most of a cold refresh, and holding History for
+       all of it - then throwing away every answer that came back after the deadline - is
+       what made the dates so patchy. */
+    {
+      const root = nd2.hhaPick(nd2.HHA_ROOTS, nd2.hhaSeed(new Date()), 1)[0];
+      const pic = (n) => root.replace(/\/?$/, '') + '/90000' + n + '-a-picture-' + n;
+      RC_REPLY[root] = { ok: true, body: '<html><body>'
+        + [1, 2, 3].map((n) => '<a href="' + pic(n) + '">A picture ' + n + '</a>').join('')
+        + '</body></html>' };
+      S2.hhaDates = {};
+      const realFetch = kitchen.window.Native.fetch;
+      kitchen.window.Native.fetch = function (id, url) {
+        if (/\/9000\d+-a-picture/.test(url)) return;        // an item page that never answers
+        return realFetch.call(this, id, url);
+      };
+      const began = Date.now();
+      const bell2 = new Promise((r) => setTimeout(() => r('never settled'), 3000));
+      const got = await Promise.race([nd2.loadHHArchive([]), bell2]);
+      dates.routeMs = Date.now() - began;
+      dates.routeRows = got === 'never settled' ? [] : got;
+      kitchen.window.Native.fetch = realFetch;
+
+      /* And when they do come in, they go onto the list the app is showing - which is not
+         the list the fetch was given, because hhItems copied it on the way to the screen. */
+      S2.hhaDates = { 777: 'C1920s' };
+      nd2.S.by.hh = { items: nd2.hhItems([{ title: 'A picture', link: 'x', ref: '777',
+                                            kicker: 'Archive', year: 0 }]) };
+      nd2.hhaDatesArrived();
+      dates.arrived = nd2.S.by.hh.items[0];
+      S2.hhaDates = {};
+    }
 
     dates.held = JSON.parse(ls.getItem(nd2.HHA_DATES_KEY) || 'null');
     S2.hhaDates = {};
@@ -3447,21 +3655,29 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
 
     t.is(nd2.hhaDate('<html><body><p>Nothing here.</p></body></html>'), '',
       'a page with no date gives none');
+    // The table says it too, and has to be read the same way as the JSON-LD.
+    t.is(nd2.hhaDate('<html><body><table><tr><th>Date</th><td>Unknown</td></tr>'
+      + '</table></body></html>'), '', 'a table saying Unknown is not a date either');
+    t.is(nd2.hhaDate('<html><body><table><tr><th>Date</th><td>c1904</td></tr>'
+      + '</table></body></html>'), 'c1904', 'and one with a real date in it still is');
     t.is(nd2.hhaDate(''), '', 'and nothing gives nothing');
 
     /* The year inside the words, for sorting. No word boundary in front of the digits:
        the archive's commonest form has a letter on either side of the year. */
-    t.is(nd2.hhaDateYear('C1910s'), 1910, 'a decade reads as its first year');
-    t.is(nd2.hhaDateYear('c.1904'), 1904, 'and a circa year as that year');
-    t.is(nd2.hhaDateYear('1904'), 1904, 'a plain year as itself');
-    t.is(nd2.hhaDateYear('1900-1910'), 1900, 'a range as the year it starts');
-    t.is(nd2.hhaDateYear('Circa 1885'), 1885, 'and words in front of it make no difference');
-    t.is(nd2.hhaDateYear('Unknown'), 0, 'no year in the words, no year');
-    t.is(nd2.hhaDateYear(''), 0, 'nor in none');
+    t.is(nd2.hhaYear('C1910s'), 1910, 'a decade reads as its first year');
+    t.is(nd2.hhaYear('c.1904'), 1904, 'and a circa year as that year');
+    t.is(nd2.hhaYear('1904'), 1904, 'a plain year as itself');
+    t.is(nd2.hhaYear('1900-1910'), 1900, 'a range as the year it starts');
+    t.is(nd2.hhaYear('Circa 1885'), 1885, 'and words in front of it make no difference');
+    t.is(nd2.hhaYear('Unknown'), 0, 'no year in the words, no year');
+    t.is(nd2.hhaYear(''), 0, 'nor in none');
 
     /* Asked once, ever. Ten pictures are chosen by the day, so the cost is ten lookups on
        the first refresh of a morning and none for the rest of it. */
     t.is(dates.first[0].dated, 'C1910s', 'the picture carries the date it was given');
+    t.is(dates.carried.dated, 'C1910s',
+      'and keeps it through hhItems, which is the shape the rows are drawn from');
+    t.is(nd2.timeLabel(dates.carried), 'C1910s', 'so the row reads the archive\'s own words');
     t.is(dates.first[0].year, 1910, 'and the year inside it, for sorting');
     t.is(dates.first[1].dated, undefined, 'one with no date on its page carries none');
     t.is(dates.firstFetches, 2, 'each was asked once');
@@ -3493,6 +3709,29 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.ok(dates.hungMs < 2000, 'and quickly (' + dates.hungMs + 'ms)');
     t.is(dates.hungDated, undefined, 'the picture carries no date');
     t.is(dates.hungRemembered, false, 'and is not written down as having none');
+    t.is(dates.sulkedDated, undefined, 'a page that answered with an error gives no date');
+    t.is(dates.sulkedRemembered, false,
+      'and is not written off as dateless for good on the strength of one bad fetch');
+
+    // "Unknown" is the archive saying it does not know, not a date.
+    t.is(dates.vagueDated, undefined, 'a page that says Unknown gives no date');
+    t.is(dates.vagueRemembered, '', 'but is written down as asked, since it will not change');
+    t.is(nd2.hhaDated('Unknown'), '', 'Unknown is not a date');
+    t.is(nd2.hhaDated('unknown'), '', 'however it is capitalised');
+    t.is(nd2.hhaDated('n/a'), '', 'nor is n/a');
+    t.is(nd2.hhaDated('  '), '', 'nor is a blank');
+    t.is(nd2.hhaDated('C1910s'), 'C1910s', 'and a real one comes through as written');
+
+    /* Nothing waits on a date. The pictures go up and the dates land under them. */
+    t.is(dates.routeRows.length, 3, 'the pictures come back though no item page has answered');
+    t.ok(dates.routeMs < 2000,
+      'and without waiting on them (' + dates.routeMs + 'ms, with a ' + nd2.HHA_DATE_WAIT
+      + 'ms deadline on each)');
+    t.ok(dates.routeRows.every((x) => !x.dated), 'undated for now, as they must be');
+
+    // And when an answer does arrive, it reaches the rows the app is drawing.
+    t.is(dates.arrived.dated, 'C1920s', 'a date that lands later goes onto the row on screen');
+    t.is(dates.arrived.year, 1920, 'with the year inside it');
 
     t.ok(dates.capped <= nd2.HHA_DATES_KEEP,
       'the cache is bounded (' + dates.capped + ' of ' + (nd2.HHA_DATES_KEEP + 20) + ' offered)');
