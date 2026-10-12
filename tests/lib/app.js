@@ -39,7 +39,9 @@ async function boot(opts) {
     .replace(/<link[^>]*fonts\.(googleapis|gstatic)[^>]*>/g, '');
 
   const errors = [];
-  const calls = { fetched: [], posted: [], notified: [], scraped: [], widget: [], shared: [], diaried: [], themed: [], buzzed: [], spoken: [], hushed: 0, voiceSettings: 0 };
+  const calls = { fetched: [], posted: [], notified: [], scraped: [], widget: [], shared: [], diaried: [], themed: [], buzzed: [], spoken: [], hushed: 0, voiceSettings: 0, keysSaved: [] };
+  // What Kotlin is holding on the device's behalf, outside the page's own storage.
+  const kept = { ppq: String(o.ppqKey || '') };
   let nd = null;
 
   const dom = new JSDOM(html, {
@@ -106,6 +108,16 @@ async function boot(opts) {
           calls.voiceSettings++;
           return o.voiceSettings === undefined ? true : !!o.voiceSettings;
         },
+        /* The key, kept where Kotlin keeps it - a store outside this page, which both the
+           app and the background job read. o.ppqKey seeds it; the page writes through. */
+        ppqKey() { return kept.ppq; },
+        setPpqKey(k) {
+          if (o.setPpqKey === false) return false;      // a build too old to keep one
+          kept.ppq = String(k || '').trim();
+          calls.keysSaved.push(kept.ppq);
+          return true;
+        },
+        clip() { return String(o.clip || ''); },
         scrape(url) {
           calls.scraped.push(url);
           setTimeout(() => w.__scrapeDone('[]', '[]'), 1);
