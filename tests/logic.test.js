@@ -289,6 +289,120 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
      "Last attempt at 12:37 failed: Key limit exceeded (total limit)", and 6 of the day's 8
      paid calls were gone by lunchtime - so the evening edition could never be written even
      if the key were topped up at two. A key that has refused once will refuse again. */
+  /* The key used to arrive baked into the build, from a GitHub secret - which puts it
+     inside every APK that build produces, and on a public repository that is a key anyone
+     can download and spend. Typed in on the device instead, the artifact carries none. */
+  const keys = {};
+  {
+    /* A build that still has a key baked in, and a key typed into the device as well.
+       Both at once is the state every existing install is in the moment this ships. */
+    const typed = await boot({ settle: 400, device: 'touch', ppqKey: '  sk-typed-aaaaWXYZ  ',
+                               config: { ppqKey: 'sk-built-in-5555IJKL', ppqModel: 'claude-sonnet-5' } });
+    keys.typedUsed = typed.nd.CFG.ppqKey;
+    keys.typedFrom = typed.nd.CFG.ppqFrom;
+
+    // Saving one, and what the app does with it afterwards.
+    keys.saved = typed.nd.savePpqKey('  sk-new-0000MNOP\n');
+    keys.afterSave = typed.nd.CFG.ppqKey;
+    keys.afterSaveFrom = typed.nd.CFG.ppqFrom;
+    keys.written = typed.calls.keysSaved[typed.calls.keysSaved.length - 1];
+
+    /* Clearing it falls back to whatever was built in. There is none in the repo, so here
+       that means the briefing goes off - which is the only way to turn it off without a
+       rebuild, and has to work. */
+    /* Clearing back to the built-in key must not then spend a call on it. With a build
+       that still carries one there is a working key the moment you clear, and forcing a
+       refresh there is a paid call nobody asked for. */
+    typed.nd.S.forceBrief = false;
+    typed.window.document.getElementById('pkInput').value = '   ';
+    typed.nd.keepKey();
+    keys.clearForced = typed.nd.S.forceBrief;
+    keys.fellBack = typed.nd.CFG.ppqKey;
+    keys.fellBackFrom = typed.nd.CFG.ppqFrom;
+
+    // And with nothing built in - which is the state the repo is in - clearing leaves none.
+    const only = await boot({ settle: 300, device: 'touch', ppqKey: 'sk-only-3333EFGH' });
+    keys.onlyFrom = only.nd.CFG.ppqFrom;
+    only.nd.savePpqKey('');
+    keys.cleared = only.nd.CFG.ppqKey;
+    keys.clearedFrom = only.nd.CFG.ppqFrom;
+    if (only.close) only.close();
+
+    // A build whose bridge is too old to keep one says so rather than pretending.
+    const old = await boot({ settle: 300, device: 'touch', setPpqKey: false });
+    keys.refused = old.nd.savePpqKey('sk-nope');
+    keys.refusedKey = old.nd.CFG.ppqKey;
+    if (old.close) old.close();
+
+    // The clipboard, which is where a key copied off ppq.ai already is.
+    const pasting = await boot({ settle: 300, device: 'touch', clip: '  sk-clip-1111QRST  ' });
+    pasting.nd.openKeys();
+    pasting.nd.pasteKey();
+    keys.pasted = pasting.window.document.getElementById('pkInput').value;
+    keys.pastedMode = pasting.nd.S.mode;
+    /* The box never shows the key back, on any screen: a key is four characters of
+       recognisable and forty-six of nothing, and a screen is a thing people photograph. */
+    pasting.nd.savePpqKey('sk-already-9999ABCD');
+    pasting.nd.closeKeys();
+    pasting.nd.openKeys();
+    keys.reopenedValue = pasting.window.document.getElementById('pkInput').value;
+    keys.reopenedHint = pasting.window.document.getElementById('pkInput').placeholder;
+
+    // Keeping it closes the screen and asks for an edition at once.
+    pasting.window.document.getElementById('pkInput').value = 'sk-kept-2222UVWX';
+    pasting.nd.keepKey();
+    keys.keptMode = pasting.nd.S.mode;
+    keys.keptForced = pasting.nd.S.forceBrief;
+    keys.keptKey = pasting.nd.CFG.ppqKey;
+    if (pasting.close) pasting.close();
+
+    const none = await boot({ settle: 300, device: 'touch' });
+    keys.noneFrom = none.nd.CFG.ppqFrom;
+    keys.offered = none.nd.SHEET_ACTS.filter((a) => !a.when || a.when())
+      .map((a) => (typeof a.label === 'function' ? a.label() : a.label));
+    if (none.close) none.close();
+    if (typed.close) typed.close();
+  }
+
+  suite('The key is the device\'s, not the build\'s', (t) => {
+    t.is(keys.typedUsed, 'sk-typed-aaaaWXYZ',
+      'with a key built in and a key typed in, the typed one is used');
+    t.is(keys.typedFrom, 'device', 'and the app knows which of them it is on');
+    t.is(keys.onlyFrom, 'device', 'a typed key with nothing built in is still the device\'s');
+    t.is(keys.noneFrom, '', 'with nothing typed in and none built in, there is no key at all');
+
+    t.is(keys.saved, true, 'a new key can be kept');
+    t.is(keys.written, 'sk-new-0000MNOP', 'trimmed on the way in');
+    t.is(keys.afterSave, 'sk-new-0000MNOP', 'and used from that moment');
+    t.is(keys.afterSaveFrom, 'device', 'still the device\'s');
+
+    /* Clearing is the way back to a built-in key, which is what makes this safe to ship
+       to a build that has one: type one in, and if it is wrong, clear it and you are
+       back where you were without a rebuild. */
+    t.is(keys.fellBack, 'sk-built-in-5555IJKL', 'clearing a typed key falls back to the built-in one');
+    t.is(keys.clearForced, false,
+      'and does not spend a paid call on the key it fell back to');
+    t.is(keys.fellBackFrom, 'build', 'and says so, so you know the build still carries one');
+    t.is(keys.cleared, '', 'with none built in, clearing leaves none');
+    t.is(keys.clearedFrom, '', 'and nothing claiming to be one');
+
+    t.is(keys.refused, false, 'a build that cannot keep a key says so');
+    t.is(keys.refusedKey, '', 'and does not pretend to be using one');
+
+    t.is(keys.pasted, 'sk-clip-1111QRST', 'Paste fills the box from the clipboard, trimmed');
+    t.is(keys.pastedMode, 'key', 'which happens on the key screen');
+    t.is(keys.reopenedValue, '', 'the box never shows a key back');
+    t.ok(/ABCD$/.test(keys.reopenedHint) && !/9999/.test(keys.reopenedHint),
+      'only its last four, enough to tell one key from another (' + keys.reopenedHint + ')');
+
+    t.is(keys.keptMode, 'home', 'keeping one closes the screen');
+    t.is(keys.keptKey, 'sk-kept-2222UVWX', 'with the key in hand');
+    t.is(keys.keptForced, true,
+      'and asks for an edition at once rather than leaving you to wonder until the evening');
+
+    t.ok(keys.offered.some((l) => /key/i.test(l)), 'the panel offers a way in');
+  });
+
   suite('When PPQ says no', (t) => {
     t.is(nd.ppqDead('Key limit exceeded (total limit). Manage it using https://ppq.ai/keys'), true,
       'a key that has hit its limit will say the same thing on the next call');

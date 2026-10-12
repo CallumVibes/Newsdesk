@@ -54,6 +54,7 @@ const STUB = `
     keepAwake() {}, exit() {}, briefDone() {}, briefSave() {},
     share() { return true; }, calendar() { return true; },
     speak() { return true; }, hush() {}, haptic() {}, theme() {},
+    ppqKey() { return ''; }, setPpqKey() { return true; }, clip() { return ''; },
     scrape() { setTimeout(() => window.__scrapeDone('[]', '[]'), 1); },
     fetch(id) { setTimeout(() => window.__nativeResolve(id, false, 599, ''), 1); },
     post(id) { setTimeout(() => window.__nativeResolve(id, false, 599, ''), 1); }
@@ -80,6 +81,7 @@ function sheet() {
       .map(function (c) { return c.textContent.trim(); }),
     // A foot taller than the room reserved for it sits on top of the list behind it
     overlapsList: fr.top < wr.bottom - 1,
+    footH: Math.round(fr.height),
     footRows: (function () {
       var tops = [].slice.call(acts.children).filter(vis)
         .map(function (c) { return Math.round(c.getBoundingClientRect().top); });
@@ -103,6 +105,7 @@ async function briefError(browser, opts) {
     const nd = window.ndApi, day = nd.dayKey(Date.now());
     // config.js carries no key in the repo, so the panel would otherwise say it is off.
     nd.CFG.ppqKey = 'sk-ppq-testkeyNOnw';
+    nd.CFG.ppqFrom = 'device';
     nd.S.brief = { error: err, tried: Date.now(), deadDay: day, countDay: day, count: 6,
                    headline: 'A quiet morning', paragraphs: ['One.'], at: Date.now(),
                    slotName: 'Afternoon briefing', slotKey: 'x', model: 'claude-sonnet-5' };
@@ -951,6 +954,12 @@ async function stripFade(browser) {
       t.ok(/run out/.test(b.text), k + ': with what it means said plainly');
       t.ok(/Refresh all asks anyway/.test(b.text),
         k + ': and that it has stopped asking, but a refresh by hand still will');
+      /* Which of the two keys is in use. There can be one built into the app and one
+         typed into the device, and the point of typing one in is that the built-in one
+         can then come out of the build - which you cannot do safely without being told
+         which one the app is actually on. */
+      t.ok(/typed into this device/.test(b.text),
+        k + ': and which key it is using, the typed one here');
     });
   });
 
@@ -1034,6 +1043,12 @@ async function stripFade(browser) {
       t.same(p.hidden, [], k + ': and none of them hidden');
       t.ok(p.labels.some((l) => /theme/i.test(l)), k + ': the theme can be changed from here');
       t.ok(p.labels.some((l) => /refresh/i.test(l)), k + ': and everything refreshed by hand');
+      t.ok(p.labels.some((l) => /key/i.test(l)), k + ': and the PPQ key set from here');
+      /* The room kept for the foot is measured now rather than written into the
+         stylesheet, because a fourth button pushes Close onto a second row and the
+         number in the stylesheet knew nothing about that - the foot then covered the
+         last two lines of the panel, which on this screen is where the briefing's
+         failure is written. */
       t.is(p.overlapsList, false, k + ': and the foot does not sit on top of the list');
     });
     // A phone has a magnifier in the header already; the remote has nothing.
@@ -1042,6 +1057,9 @@ async function stripFade(browser) {
     t.not(seen.pixel.sheet.labels.some((l) => /search/i.test(l)),
       'a phone is not offered it twice');
     t.is(seen.pixel.sheet.footRows, 1, 'and its buttons sit on one row');
+    t.ok(seen.pixel.sheet.footH >= 70,
+      'the phone\'s foot is two rows deep now, Close having been pushed off the button row ('
+        + seen.pixel.sheet.footH + 'px)');
   });
 
   suite('Nothing else moved to make room', (t) => {
