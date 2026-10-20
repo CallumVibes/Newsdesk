@@ -39,7 +39,7 @@ async function boot(opts) {
     .replace(/<link[^>]*fonts\.(googleapis|gstatic)[^>]*>/g, '');
 
   const errors = [];
-  const calls = { fetched: [], posted: [], notified: [], scraped: [], widget: [], shared: [], diaried: [], themed: [], buzzed: [], spoken: [], hushed: 0, voiceSettings: 0, keysSaved: [] };
+  const calls = { fetched: [], posted: [], notified: [], scraped: [], widget: [], widgetFeed: [], widgetHist: [], shared: [], diaried: [], themed: [], buzzed: [], spoken: [], hushed: 0, voiceSettings: 0, keysSaved: [] };
   // What Kotlin is holding on the device's behalf, outside the page's own storage.
   const kept = { ppq: String(o.ppqKey || '') };
   let nd = null;
@@ -93,6 +93,13 @@ async function boot(opts) {
         briefSave(json) {
           // What the home screen widget would be handed, parsed as Kotlin parses it
           try { calls.widget.push(JSON.parse(json)); } catch (e) { calls.widget.push({ bad: json }); }
+        },
+        /* The other two widgets, pushed the same way when a refresh settles. */
+        feedSave(json) {
+          try { calls.widgetFeed.push(JSON.parse(json)); } catch (e) { calls.widgetFeed.push({ bad: json }); }
+        },
+        histSave(json) {
+          try { calls.widgetHist.push(JSON.parse(json)); } catch (e) { calls.widgetHist.push({ bad: json }); }
         },
         /* The voice. o.speak decides what the device answers: true is an engine that
            took it, false is a device with none. Nothing is spoken here, so the page's
