@@ -4464,6 +4464,70 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.is(priceChain.zeroRate.v, 0.79, 'a rate of zero passed over rather than taken');
   });
 
+  /* ------------------------------------------------------- The other widgets */
+  /* A widget draws whatever the page last handed over, so what is handed over is
+     the part worth checking: the right stories, in the right order, and nothing
+     that would leave an empty frame on a home screen. */
+  suite('What the home screen is handed', (t) => {
+    const now = Date.now();
+    const was = nd.S.by;
+    nd.S.by = {
+      cw: { items: [story({ src: 'cw', id: 'cw:1', title: 'Oil retreat drives bonds', date: now - 60e3 })] },
+      kg: { items: [story({ src: 'kg', id: 'kg:1', title: 'Bank holds rates', kicker: 'UK', date: now - 2 * HOUR })] },
+      hh: { items: [
+        story({ src: 'hh', id: 'hh:1', title: 'Old Bridge, aerial view', image: 'https://x/1.jpg', date: 0 }),
+        story({ src: 'hh', id: 'hh:2', title: 'No picture here', image: '', date: 0 })
+      ] }
+    };
+    nd.S.by.hh.items[0].year = 1900;
+
+    const feedBefore = calls.widgetFeed.length, histBefore = calls.widgetHist.length;
+    nd.widgetPush();
+    const feed = calls.widgetFeed[calls.widgetFeed.length - 1];
+    const hist = calls.widgetHist[calls.widgetHist.length - 1];
+
+    t.is(calls.widgetFeed.length, feedBefore + 1, 'the headlines are pushed');
+    t.is(feed.items.length, 2, 'both news stories go, and only those');
+    t.is(feed.items[0].id, 'cw:1', 'newest first');
+    t.is(feed.items[0].src, 'Citadel Wire', 'the source is named rather than coded');
+    t.is(feed.items[1].kicker, 'UK', 'the kicker rides along, since a row shows it');
+    t.is(feed.items.filter((x) => x.id.indexOf('hh:') === 0).length, 0,
+      'an archive row from 1900 is not one of today\'s headlines');
+
+    t.is(calls.widgetHist.length, histBefore + 1, 'the archive is pushed too');
+    t.is(hist.items.length, 1, 'only the ones that have a photograph');
+    t.is(hist.items[0].year, 1900, 'with the year, which is what the frame shows');
+
+    // Nothing to send beats sending nothing over something good
+    nd.S.by = { cw: { items: [] } };
+    const n = calls.widgetFeed.length;
+    nd.widgetPush();
+    t.is(calls.widgetFeed.length, n, 'an empty list is not pushed over a good one');
+    nd.S.by = was;
+  });
+
+  /* A headline tapped on the home screen names the story it is, and the app opens
+     that one - even when the tap arrives before the sources have landed. */
+  suite('A headline tapped on the home screen', (t) => {
+    const was = nd.S.by;
+    nd.S.by = { cw: { items: [story({ src: 'cw', id: 'cw:7', title: 'A story to open' })] } };
+
+    nd.S.openWanted = { id: 'cw:7', at: Date.now() };
+    t.is(nd.tryOpenWanted(), true, 'opens the story it names');
+    t.is(nd.S.mode, 'reader', 'which is to say the reader is up');
+    t.is(nd.S.openWanted, null, 'and it is not opened a second time');
+    nd.closeReader();
+
+    nd.S.openWanted = { id: 'cw:nothing-yet', at: Date.now() };
+    t.is(nd.tryOpenWanted(), false, 'a story not yet landed opens nothing');
+    t.ok(nd.S.openWanted, 'and waits for the sources instead');
+
+    nd.S.openWanted = { id: 'cw:7', at: Date.now() - nd.OPEN_HOLD_MS - 1e3 };
+    t.is(nd.tryOpenWanted(), false, 'a tap from too long ago is let go');
+    t.is(nd.S.openWanted, null, 'rather than opening a story by itself later');
+    nd.S.by = was;
+  });
+
   return run('Newsdesk logic').then(() => {
     close();                       // stop the page's clock, or node never gets to exit
     phone.close();

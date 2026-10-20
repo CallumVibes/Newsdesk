@@ -31,13 +31,18 @@ suite('Everything the build needs is there', (t) => {
     'app/src/main/assets/manifest.webmanifest', 'app/src/main/assets/sw.js',
     'app/src/main/assets/icon-192.png', 'app/src/main/assets/icon-512.png',
     KT + 'MainActivity.kt', KT + 'Net.kt', KT + 'Briefings.kt',
-    KT + 'Widget.kt',
+    KT + 'Widget.kt', KT + 'WidgetFeed.kt', KT + 'WidgetHistory.kt',
     'app/src/main/res/drawable/icon.png', 'app/src/main/res/drawable/banner.png',
     'app/src/main/res/drawable/notify.png', 'app/src/main/res/drawable/widget_bg.xml',
+    'app/src/main/res/drawable/widget_refresh.png',
     'app/src/main/res/drawable-v31/widget_bg.xml', 'app/src/main/res/values/strings.xml',
     'app/src/main/res/xml/briefing_widget.xml',
+    'app/src/main/res/xml/headlines_widget.xml', 'app/src/main/res/xml/onthisday_widget.xml',
     'app/src/main/res/layout/widget_briefing.xml', 'app/src/main/res/layout/widget_paragraph.xml',
-    'app/src/main/res/layout/widget_preview.xml'
+    'app/src/main/res/layout/widget_preview.xml',
+    'app/src/main/res/layout/widget_headlines.xml', 'app/src/main/res/layout/widget_headline_row.xml',
+    'app/src/main/res/layout/widget_onthisday.xml',
+    'app/src/main/res/layout/widget_preview_feed.xml', 'app/src/main/res/layout/widget_preview_hist.xml'
   ].forEach((f) => t.ok(has(f), f + ' is in the tarball'));
 });
 
@@ -142,7 +147,8 @@ const KOTLIN_FREE = new Set([
 ]);
 
 suite('Every Kotlin name is one the compiler will find', (t) => {
-  const files = ['MainActivity.kt', 'Net.kt', 'Briefings.kt', 'Widget.kt'];
+  const files = ['MainActivity.kt', 'Net.kt', 'Briefings.kt', 'Widget.kt',
+    'WidgetFeed.kt', 'WidgetHistory.kt'];
   // Anything declared anywhere in the package is reachable from anywhere else in it.
   const inPackage = new Set(['R']);
   const bodies = {};
@@ -245,7 +251,11 @@ const REMOTE_VIEWS_OK = [
   'TextView', 'TextClock', 'ViewFlipper', 'ListView', 'GridView', 'StackView',
   'AdapterViewFlipper', 'ViewStub'
 ];
-const WIDGET_LAYOUTS = ['widget_briefing', 'widget_paragraph', 'widget_preview'];
+const WIDGET_LAYOUTS = [
+  'widget_briefing', 'widget_paragraph', 'widget_preview',
+  'widget_headlines', 'widget_headline_row', 'widget_preview_feed',
+  'widget_onthisday', 'widget_preview_hist'
+];
 
 suite('The widget layouts are ones a launcher can draw', (t) => {
   WIDGET_LAYOUTS.forEach((name) => {
@@ -259,42 +269,104 @@ suite('The widget layouts are ones a launcher can draw', (t) => {
   });
 });
 
-suite('The widget is wired up end to end', (t) => {
+/* The three of them: the briefing, the headlines, and the archive photograph. Each
+   is a provider in the manifest, a description in res/xml, and a layout - and a
+   missing one of those is a widget that never appears in the picker, with nothing
+   said about why. */
+const WIDGETS = [
+  { kt: 'Widget.kt', cls: 'BriefingWidget', info: 'briefing_widget', svc: 'BriefingWidgetService' },
+  { kt: 'WidgetFeed.kt', cls: 'HeadlinesWidget', info: 'headlines_widget', svc: 'HeadlinesWidgetService' },
+  { kt: 'WidgetHistory.kt', cls: 'OnThisDayWidget', info: 'onthisday_widget', svc: null }
+];
+
+suite('Every widget is wired up end to end', (t) => {
   const m = read('app/src/main/AndroidManifest.xml');
-  t.ok(/<receiver[\s\S]{0,400}\.BriefingWidget[\s\S]{0,400}APPWIDGET_UPDATE/.test(m),
-    'the provider is declared and listens for the launcher\'s update');
-  t.ok(/android\.appwidget\.provider"[\s\S]{0,120}@xml\/briefing_widget/.test(m),
-    'and points at its own description');
-  t.ok(/<receiver[\s\S]{0,200}\.BriefingWidget[\s\S]{0,200}android:exported="true"/.test(m),
-    'exported, since the launcher is another app');
-  t.ok(/<service[\s\S]{0,200}\.BriefingWidgetService[\s\S]{0,200}BIND_REMOTEVIEWS/.test(m),
-    'and the adapter service may only be bound by the system');
-
-  const info = read('app/src/main/res/xml/briefing_widget.xml');
-  ['initialLayout', 'previewLayout'].forEach((k) => {
-    const at = info.match(new RegExp('android:' + k + '="@layout/([a-z_]+)"'));
-    t.ok(at, k + ' is set');
-    if (at) t.ok(has('app/src/main/res/layout/' + at[1] + '.xml'), k + ' names a layout that exists');
-  });
-  // Zero on purpose: the page pushes an update when it saves, so polling would only
-  // cost battery to find nothing had changed. Changing it should be a decision.
-  t.ok(/android:updatePeriodMillis="0"/.test(info), 'and the system is not asked to poll');
-
-  // R.id.x compiles whatever layout it came from, so a renamed id fails silently.
-  const kt = read(KT + 'Widget.kt');
-  const ids = Array.from(new Set((kt.match(/R\.id\.([a-z_]+)/g) || []).map((x) => x.slice(5))));
   const declared = new Set();
   WIDGET_LAYOUTS.forEach((name) => {
     (read('app/src/main/res/layout/' + name + '.xml').match(/@\+id\/([a-z_]+)/g) || [])
       .forEach((x) => declared.add(x.slice(5)));
   });
-  t.ok(ids.length >= 4, 'the widget addresses views by id');
-  ids.forEach((id) => t.ok(declared.has(id), 'R.id.' + id + ' is a view in one of the widget layouts'));
+
+  WIDGETS.forEach(({ kt, cls, info, svc }) => {
+    t.ok(new RegExp('<receiver[\\s\\S]{0,400}\\.' + cls + '[\\s\\S]{0,400}APPWIDGET_UPDATE').test(m),
+      cls + ' is declared and listens for the launcher\'s update');
+    t.ok(new RegExp('android\\.appwidget\\.provider"[\\s\\S]{0,160}@xml\\/' + info).test(m),
+      cls + ' points at its own description');
+    t.ok(new RegExp('<receiver[\\s\\S]{0,200}\\.' + cls + '[\\s\\S]{0,200}android:exported="true"').test(m),
+      cls + ' is exported, since the launcher is another app');
+    if (svc) {
+      t.ok(new RegExp('<service[\\s\\S]{0,200}\\.' + svc + '[\\s\\S]{0,200}BIND_REMOTEVIEWS').test(m),
+        svc + ' may only be bound by the system');
+    }
+
+    const xml = read('app/src/main/res/xml/' + info + '.xml');
+    ['initialLayout', 'previewLayout'].forEach((k) => {
+      const at = xml.match(new RegExp('android:' + k + '="@layout/([a-z_]+)"'));
+      t.ok(at, info + ': ' + k + ' is set');
+      if (at) t.ok(has('app/src/main/res/layout/' + at[1] + '.xml'), info + ': ' + k + ' names a layout that exists');
+    });
+    // Zero on purpose: the page pushes an update when it saves, so polling would only
+    // cost battery to find nothing had changed. Changing it should be a decision.
+    t.ok(/android:updatePeriodMillis="0"/.test(xml), info + ': the system is not asked to poll');
+
+    // R.id.x compiles whatever layout it came from, so a renamed id fails silently.
+    const src = read(KT + kt);
+    const ids = Array.from(new Set((src.match(/R\.id\.([a-z_]+)/g) || []).map((x) => x.slice(5))));
+    t.ok(ids.length >= 3, cls + ' addresses views by id');
+    ids.forEach((id) => t.ok(declared.has(id), kt + ': R.id.' + id + ' is a view in a widget layout'));
+
+    // Every drawable it names has to exist too, by any of the names a build accepts.
+    const draws = Array.from(new Set((src.match(/R\.drawable\.([a-z_0-9]+)/g) || []).map((x) => x.slice(11))));
+    draws.forEach((d) => {
+      const found = ['drawable/' + d + '.xml', 'drawable/' + d + '.png', 'drawable-v31/' + d + '.xml']
+        .some((p) => has('app/src/main/res/' + p));
+      t.ok(found, kt + ': R.drawable.' + d + ' exists');
+    });
+  });
 
   // The empty view has to be a sibling of the list, or it is never shown.
-  const page = read('app/src/main/res/layout/widget_briefing.xml');
-  t.ok(/@\+id\/widget_list/.test(page) && /@\+id\/widget_empty/.test(page),
-    'and the list and its empty view share a layout, as setEmptyView needs');
+  [['widget_briefing', 'widget_list', 'widget_empty'], ['widget_headlines', 'feed_list', 'feed_empty']]
+    .forEach(([name, list, empty]) => {
+      const lay = read('app/src/main/res/layout/' + name + '.xml');
+      t.ok(lay.indexOf('@+id/' + list) >= 0 && lay.indexOf('@+id/' + empty) >= 0,
+        name + ': the list and its empty view share a layout, as setEmptyView needs');
+    });
+});
+
+/* A widget is drawn from what the page last handed over, so the handing over is the
+   part that has to be right - in both directions, and in both Bridges. */
+suite('The widgets are fed by the page', (t) => {
+  const page = read(PAGE);
+  [['briefSave', 'BriefStore'], ['feedSave', 'FeedStore'], ['histSave', 'HistStore']]
+    .forEach(([call, store]) => {
+      t.ok(new RegExp('window\\.Native\\.' + call + '\\(').test(page), 'the page pushes through ' + call);
+      ['MainActivity.kt', 'Briefings.kt'].forEach((f) => {
+        const src = read(KT + f);
+        t.ok(new RegExp('fun ' + call + '\\(').test(src), f + ' answers ' + call);
+        t.ok(new RegExp(store + '\\.save\\(').test(src), f + ' puts it in ' + store);
+      });
+    });
+  // The headlines and the photographs are pushed once a refresh has settled, not on
+  // every source landing: nine sources would otherwise write the home screen nine times.
+  t.ok(/if \(!anyBusy\(\)\) \{[^}]*widgetPush\(\)/.test(page),
+    'and only once every source has landed');
+  t.ok(/function widgetPush\s*\(/.test(page) && /function widgetFeed\s*\(/.test(page) &&
+       /function widgetHistory\s*\(/.test(page), 'all three pushes are there');
+});
+
+/* Tapping a headline on the home screen should open that story, not just the app. */
+suite('A tapped headline opens its own story', (t) => {
+  const main = read(KT + 'MainActivity.kt');
+  const feed = read(KT + 'WidgetFeed.kt');
+  const page = read(PAGE);
+  t.ok(/const val EXTRA_ITEM/.test(main), 'the activity names the extra it listens for');
+  t.ok(/EXTRA_ITEM/.test(feed), 'and the row fills that same extra in');
+  t.ok(/override fun onNewIntent/.test(main), 'a tap while the app is open is picked up');
+  t.ok(/nd\.open\(/.test(main), 'and handed to the page');
+  t.ok(/open:\s*function \(id\)/.test(page), 'which has somewhere to put it');
+  // A template that is not mutable cannot be filled in, so every row opens the first story.
+  t.ok(/setPendingIntentTemplate\(R\.id\.feed_list/.test(feed), 'the list is given a template');
+  t.ok(/FLAG_MUTABLE/.test(read(KT + 'Widget.kt')), 'and a template stays mutable, or rows cannot fill it in');
 });
 
 suite('The build stays the build we can reason about', (t) => {
@@ -319,7 +391,7 @@ suite('The build stays the build we can reason about', (t) => {
 suite('No page freezes another page', (t) => {
   // Comments stripped first: both files say in prose why they no longer call it.
   const code = (s) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ');
-  const kt = ['MainActivity.kt', 'Briefings.kt', 'Widget.kt']
+  const kt = ['MainActivity.kt', 'Briefings.kt', 'Widget.kt', 'WidgetFeed.kt', 'WidgetHistory.kt']
     .filter((f) => has(KT + f)).map((f) => ({ f, src: code(read(KT + f)) }));
   t.ok(kt.length >= 2, 'the Kotlin is where it was');
   kt.forEach(({ f, src }) => {

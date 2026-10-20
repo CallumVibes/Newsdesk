@@ -505,21 +505,39 @@ paid calls, retries included.
 
 Optionally add a repository variable `PPQ_MODEL` to pick a model. The default is `claude-sonnet-4-5`.
 
-## Home screen widget (phone)
+## Home screen widgets (phone)
 
-Long-press the home screen, pick **Widgets**, then **Newsdesk briefing**. It shows the latest
-edition, its headline and all of its paragraphs, scrolled if it doesn't fit. Tap anywhere on it to
-open the app. It resizes in both directions, so it can be a two-line headline or half a screen.
+Long-press the home screen and pick **Widgets**. There are three, all of them resizable in both
+directions.
 
-The widget never fetches anything and never starts the app. The page hands each briefing over as it
-saves it — in the app or in the background job, which is the same code either way — and the widget
-draws whatever was last handed over. So the morning edition is on the home screen before the phone
-is picked up, and if nothing has been written yet the widget says so rather than sitting blank.
+**Newsdesk briefing** — the latest edition, its headline and all of its paragraphs, scrolled if
+they don't fit. Tap it to open the app.
 
-Its header carries the time the briefing was written, and the date too once it's yesterday's, so a
-stale briefing looks stale rather than current.
+**Headlines** — the most recent stories across the news sources, each with what it was filed
+under and how long ago it landed. Tap one and the app opens *that story*, not just the app.
 
-A Fire TV has no home screen widgets, so it simply never offers one.
+**On this day** — a photograph from the Herefordshire archive with its year and caption, turning
+over to a different one every three hours. Tap it to open the story behind it.
+
+None of them fetches anything, and none starts the app to draw itself. The page hands the briefing
+over as it saves it and the headlines and photographs as each refresh settles — in the app or in
+the background job, which is the same code either way — and each widget draws whatever was last
+handed over. So the morning edition is on the home screen before the phone is picked up, and if
+nothing has been written yet the widget says so rather than sitting blank.
+
+The one exception is the archive photograph itself, which is fetched by the app rather than the
+page: a widget is handed its picture down the same transaction that draws it, so what's kept is a
+copy cut to roughly the size of the frame rather than the original.
+
+### When the briefing is old
+
+The briefing widget says so. Under the headline it admits its age — *"3 days old · tap to
+update"* — and tapping that line, or the arrow in its corner, asks the background job for a new
+one and says *"Writing a new one…"* while it works. A briefing counts as current until the next
+edition is due, so at four in the morning last night's evening briefing is still the latest there
+is, and the widget treats it that way rather than calling it stale.
+
+A Fire TV has no home screen widgets, so it simply never offers any.
 
 **Keep this repo private.** The key is built into the APK.
 
