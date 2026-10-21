@@ -575,6 +575,33 @@ Android 13 and later ask permission the first time the app opens; refusing chang
 the briefings arrive silently. A television is watched rather than notified at, so it gets none. Turn
 them off like any other app's, under Briefings in Android's notification settings.
 
+### When no briefing arrives
+
+A background run has four limits to fit inside, and they have to nest. The page stops waiting at
+`BG_GIVE_UP_MS`; Kotlin destroys the WebView at `BriefingJob.GIVE_UP_MS`, which is the backstop and
+has to outlast it; a single PPQ request is allowed two minutes of its own in `Net.post`, with a chain
+of models behind it should the first name be refused; and Android gives a job around ten minutes in
+all. For a while they did not nest: the page gave up at three minutes, which is shorter than one of
+its own network timeouts, and nine sources have to settle before the request is even made. A run
+could give up with the reply that would have written the briefing still in flight, report that it
+had written nothing — correctly, as far as it knew — and be destroyed on the way past. No briefing,
+and no notification either, which looks exactly like a briefing that is only ever written on opening
+the app. The numbers live in three files and a test now does the arithmetic.
+
+`navigator.onLine` is a window's reading of its own connection, and the job's WebView has no window,
+so the no-signal shortcut in `refresh()` is skipped in the background. A false reading there ended a
+whole run in about a second, having fetched nothing and said nothing. The job asked the system for a
+network before it was allowed to start, which is the better authority.
+
+Because every one of those failures looks the same from the outside — no briefing, no notification —
+each run writes down what became of it, and the ☰ panel lists the last six under the briefing
+section: *"05:04 · wrote the morning briefing · 2m 41s"*, or *"gave up waiting"*, *"no PPQ key"*,
+*"this edition was already written"*, *"stopped by the system"*. The page says why where it can; a
+run that is cut off never says anything, so Kotlin writes that line instead, and whichever gets
+there first is the only one — one run, one line. Nothing shows until a background run has actually
+happened. It is the difference between *it never woke up* and *it woke up and ran out of time*,
+which want opposite fixes and were previously the same observation.
+
 Every edition is kept for four days, newest first, so this morning's is still there at teatime.
 Today's sit together under **Briefings** in the Today tab, each labelled with the edition it is;
 the ☰ panel lists everything held, including the previous few days'. An edition rewritten — by the
