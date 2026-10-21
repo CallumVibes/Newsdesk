@@ -667,6 +667,77 @@ suite('The reader\'s own text size is honoured', (t) => {
     'clamped, since it scales the words and not the boxes, and a TV has less room to give');
 });
 
+/* The app loads two kinds of page into a WebView: its own, out of the APK, and
+   somebody else's, off the internet. Only one of those may be allowed to call in. */
+suite('Nothing on a remote page can call into the app', (t) => {
+  // Comments stripped: the code below says in prose why it has no bridge, and the
+  // check is about what the compiler sees, not about the word appearing.
+  const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ');
+  const kt = strip(read(KT + 'MainActivity.kt'));
+  const from = kt.indexOf('private fun startScrape');
+  const scrape = kt.slice(from, kt.indexOf('private fun finishScrape'));
+  t.ok(from > 0, 'the rendered-page reader is where it was');
+
+  // The whole point. A bridge here is reachable by every script that page runs.
+  t.not(/addJavascriptInterface/.test(scrape),
+    'the WebView that loads somebody else\'s page is given no bridge');
+  t.not(/ScrapeBridge/.test(kt), 'and the class that was one is gone');
+  t.not(/Scrape\.done/.test(read('app/src/main/assets/extract.js')),
+    'so the script in that page has nothing to call');
+
+  // It is read instead, which is traffic one way only.
+  t.ok(/window\.__ndResult/.test(read('app/src/main/assets/extract.js')),
+    'the reader leaves its answer on the window');
+  t.ok(/evaluateJavascript\("window\.__ndResult/.test(kt), 'and the app comes and takes it');
+  t.ok(/private fun pollScrape/.test(kt), 'asking until it is there');
+  t.ok(/if \(token != scrapeToken\) return/.test(kt),
+    'and a late answer from a run already given up on is dropped');
+
+  // The app's own page, out of the APK, is the one that may call in.
+  t.ok(/web\.addJavascriptInterface\(Bridge\(\), "Native"\)/.test(kt),
+    'while the app\'s own page keeps its bridge');
+});
+
+/* The project lives as one base64 blob inside the workflow file. Git cannot diff
+   that, so it cannot conflict on it usefully: two branches that both changed the app
+   merge clean and one of them silently wins. app.manifest is the same tree said again
+   in a form git can read, so the collision lands there - on the lines for the files
+   both sides touched - instead of on nobody's screen. */
+suite('The blob has a readable shadow', (t) => {
+  const crypto = require('crypto');
+  const at = path.join(__dirname, '..', 'app.manifest');
+  t.ok(fs.existsSync(at), 'app.manifest is committed beside the workflow');
+  if (!fs.existsSync(at)) return;
+
+  const want = new Map();
+  fs.readFileSync(at, 'utf8').split('\n').forEach((line) => {
+    if (!line || line.charAt(0) === '#') return;
+    const sp = line.indexOf('  ');
+    if (sp > 0) want.set(line.slice(sp + 2), line.slice(0, sp));
+  });
+  t.ok(want.size > 20, 'and lists the files in the blob (' + want.size + ')');
+
+  // Every file in the blob, hashed as it actually is now.
+  const got = new Map();
+  (function walk(rel) {
+    fs.readdirSync(path.join(dir, rel) || dir, { withFileTypes: true }).forEach((e) => {
+      const r = rel ? rel + '/' + e.name : e.name;
+      if (e.isDirectory()) walk(r);
+      else got.set(r, crypto.createHash('sha256').update(fs.readFileSync(path.join(dir, r))).digest('hex'));
+    });
+  })('');
+
+  const missing = [...want.keys()].filter((f) => !got.has(f));
+  const extra = [...got.keys()].filter((f) => !want.has(f));
+  const changed = [...got.keys()].filter((f) => want.has(f) && want.get(f) !== got.get(f));
+
+  t.same(missing, [], 'nothing the manifest lists has gone from the blob');
+  t.same(extra, [], 'and nothing is in the blob that the manifest does not list');
+  t.same(changed, [],
+    'and every file matches its hash - if this fails, the app was repacked without ' +
+    'running tests/repack.sh, and the manifest no longer describes what ships');
+});
+
 suite('No key is committed', (t) => {
   const cfg = read('app/src/main/assets/config.js');
   t.ok(/ppqKey:\s*""/.test(cfg), 'config.js ships with an empty key, filled in from the secret');

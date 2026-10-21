@@ -458,6 +458,43 @@ units derived from the width of the screen, and at some multiple the two stop ag
 takes up to 130%; a television up to 115%, where the whole design is two fixed panes and the
 viewing distance is already doing the work of a larger size.
 
+## Reading somebody else's page
+
+One source needs its page rendered before it can be read, so the app loads it in a WebView of its
+own, injects `extract.js`, and takes the headlines out of the result.
+
+That WebView is handed **no bridge into the app**. It used to have one — a single method the
+injected script called to hand its list back — and the trouble with it was who else could call it.
+A bridge on that WebView is reachable by everything the page runs: the site's own scripts, its
+advertising, whatever its CDN served this morning. Any of them could have called that method
+first, with headlines and links of their own choosing, and they would have gone into the list as
+if the wire had published them.
+
+So the traffic only goes one way now. The script leaves its answer on the window and the app comes
+and reads it, every two-thirds of a second, until it is there or the attempt times out. Nothing in
+the page has anything to call.
+
+This does not make what is scraped *trustworthy* — it is that page's content, and that page
+decides what its content is. What it removes is the way into the app, which is a different thing
+and the one that would have grown teeth as soon as the bridge grew a second method.
+
+The app never opens a story's link as an intent either, so a scraped `javascript:` or `intent:`
+address has nothing to do: links are fetched and rendered as text, and shared only as text.
+
+## app.manifest
+
+The whole project lives as one base64 blob inside the workflow file, which git cannot diff — and
+therefore cannot usefully conflict on. Two branches that both change the app merge perfectly
+cleanly and one of them silently wins. That has already nearly happened once.
+
+`app.manifest` is the same tree said again in a form git *can* read: one sha256 and one path per
+line, written by `tests/repack.sh`. A collision now lands there, on the lines for the files both
+sides touched, where it has to be resolved by hand. `check-source.js` verifies it matches what is
+actually in the blob, so a repack that skipped the script fails the build rather than shipping a
+manifest that describes something else.
+
+Run `tests/repack.sh` before committing and this looks after itself.
+
 ## Tests
 
 ```sh
