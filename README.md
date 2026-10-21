@@ -458,6 +458,43 @@ units derived from the width of the screen, and at some multiple the two stop ag
 takes up to 130%; a television up to 115%, where the whole design is two fixed panes and the
 viewing distance is already doing the work of a larger size.
 
+## Reading somebody else's page
+
+One source needs its page rendered before it can be read, so the app loads it in a WebView of its
+own, injects `extract.js`, and takes the headlines out of the result.
+
+That WebView is handed **no bridge into the app**. It used to have one — a single method the
+injected script called to hand its list back — and the trouble with it was who else could call it.
+A bridge on that WebView is reachable by everything the page runs: the site's own scripts, its
+advertising, whatever its CDN served this morning. Any of them could have called that method
+first, with headlines and links of their own choosing, and they would have gone into the list as
+if the wire had published them.
+
+So the traffic only goes one way now. The script leaves its answer on the window and the app comes
+and reads it, every two-thirds of a second, until it is there or the attempt times out. Nothing in
+the page has anything to call.
+
+This does not make what is scraped *trustworthy* — it is that page's content, and that page
+decides what its content is. What it removes is the way into the app, which is a different thing
+and the one that would have grown teeth as soon as the bridge grew a second method.
+
+The app never opens a story's link as an intent either, so a scraped `javascript:` or `intent:`
+address has nothing to do: links are fetched and rendered as text, and shared only as text.
+
+## app.manifest
+
+The whole project lives as one base64 blob inside the workflow file, which git cannot diff — and
+therefore cannot usefully conflict on. Two branches that both change the app merge perfectly
+cleanly and one of them silently wins. That has already nearly happened once.
+
+`app.manifest` is the same tree said again in a form git *can* read: one sha256 and one path per
+line, written by `tests/repack.sh`. A collision now lands there, on the lines for the files both
+sides touched, where it has to be resolved by hand. `check-source.js` verifies it matches what is
+actually in the blob, so a repack that skipped the script fails the build rather than shipping a
+manifest that describes something else.
+
+Run `tests/repack.sh` before committing and this looks after itself.
+
 ## Tests
 
 ```sh
@@ -537,6 +574,33 @@ opens the app. One per edition, and never for an edition already written, so a r
 Android 13 and later ask permission the first time the app opens; refusing changes nothing except that
 the briefings arrive silently. A television is watched rather than notified at, so it gets none. Turn
 them off like any other app's, under Briefings in Android's notification settings.
+
+### When no briefing arrives
+
+A background run has four limits to fit inside, and they have to nest. The page stops waiting at
+`BG_GIVE_UP_MS`; Kotlin destroys the WebView at `BriefingJob.GIVE_UP_MS`, which is the backstop and
+has to outlast it; a single PPQ request is allowed two minutes of its own in `Net.post`, with a chain
+of models behind it should the first name be refused; and Android gives a job around ten minutes in
+all. For a while they did not nest: the page gave up at three minutes, which is shorter than one of
+its own network timeouts, and nine sources have to settle before the request is even made. A run
+could give up with the reply that would have written the briefing still in flight, report that it
+had written nothing — correctly, as far as it knew — and be destroyed on the way past. No briefing,
+and no notification either, which looks exactly like a briefing that is only ever written on opening
+the app. The numbers live in three files and a test now does the arithmetic.
+
+`navigator.onLine` is a window's reading of its own connection, and the job's WebView has no window,
+so the no-signal shortcut in `refresh()` is skipped in the background. A false reading there ended a
+whole run in about a second, having fetched nothing and said nothing. The job asked the system for a
+network before it was allowed to start, which is the better authority.
+
+Because every one of those failures looks the same from the outside — no briefing, no notification —
+each run writes down what became of it, and the ☰ panel lists the last six under the briefing
+section: *"05:04 · wrote the morning briefing · 2m 41s"*, or *"gave up waiting"*, *"no PPQ key"*,
+*"this edition was already written"*, *"stopped by the system"*. The page says why where it can; a
+run that is cut off never says anything, so Kotlin writes that line instead, and whichever gets
+there first is the only one — one run, one line. Nothing shows until a background run has actually
+happened. It is the difference between *it never woke up* and *it woke up and ran out of time*,
+which want opposite fixes and were previously the same observation.
 
 Every edition is kept for four days, newest first, so this morning's is still there at teatime.
 Today's sit together under **Briefings** in the Today tab, each labelled with the edition it is;

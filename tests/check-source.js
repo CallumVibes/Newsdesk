@@ -607,8 +607,15 @@ suite('A lost connection is handled as one thing', (t) => {
 
   // Nine sources timing out in turn costs a phone its battery and tells nobody anything.
   const fn = page.slice(page.indexOf('function refresh()'), page.indexOf('function anyBusy'));
-  t.ok(/if \(deviceOffline\(\)\) \{[\s\S]{0,160}return;/.test(fn),
+  t.ok(/if \(!BG && deviceOffline\(\)\) \{[\s\S]{0,160}return;/.test(fn),
     'a refresh with no network asks nobody');
+  // navigator.onLine is the window's reading of its own connection, and the briefing
+  // job's WebView has no window. A false reading there ended the whole run in a second,
+  // having fetched nothing, written nothing and said nothing - which is the failure this
+  // suite's own flag-believing rule above quietly introduced. The job had already asked
+  // the system for a network before it was allowed to start.
+  t.not(/if \(deviceOffline\(\)\)/.test(fn),
+    'but a background run does not consult a flag that cannot see a window');
 
   const st = page.slice(page.indexOf('function updateStatus()'), page.indexOf('function switchTab'));
   t.ok(/noConnection\(\)/.test(st), 'the status line says it once');
@@ -618,6 +625,85 @@ suite('A lost connection is handled as one thing', (t) => {
   t.ok(/addEventListener\('online'/.test(page), 'and it picks itself up when the signal returns');
   t.ok(/setTimeout\(function \(\) \{ if \(!deviceOffline\(\)\) refresh\(\); \}, \d+\)/.test(page),
     'after a moment, since the flag flips before the route is usable');
+});
+
+/*
+ * Four limits govern a briefing written while nobody is looking, and they have to nest:
+ * the page's own patience inside Kotlin's backstop, both of them longer than a single
+ * PPQ request is allowed to take, and all of it inside what Android gives a job.
+ *
+ * They did not nest. The page gave up at three minutes; one PPQ request is allowed two
+ * on its own; and nine sources have to settle before that request is even made. So a run
+ * could give up with the reply that would have written the briefing still in flight,
+ * report that it had written nothing - correctly, as far as it knew - and then be
+ * destroyed on the way past. No briefing, and no notification either, which from the
+ * only seat anyone sits in looks exactly like a briefing that is only ever written when
+ * the app is opened.
+ *
+ * An arithmetic check rather than a comment, because the four numbers live in three
+ * different files and nothing else in the project compares them.
+ */
+suite('A briefing has time to be written in the background', (t) => {
+  const ms = (s, re) => {
+    const m = s.match(re);
+    if (!m) return NaN;
+    // 7 * 60 * 1000, or 120_000L - arithmetic as written, with Kotlin's spelling removed
+    return Number(new vm.Script(m[1].replace(/[_L]/g, '')).runInNewContext({}));
+  };
+  const net = read(KT + 'Net.kt');
+  const page = ms(read(PAGE), /BG_GIVE_UP_MS = ([\d*\s]+);/);
+  const job = ms(read(KT + 'Briefings.kt'), /val GIVE_UP_MS = ([\d*\s_L]+)\n/);
+  const post = ms(net.slice(net.indexOf('fun post')), /readTimeout = ([\d_]+)/);
+
+  t.ok(page > 0 && job > 0 && post > 0, 'all three limits were found to compare');
+  t.ok(page < job, 'the page gives up before Kotlin does, so Kotlin is the backstop');
+  t.ok(page > post * 2,
+    'and the page allows a slow PPQ request and a second attempt, not less than one');
+  t.ok(job < 10 * 60 * 1000,
+    'while Kotlin stays inside the ten minutes Android allows a job');
+});
+
+/* A briefing that fails while nobody is looking used to leave no trace at all, so
+   "it never woke up" and "it woke up and ran out of time" were the same observation.
+   They want different fixes, so every run now says which it was. */
+suite('A background run says what became of it', (t) => {
+  const store = read(KT + 'Widget.kt');
+  t.ok(/fun logRun\(/.test(store), 'the store keeps a line per run');
+  t.ok(/fun runs\(/.test(store), 'and hands the lot back');
+  t.ok(/getString\(RUNS, "\[\]"\)/.test(store),
+    'defaulting to valid JSON, since the page parses whatever it is given');
+  t.ok(/\.commit\(\)/.test(store.slice(store.indexOf('fun logRun'))),
+    'written with commit, because a killed job is exactly when the line matters');
+
+  const job = read(KT + 'Briefings.kt');
+  t.ok(/fun briefDone\(wrote: Boolean, edition: String, headline: String, why: String\)/.test(job),
+    'the page is asked why, since out here every failure is the same silence');
+  t.ok(/fun briefLog\(\): String/.test(job), 'the job offers the log');
+  t.ok(/fun briefLog\(\): String/.test(read(KT + 'MainActivity.kt')),
+    'and so does the app, which is where it is actually read');
+
+  // The interesting runs are the ones that never report. Each way out has to write a line.
+  ['could not start', 'stopped by the system', 'no answer from the page'].forEach((w) => {
+    t.ok(job.indexOf('log("' + w + '")') > 0, 'a run that ' + w + ' still leaves a line');
+  });
+  // Checking a flag and then setting it is two steps, and the page reports on the
+  // bridge's thread while the give-up timer fires on the main one.
+  t.ok(/reported\.compareAndSet\(false, true\)/.test(job),
+    'and only the first of them wins, in one step, so one run is one line');
+  t.ok(/val reported = AtomicBoolean\(false\)/.test(job),
+    'which needs something a thread cannot be halfway through');
+
+  const page = read(PAGE);
+  t.ok(/function why\(b, wrote, ran\)/.test(page), 'the page works out its own reason');
+  t.ok(/if \(ran >= BG_GIVE_UP_MS\) return 'gave up waiting'/.test(page),
+    'and says so plainly when it simply ran out of time');
+  t.ok(/function renderBriefRuns\(box\)/.test(page), 'the sources panel shows the log');
+  // A bare string has a length, so it survives a truthiness check and then throws on
+  // forEach - taking the panel down over a log nobody asked to see.
+  t.ok(/if \(!Array\.isArray\(runs\) \|\| !runs\.length\) return;/.test(page),
+    'and insists on an array, not merely something with a length');
+  t.ok(page.indexOf('renderBriefRuns(box)') < page.indexOf('function renderBriefRuns'),
+    'from inside the briefing block, which is where someone would look for it');
 });
 
 /* The app is used on a phone with a screen reader as well as on a television with a
@@ -665,6 +751,77 @@ suite('The reader\'s own text size is honoured', (t) => {
   t.ok(/configuration\.fontScale/.test(kt), 'read from the configuration, where they set it');
   t.ok(/if \(isTv\) 115 else 130/.test(kt),
     'clamped, since it scales the words and not the boxes, and a TV has less room to give');
+});
+
+/* The app loads two kinds of page into a WebView: its own, out of the APK, and
+   somebody else's, off the internet. Only one of those may be allowed to call in. */
+suite('Nothing on a remote page can call into the app', (t) => {
+  // Comments stripped: the code below says in prose why it has no bridge, and the
+  // check is about what the compiler sees, not about the word appearing.
+  const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ');
+  const kt = strip(read(KT + 'MainActivity.kt'));
+  const from = kt.indexOf('private fun startScrape');
+  const scrape = kt.slice(from, kt.indexOf('private fun finishScrape'));
+  t.ok(from > 0, 'the rendered-page reader is where it was');
+
+  // The whole point. A bridge here is reachable by every script that page runs.
+  t.not(/addJavascriptInterface/.test(scrape),
+    'the WebView that loads somebody else\'s page is given no bridge');
+  t.not(/ScrapeBridge/.test(kt), 'and the class that was one is gone');
+  t.not(/Scrape\.done/.test(read('app/src/main/assets/extract.js')),
+    'so the script in that page has nothing to call');
+
+  // It is read instead, which is traffic one way only.
+  t.ok(/window\.__ndResult/.test(read('app/src/main/assets/extract.js')),
+    'the reader leaves its answer on the window');
+  t.ok(/evaluateJavascript\("window\.__ndResult/.test(kt), 'and the app comes and takes it');
+  t.ok(/private fun pollScrape/.test(kt), 'asking until it is there');
+  t.ok(/if \(token != scrapeToken\) return/.test(kt),
+    'and a late answer from a run already given up on is dropped');
+
+  // The app's own page, out of the APK, is the one that may call in.
+  t.ok(/web\.addJavascriptInterface\(Bridge\(\), "Native"\)/.test(kt),
+    'while the app\'s own page keeps its bridge');
+});
+
+/* The project lives as one base64 blob inside the workflow file. Git cannot diff
+   that, so it cannot conflict on it usefully: two branches that both changed the app
+   merge clean and one of them silently wins. app.manifest is the same tree said again
+   in a form git can read, so the collision lands there - on the lines for the files
+   both sides touched - instead of on nobody's screen. */
+suite('The blob has a readable shadow', (t) => {
+  const crypto = require('crypto');
+  const at = path.join(__dirname, '..', 'app.manifest');
+  t.ok(fs.existsSync(at), 'app.manifest is committed beside the workflow');
+  if (!fs.existsSync(at)) return;
+
+  const want = new Map();
+  fs.readFileSync(at, 'utf8').split('\n').forEach((line) => {
+    if (!line || line.charAt(0) === '#') return;
+    const sp = line.indexOf('  ');
+    if (sp > 0) want.set(line.slice(sp + 2), line.slice(0, sp));
+  });
+  t.ok(want.size > 20, 'and lists the files in the blob (' + want.size + ')');
+
+  // Every file in the blob, hashed as it actually is now.
+  const got = new Map();
+  (function walk(rel) {
+    fs.readdirSync(path.join(dir, rel) || dir, { withFileTypes: true }).forEach((e) => {
+      const r = rel ? rel + '/' + e.name : e.name;
+      if (e.isDirectory()) walk(r);
+      else got.set(r, crypto.createHash('sha256').update(fs.readFileSync(path.join(dir, r))).digest('hex'));
+    });
+  })('');
+
+  const missing = [...want.keys()].filter((f) => !got.has(f));
+  const extra = [...got.keys()].filter((f) => !want.has(f));
+  const changed = [...got.keys()].filter((f) => want.has(f) && want.get(f) !== got.get(f));
+
+  t.same(missing, [], 'nothing the manifest lists has gone from the blob');
+  t.same(extra, [], 'and nothing is in the blob that the manifest does not list');
+  t.same(changed, [],
+    'and every file matches its hash - if this fails, the app was repacked without ' +
+    'running tests/repack.sh, and the manifest no longer describes what ships');
 });
 
 suite('No key is committed', (t) => {

@@ -6,9 +6,9 @@ set -e
 root=$(cd "$(dirname "$0")/.." && pwd)
 src=${1:-$root/.newsdesk-unpacked}
 [ -d "$src" ] || { echo "No $src - run tests/unpack.sh first." >&2; exit 1; }
-python3 - "$src" "$root/.github/workflows/build-newsdesk.yml" <<'PY'
-import base64, io, os, sys, tarfile
-src, yml = sys.argv[1], sys.argv[2]
+python3 - "$src" "$root/.github/workflows/build-newsdesk.yml" "$root/app.manifest" <<'PY'
+import base64, hashlib, io, os, sys, tarfile
+src, yml, manifest = sys.argv[1], sys.argv[2], sys.argv[3]
 paths = []
 for dp, dn, fn in os.walk(src):
     dn.sort()
@@ -16,10 +16,12 @@ for dp, dn, fn in os.walk(src):
         paths.append(os.path.relpath(os.path.join(dp, f), src))
 paths.sort()
 buf = io.BytesIO()
+sums = []
 with tarfile.open(fileobj=buf, mode='w:gz', compresslevel=9) as tf:
     for rel in paths:
         ti = tarfile.TarInfo('./' + rel)
         data = open(os.path.join(src, rel), 'rb').read()
+        sums.append(hashlib.sha256(data).hexdigest() + '  ' + rel)
         ti.size = len(data)
         ti.uid = ti.gid = 0
         ti.uname = ti.gname = 'root'
@@ -33,6 +35,16 @@ start, end = "          base64 -d > src.tgz <<'B64END'\n", "          B64END\n"
 a = s.index(start) + len(start)
 z = s.index(end, a)
 open(yml, 'w').write(s[:a] + body + s[z:])
+
+# The project lives as one base64 blob, which git cannot diff and therefore cannot
+# conflict on usefully: two branches that both changed the app merge cleanly and one
+# of them silently wins. This is the same tree said again in a form git can read, so
+# the collision lands here instead - on the lines for the files both sides touched,
+# where it has to be resolved by hand rather than by whoever pushed second.
+open(manifest, 'w').write(
+    '# sha256 of every file inside the workflow blob. Written by tests/repack.sh.\n'
+    '# Here so that two branches changing the app collide visibly rather than quietly.\n'
+    + '\n'.join(sums) + '\n')
 print('packed %d files' % len(paths))
 PY
 tmp=$(mktemp -d)

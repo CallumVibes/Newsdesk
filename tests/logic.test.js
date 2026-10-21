@@ -4579,6 +4579,38 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     nd.S.fresh = wasFresh;
   });
 
+  /* A briefing written while nobody is looking either arrives or it does not, and when
+     it does not there was nothing anywhere to say why. "It never woke up" and "it woke
+     up and ran out of time" were the same observation from the only seat anyone sits in,
+     and they want completely different fixes. */
+  suite('The panel says what became of the background runs', (t) => {
+    const panel = () => {
+      halfDown.nd.openSheet();
+      return halfDown.window.document.getElementById('sheetBody').textContent;
+    };
+
+    halfDown.calls.runs = [];
+    t.not(/in the background, newest first/.test(panel()),
+      'a device that has never run one is told nothing about a history it has not got');
+
+    halfDown.calls.runs = [
+      '05:04 · wrote the morning briefing · 2m 41s',
+      'Tue 12:03 · gave up waiting · 7m 0s',
+      'Tue 05:03 · no PPQ key · 4s'
+    ];
+    const shown = panel();
+    t.ok(/in the background, newest first/.test(shown), 'and one that has, is told');
+    t.ok(/wrote the morning briefing · 2m 41s/.test(shown), 'the run that worked is named');
+    t.ok(/gave up waiting/.test(shown), 'and so, by name, is the run that ran out of time');
+    t.ok(/no PPQ key/.test(shown), 'and the one that never had anything to write with');
+    t.ok(shown.indexOf('wrote the morning') < shown.indexOf('gave up waiting'),
+      'in the order the store hands them over, which is newest first');
+
+    // Whatever Kotlin hands over, the panel is not the place to find out it was wrong.
+    halfDown.calls.runs = 'not json at all';
+    t.ok(typeof panel() === 'string', 'a store that answers with nonsense loses the log, not the panel');
+  });
+
   return run('Newsdesk logic').then(() => {
     close();                       // stop the page's clock, or node never gets to exit
     phone.close();

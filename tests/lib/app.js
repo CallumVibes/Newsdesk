@@ -39,7 +39,7 @@ async function boot(opts) {
     .replace(/<link[^>]*fonts\.(googleapis|gstatic)[^>]*>/g, '');
 
   const errors = [];
-  const calls = { fetched: [], posted: [], notified: [], scraped: [], widget: [], widgetFeed: [], widgetHist: [], shared: [], diaried: [], themed: [], buzzed: [], spoken: [], hushed: 0, voiceSettings: 0, keysSaved: [] };
+  const calls = { fetched: [], posted: [], notified: [], scraped: [], widget: [], widgetFeed: [], widgetHist: [], shared: [], diaried: [], themed: [], buzzed: [], spoken: [], hushed: 0, voiceSettings: 0, keysSaved: [], runs: (o.runs || []).slice() };
   // What Kotlin is holding on the device's behalf, outside the page's own storage.
   const kept = { ppq: String(o.ppqKey || '') };
   let nd = null;
@@ -82,7 +82,12 @@ async function boot(opts) {
         version: () => 'Newsdesk test',
         keepAwake(on) { calls.awake = !!on; },
         exit() { calls.exited = true; },
-        briefDone(wrote, edition, headline) { calls.notified.push({ wrote, edition, headline }); },
+        briefDone(wrote, edition, headline, why) {
+          calls.notified.push({ wrote, edition, headline, why });
+        },
+        // Mutable, so a test can change what the store holds and look again without
+        // booting a second page for it.
+        briefLog: () => JSON.stringify(calls.runs),
         theme(name) { calls.themed.push(name); },
         haptic(kind) { calls.buzzed.push(kind); },
         share(title, text, url) { calls.shared.push({ title, text, url }); return true; },
