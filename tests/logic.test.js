@@ -4528,6 +4528,57 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     nd.S.by = was;
   });
 
+  /* ------------------------------------------------------------- No signal */
+  /* The device flag only tells the truth one way round, so the rest is read off what
+     the sources did. Nine sources failing for one dead router is one problem. */
+  suite('When nothing can be reached', (t) => {
+    const was = nd.S.by, wasAt = nd.S.lastRefresh;
+
+    nd.S.by = {};
+    t.is(nd.allSourcesFailed(), false, 'nothing tried yet is not a verdict');
+
+    nd.S.by = { cw: { error: 'timed out', items: [] } };
+    t.is(nd.allSourcesFailed(), false, 'one source down is one source down');
+
+    nd.S.by = { cw: { error: 'timed out', items: [] }, kg: { error: 'timed out', items: [] } };
+    t.is(nd.allSourcesFailed(), true, 'two of two down reads as the connection');
+
+    nd.S.by = { cw: { error: 'timed out', items: [] }, kg: { at: Date.now(), items: [] } };
+    t.is(nd.allSourcesFailed(), false, 'and one answering settles it the other way');
+
+    // What the footer says instead of listing every source separately.
+    nd.S.by = { cw: { error: 'x', items: [] }, kg: { error: 'y', items: [] } };
+    nd.S.lastRefresh = 0;
+    t.ok(/nothing saved yet$/.test(nd.offlineLine()),
+      'with nothing in hand it says so: ' + nd.offlineLine());
+    nd.S.lastRefresh = Date.now() - 3 * HOUR;
+    t.ok(/last updated/.test(nd.offlineLine()),
+      'and with stories in hand it says how old they are: ' + nd.offlineLine());
+
+    nd.S.by = was;
+    nd.S.lastRefresh = wasAt;
+  });
+
+  /* A row is a label, an hour and a headline, which spoken one at a time arrive as
+     three unrelated things. */
+  suite('What a screen reader is told', (t) => {
+    const it = story({ src: 'kg', id: 'kg:spoken', kicker: 'UK', title: 'Bank holds rates',
+      date: Date.now() - 2 * HOUR });
+    const said = nd.rowLabel(it, false);
+    t.ok(/Bank holds rates$/.test(said), 'the headline ends it: ' + said);
+    t.ok(said.indexOf('UK') === 0, 'the category opens it, for a Kagi story');
+    t.ok(/\.\s/.test(said), 'and it is a sentence rather than a pile of scraps');
+
+    const wire = story({ src: 'cw', id: 'cw:spoken', kicker: '', title: 'Oil retreat', date: 0 });
+    t.is(nd.rowLabel(wire, false), 'Citadel Wire. Oil retreat',
+      'a story with no hour still reads as one');
+
+    const wasFresh = nd.S.fresh;
+    nd.S.fresh = { 'cw:spoken': 1 };
+    t.ok(nd.rowLabel(wire, false).indexOf('New, ') === 0, 'and unread is the first thing said');
+    nd.S.fresh = wasFresh;
+  });
+
   return run('Newsdesk logic').then(() => {
     close();                       // stop the page's clock, or node never gets to exit
     phone.close();

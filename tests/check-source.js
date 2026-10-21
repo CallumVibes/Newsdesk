@@ -593,6 +593,80 @@ suite('There are enough threads to fetch with', (t) => {
   t.not(/anyBusy\(\)/.test(st), 'rather than for every source in the app');
 });
 
+/* A dead router is one problem, not nine. The app has to say so, stop asking, and
+   pick itself up again without being told. */
+suite('A lost connection is handled as one thing', (t) => {
+  const page = read(PAGE);
+  t.ok(/function deviceOffline\s*\(/.test(page), 'the device flag is read');
+  t.ok(/navigator\.onLine === false/.test(page),
+    'and believed only when it says no, which is the half it gets right');
+  t.ok(/function allSourcesFailed\s*\(/.test(page),
+    'and every source failing is worked out separately, since the flag lies the other way');
+  t.ok(/tried >= 2 && tried === failed/.test(page),
+    'one source failing is one source failing, not the network');
+
+  // Nine sources timing out in turn costs a phone its battery and tells nobody anything.
+  const fn = page.slice(page.indexOf('function refresh()'), page.indexOf('function anyBusy'));
+  t.ok(/if \(deviceOffline\(\)\) \{[\s\S]{0,160}return;/.test(fn),
+    'a refresh with no network asks nobody');
+
+  const st = page.slice(page.indexOf('function updateStatus()'), page.indexOf('function switchTab'));
+  t.ok(/noConnection\(\)/.test(st), 'the status line says it once');
+  t.ok(st.indexOf('noConnection()') < st.indexOf('down.length'),
+    'before the list of sources that are all failing for the same reason');
+
+  t.ok(/addEventListener\('online'/.test(page), 'and it picks itself up when the signal returns');
+  t.ok(/setTimeout\(function \(\) \{ if \(!deviceOffline\(\)\) refresh\(\); \}, \d+\)/.test(page),
+    'after a moment, since the flag flips before the route is usable');
+});
+
+/* The app is used on a phone with a screen reader as well as on a television with a
+   remote, and those want opposite things from the focus. */
+suite('It can be used without looking at it', (t) => {
+  const page = read(PAGE);
+  const markup = page.slice(0, page.indexOf('<script src="config.js">'));
+
+  [['id="tabs"', 'role="tablist"'], ['id="list"', 'aria-label'], ['id="status"', 'aria-live'],
+   ['id="reader"', 'aria-modal'], ['id="sheet"', 'aria-modal'], ['id="lens"', 'aria-modal']]
+    .forEach(([what, want]) => {
+      const line = markup.split('\n').find((l) => l.indexOf(what) >= 0) || '';
+      t.ok(line.indexOf(want) >= 0, what + ' carries ' + want);
+    });
+
+  // The status line is the one thing that changes under the reader without being asked for.
+  t.ok(/id="status" role="status" aria-live="polite"/.test(markup),
+    'and the status line is announced rather than waited on');
+
+  // A row is three scraps on screen and should be one sentence spoken.
+  t.ok(/function rowLabel\s*\(/.test(page), 'a row has a spoken form of its own');
+  t.ok(/function markRow\s*\(/.test(page) && /markRow\(li, it, single\)/.test(page),
+    'which is put on the row when it is built');
+  t.ok((page.match(/markRow\(li, it, single\)/g) || []).length >= 2,
+    'and again when a pooled row is reused for another story');
+  // The hour is in the spoken form too, so the minute hand has to move both.
+  const from = page.indexOf('function renderListAgesOnly');
+  const ages = page.slice(from, page.indexOf('\n}', from));
+  t.ok(/setAttribute\('aria-label', rowLabel/.test(ages),
+    'and the hour is kept in step in both');
+
+  // A television moves a cursor of its own; a second one from the browser fights it.
+  t.ok(/function focusInto\s*\(/.test(page) && /if \(!TOUCH\) return;/.test(page),
+    'focus is only moved on a touch device');
+  t.ok(/focusInto\('rdTitle'\)/.test(page) && /focusInto\('sheetTitle'\)/.test(page),
+    'into the reader and the panel when they open');
+  t.ok(/function focusBackToRow\s*\(/.test(page), 'and back to the row they were opened from');
+});
+
+/* Somebody who has set large text on their phone has already answered this question. */
+suite('The reader\'s own text size is honoured', (t) => {
+  const kt = read(KT + 'MainActivity.kt');
+  t.ok(/s\.textZoom = textScale\(\)/.test(kt), 'the WebView takes the system scale');
+  t.not(/s\.textZoom = 100\b/.test(kt), 'rather than pinning it over the top of their choice');
+  t.ok(/configuration\.fontScale/.test(kt), 'read from the configuration, where they set it');
+  t.ok(/if \(isTv\) 115 else 130/.test(kt),
+    'clamped, since it scales the words and not the boxes, and a TV has less room to give');
+});
+
 suite('No key is committed', (t) => {
   const cfg = read('app/src/main/assets/config.js');
   t.ok(/ppqKey:\s*""/.test(cfg), 'config.js ships with an empty key, filled in from the secret');

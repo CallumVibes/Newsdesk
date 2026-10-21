@@ -401,6 +401,63 @@ the D-pad keeps your place already.
 
 The phone keeps its status bar, rotates freely and is left to sleep on its own, so there's no idle screen and nothing holds the display awake.
 
+## When there's no signal
+
+`navigator.onLine` is the cheap answer and half an honest one: it says whether the device has a
+network, not whether anything is at the far end of it. A stick on a router whose line is down
+reports itself online all day.
+
+So the flag is believed when it says **no** — that one it gets right — and the rest is worked out
+from what the sources actually did. **Two or more tried, all of them failed**, and there is
+nothing out there, whatever the flag says. One source failing is one source failing.
+
+What follows from knowing:
+
+- **Nobody is asked.** With no network the refresh returns without firing a request. Nine sources
+  timing out in turn tells you nothing and costs a phone its battery.
+- **It's said once.** The footer reads *"Offline · last updated 3h ago"*, and the sources panel
+  leads with the one problem instead of nine sources each reporting the same dead router.
+- **It picks itself up.** When the signal returns it refreshes by itself, after a moment's grace —
+  the flag flips when the interface comes up, which is a little before anything can be reached
+  through it.
+
+The stories already in hand stay on screen throughout. They are what there is, and the footer
+says how old they are rather than letting them pass for this hour's.
+
+## Without looking at it
+
+The app is used on a phone with a screen reader as well as on a television with a remote, and
+those want opposite things from the focus.
+
+A row is a label, an hour and a headline — three loose scraps on screen, and read out one at a
+time they arrive as three unrelated things. Each row carries a spoken form of itself instead:
+*"New, Hereford Times, 2h ago. Greyfriars Bridge repairs to overrun."* The hour is in both, so
+the minute hand moves both.
+
+The footer is the one line that changes under you without being asked for — offline, stale,
+updating — so it's a live region and is announced rather than waited on. The tab strip is a
+tablist, an unread count is spoken as *"Local, 7 new stories"* rather than *"Local 7"*, and the
+reader, the sources panel and the picture viewer are dialogs that take the focus when they open
+and give it back to the row they were opened from.
+
+**Only on a phone.** A television moves a cursor of its own with the D-pad, and a row the browser
+can also focus leaves two cursors in one list, so none of the focus handling runs there.
+
+The large preview beside the list on the TV is the focused row said again, larger, so it's hidden
+from a screen reader — read out it is the same story twice.
+
+## Text size
+
+The system font size is the one the reader has already been asked for, so it's the one the app
+uses. It used to be pinned at 100%, which quietly overrode it: somebody who had set large text
+because they need large text got ordinary text here, and the one setting they reached for did
+nothing.
+
+Clamped, because it scales the words and not the boxes around them — the page is laid out in
+units derived from the width of the screen, and at some multiple the two stop agreeing. A phone
+takes up to 130%; a television up to 115%, where the whole design is two fixed panes and the
+viewing distance is already doing the work of a larger size.
+
 ## Tests
 
 ```sh
