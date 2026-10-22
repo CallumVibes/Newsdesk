@@ -726,8 +726,10 @@ suite('The sources panel answers the question that is usually asked', (t) => {
   // quarters of the panel.
   t.ok(/said \+= ' · ' \+ b\.method/.test(sheet), 'a working source is one line');
   t.not(/'Read from: ' \+ b\.method/.test(sheet), 'rather than a line each');
-  t.ok(/quiet\.length && \(S\.deep \|\| b\.error\)/.test(sheet),
-    'dead routes are named when they are the problem, counted when they are a Tuesday');
+  // A shelf answering 503 and a feed with one giveaway on it are not the same news.
+  t.ok(/quiet\.filter\(function \(u\) \{ return u && u\.ok === false; \}\)/.test(sheet),
+    'a route that failed is named, with what happened to it');
+  t.ok(/' other'/.test(sheet), 'and the ones that merely had nothing are counted beside it');
   t.ok(/Last background run/.test(sheet), 'the last run is shown, being the question');
   t.ok(/if \(!S\.deep\) \{[\s\S]{0,200}return;/.test(sheet), 'and the five before it are not');
 

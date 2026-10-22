@@ -3092,8 +3092,21 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.ok(rcQuiet.some((l) => /deliciouslyella\.com\/feed\/ - 1 in it, none of them recipes/.test(l)),
       'and the one with nothing but a giveaway on it says that is what was on it');
     t.not(rcQuiet.some((l) => /minimalistbaker/.test(l)), 'while the one that worked does not');
-    t.ok(/deliciouslyella\.com\/feed\/ - 1 in it, none of them recipes/.test(panel),
+    /* A route that answered and had nothing worth keeping is counted rather than named,
+       being a Tuesday rather than a fault - so the panel says how many there were, and
+       the workings say which. The 503 above is named either way, because that is not a
+       Tuesday. */
+    t.ok(/routes? had nothing on (it|them)/.test(panel),
+      'and the ones that merely had nothing on them are counted');
+    t.not(/none of them recipes/.test(panel), 'rather than each given a line of its own');
+
+    halfDown.nd.S.deep = true;
+    halfDown.nd.openSheet();
+    const workings = halfDown.window.document.getElementById('sheetBody').textContent;
+    t.ok(/deliciouslyella\.com\/feed\/ - 1 in it, none of them recipes/.test(workings),
       'which reaches the panel as well as the state behind it');
+    t.ok(/a-shelf-of-pictures - HTTP 503/.test(workings), 'alongside the one that broke');
+    halfDown.nd.S.deep = false;
     halfDown.window.nd.key('menu');
   });
 

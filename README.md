@@ -67,10 +67,11 @@ with its URL, four held editions with their headlines, six background runs — o
 whose pitch is no clutter. The question actually being asked is *"is everything alright"*.
 
 So that is what it answers now. A working source is one line — `24 stories, 09:11 · Nostr relay
-damus.io`, since how many, when, and which route answered are one fact and read as one. Routes that
-had nothing on them are **named when the source failed and counted when it did not**, because six
-kitchens where two were quiet is a Tuesday, not four lines of apology. The last background run is
-shown and the five before it are not.
+damus.io`, since how many, when, and which route answered are one fact and read as one. A route
+that **failed** is named with what happened to it — `a-shelf-of-pictures - HTTP 503` — and routes
+that merely **had nothing on them** are counted: `3 other routes had nothing on them`. A shelf
+answering 503 is something broken; a feed that worked and had one giveaway on it is a Tuesday. The
+last background run is shown and the five before it are not.
 
 **Show the workings** unfolds the lot: every route and its reason, every price's provenance, every
 edition held, the whole run log. Nothing was removed. On a phone it is a line at the foot of the
