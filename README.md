@@ -424,6 +424,43 @@ What follows from knowing:
 The stories already in hand stay on screen throughout. They are what there is, and the footer
 says how old they are rather than letting them pass for this hour's.
 
+## When the signal is weak
+
+Having no signal is the easy half. A weak one used to be worse than none: every source reported
+*"Last attempt failed"*, every time, while the same phone on good signal read the lot in four
+seconds. All of them failing rather than some is the tell — that is not nine sources having a bad
+day, it is the fetching making the link worse.
+
+Nine sources were asked at once over a twelve-wide pool, which is exactly right on a link that can
+carry it and exactly wrong on one that cannot: twelve requests over a link that can barely manage
+one means twelve that crawl, and then twelve that time out together. So the width is measured
+rather than assumed. Twelve while the link answers; **halved on every timeout, one back on every
+answer**, down to a floor of two. It is the shape of what TCP does a layer below, for the same
+reason — nobody can see the width of the pipe, so the only way to find it is to push until it
+complains and ease off when it does. A 404 counts as an answer, because a server saying no over a
+weak link has proved the link works.
+
+Three things followed:
+
+- **Another go.** A weak signal is intermittent rather than absent, and there was no retry at all —
+  one timeout and that source was done until the next refresh. Three attempts now, each more
+  patient than the last, since a first attempt that timed out is itself evidence the link is slow.
+- **Nothing outlasts the page's patience.** `Net.BUDGET_MS` covers redirects, retries and reading,
+  and answers before `nfetch`'s deadline fires. It did not: six redirect hops at the old timeouts
+  came to ninety-six seconds against the page's forty, so the page routinely gave up and recorded a
+  failure while the request was still running — and on a weak link that abandoned request was still
+  taking the bandwidth the next one needed.
+- **Reading the body is on the clock too.** `readTimeout` is the wait for one packet, not for the
+  whole of it, so a link that trickles never trips it and a four megabyte page could take all
+  afternoon. What arrives late is thrown away rather than returned: half an RSS feed is not a feed,
+  and handing a parser half of one turns a slow source into a broken one.
+
+The cost is honest: a link that is nearly dead now takes about a minute per source to admit it,
+where it used to fail in forty seconds. That is the trade — news eventually instead of nothing
+promptly — and the genuinely offline case is still caught up front and costs nothing.
+
+`Net.kt` imports nothing from Android, so it compiles and runs on its own against a real socket.
+
 ## Without looking at it
 
 The app is used on a phone with a screen reader as well as on a television with a remote, and
