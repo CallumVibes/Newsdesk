@@ -709,6 +709,38 @@ suite('What the Kotlin asks for, the manifest declares', (t) => {
 });
 
 /*
+ * The sources panel answered "why is this one broken" every single time, when the
+ * question actually asked is "is everything alright". Nine sources at three lines each,
+ * every route that had nothing on it named with its URL, four held editions with their
+ * headlines, six background runs - on a phone, in an app whose whole pitch is no
+ * clutter. Nothing is removed; the workings are a tap away.
+ */
+suite('The sources panel answers the question that is usually asked', (t) => {
+  const page = read(PAGE);
+  t.ok(/\n  deep: false\n/.test(page), 'the panel starts folded');
+  t.ok(/function flipDeep\(\)/.test(page), 'and unfolds');
+
+  const sheet = page.slice(page.indexOf('function renderSheet()'),
+                           page.indexOf('function sheetScroll'));
+  // Count, time and route are one fact about a source; as three lines they were three
+  // quarters of the panel.
+  t.ok(/said \+= ' · ' \+ b\.method/.test(sheet), 'a working source is one line');
+  t.not(/'Read from: ' \+ b\.method/.test(sheet), 'rather than a line each');
+  t.ok(/quiet\.length && \(S\.deep \|\| b\.error\)/.test(sheet),
+    'dead routes are named when they are the problem, counted when they are a Tuesday');
+  t.ok(/Last background run/.test(sheet), 'the last run is shown, being the question');
+  t.ok(/if \(!S\.deep\) \{[\s\S]{0,200}return;/.test(sheet), 'and the five before it are not');
+
+  /* A phone's foot is already four buttons over three rows, so the way in is a line in
+     the panel; a remote has no line to tap, so there it is an action. Same split as
+     Search, and the toggle must exist on both or one of them loses the workings. */
+  t.ok(/'ln tapln'/.test(sheet), 'a phone taps a line');
+  t.ok(/run: flipDeep, remoteOnly: true/.test(page), 'and a remote gets an action');
+  t.ok(/\.tapln\{[^}]*cursor:pointer/.test(page), 'which looks like it would do something');
+  t.ok(/\.tapln:focus-visible/.test(page), 'and can be found without a mouse');
+});
+
+/*
  * A weak signal did not make some sources fail. It made all of them fail, every time,
  * while the same phone on good signal read the lot in four seconds - which is the
  * signature of the fetching making the link worse rather than of the link being bad.

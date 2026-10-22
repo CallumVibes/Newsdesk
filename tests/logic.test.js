@@ -4609,15 +4609,25 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
       'Tue 12:03 · gave up waiting · 7m 0s',
       'Tue 05:03 · no PPQ key · 4s'
     ];
+    /* The last run answers "did it run", which is the question. The other five answer
+       "has it been running", which is asked about once a fortnight - so they wait
+       behind the workings rather than filling the panel every time it is opened. */
     const shown = panel();
-    t.ok(/in the background, newest first/.test(shown), 'and one that has, is told');
-    t.ok(/wrote the morning briefing · 2m 41s/.test(shown), 'the run that worked is named');
-    t.ok(/gave up waiting/.test(shown), 'and so, by name, is the run that ran out of time');
-    t.ok(/no PPQ key/.test(shown), 'and the one that never had anything to write with');
-    t.ok(shown.indexOf('wrote the morning') < shown.indexOf('gave up waiting'),
-      'in the order the store hands them over, which is newest first');
+    t.ok(/Last background run/.test(shown), 'the most recent run is named');
+    t.ok(/wrote the morning briefing · 2m 41s/.test(shown), 'and what became of it');
+    t.not(/gave up waiting/.test(shown), 'while the ones before it wait to be asked for');
     t.not(offered().indexOf('Test briefing job') >= 0,
       'and once a run has written a line, the button that asked for one goes');
+
+    halfDown.nd.S.deep = true;
+    const all = panel();
+    t.ok(/in the background, newest first/.test(all), 'the workings have the lot');
+    t.ok(/gave up waiting/.test(all), 'the run that ran out of time, by name');
+    t.ok(/no PPQ key/.test(all), 'and the one that never had anything to write with');
+    t.ok(all.indexOf('wrote the morning') < all.indexOf('gave up waiting'),
+      'in the order the store hands them over, which is newest first');
+    t.ok(all.length > shown.length, 'and is longer than the panel that folded it away');
+    halfDown.nd.S.deep = false;
 
     // Whatever Kotlin hands over, the panel is not the place to find out it was wrong.
     halfDown.calls.runs = 'not json at all';
