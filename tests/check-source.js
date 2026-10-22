@@ -141,6 +141,9 @@ const KOTLIN_FREE = new Set([
   'LinkedHashMap', 'HashSet', 'LinkedHashSet', 'Pair', 'Triple', 'Regex', 'Result',
   'Exception', 'RuntimeException', 'IllegalArgumentException', 'IllegalStateException',
   'Throwable', 'Error', 'Thread', 'Runnable', 'Math', 'System', 'Class', 'Comparable',
+  // java.lang too, and so in scope unimported - which this list had wrong until a real
+  // Kotlin compiler was put on it and disagreed.
+  'InterruptedException', 'NumberFormatException', 'UnsupportedOperationException',
   'Volatile', 'Suppress', 'JvmStatic', 'JvmField', 'JvmOverloads', 'Deprecated', 'Override',
   'StringBuilder', 'CharSequence', 'Number', 'Iterable', 'Sequence', 'Lazy', 'Comparator',
   'Regex', 'RegexOption', 'Charsets', 'Byte', 'UByte', 'Function0', 'Function1'
@@ -661,6 +664,56 @@ suite('A briefing has time to be written in the background', (t) => {
     'and the page allows a slow PPQ request and a second attempt, not less than one');
   t.ok(job < 10 * 60 * 1000,
     'while Kotlin stays inside the ten minutes Android allows a job');
+});
+
+/*
+ * A weak signal did not make some sources fail. It made all of them fail, every time,
+ * while the same phone on good signal read the lot in four seconds - which is the
+ * signature of the fetching making the link worse rather than of the link being bad.
+ * Twelve requests over a link that can barely carry one is twelve requests that crawl
+ * and then twelve that time out together.
+ */
+suite('A weak link is not asked for everything at once', (t) => {
+  const net = read(KT + 'Net.kt');
+  const ms = (s, re) => {
+    const m = s.match(re);
+    return m ? Number(m[1].replace(/[_L]/g, '')) : NaN;
+  };
+
+  t.ok(/private const val WIDE = \d+/.test(net), 'there is a width to the pipe');
+  t.ok(/private const val NARROW = \d+/.test(net), 'and a floor it never goes below');
+  t.ok(/fun narrow\(\)/.test(net) && /fun widen\(\)/.test(net),
+    'which moves, since nobody can see the real one');
+  // Halving down and stepping up: quick to get out of trouble, slow to trust again.
+  t.ok(/width = Math\.max\(NARROW, width \/ 2\)/.test(net), 'halved when the link complains');
+  t.ok(/width\+\+/.test(net), 'and opened one at a time when it answers');
+
+  const get = net.slice(net.indexOf('fun get('), net.indexOf('private fun walk'));
+  t.ok(/Gate\.enter\(\)/.test(get) && /Gate\.leave\(\)/.test(get), 'every request goes through it');
+  t.ok(/\} finally \{\s*\n\s*Gate\.leave\(\)/.test(get),
+    'and leaves in a finally, or the gate wedges shut and the app stops fetching');
+  t.ok(/catch \(e: SocketTimeoutException\)[\s\S]{0,120}Gate\.narrow\(\)/.test(get),
+    'a timeout narrows it');
+  t.ok(get.indexOf('Gate.widen()') > 0, 'while any answer at all opens it up');
+  t.ok(/private const val TRIES = \d/.test(net),
+    'and a weak signal gets another go, being intermittent rather than absent');
+
+  /* Nothing here may outlast the page's own deadline on the same request. When it did,
+     the page recorded a failure while this thread still held the link open - and the
+     abandoned request went on taking the bandwidth the retry needed. */
+  const budget = ms(net, /const val BUDGET_MS = ([\d_L]+)/);
+  const page = read(PAGE);
+  const nf = page.slice(page.indexOf('function nfetch'), page.indexOf('window.__nativeResolve'));
+  const deadline = ms(nf, /rej\(new Error\('Timed out'\)\); \}, (\d+)\)/);
+  t.ok(budget > 0 && deadline > 0, 'both deadlines were found to compare');
+  t.ok(budget < deadline,
+    'Kotlin answers before the page stops listening, so the page is the backstop');
+
+  // readTimeout is the wait for one packet, so a trickle never trips it.
+  t.ok(/fun readCapped\(input: InputStream, until: Long\)/.test(net),
+    'reading the body is on the clock too, not just waiting for it to start');
+  t.ok(/throw SocketTimeoutException\("body too slow"\)/.test(net),
+    'and half a feed is thrown away rather than handed to a parser as a whole one');
 });
 
 /* A briefing that fails while nobody is looking used to leave no trace at all, so
