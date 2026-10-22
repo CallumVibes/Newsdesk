@@ -88,6 +88,8 @@ async function boot(opts) {
         // Mutable, so a test can change what the store holds and look again without
         // booting a second page for it.
         briefLog: () => JSON.stringify(calls.runs),
+        briefNext: () => String(o.booked || 'Next run booked for 12:03. The system is holding it.'),
+        briefTest() { calls.tested = (calls.tested || 0) + 1; return true; },
         theme(name) { calls.themed.push(name); },
         haptic(kind) { calls.buzzed.push(kind); },
         share(title, text, url) { calls.shared.push({ title, text, url }); return true; },

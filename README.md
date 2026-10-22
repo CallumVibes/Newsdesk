@@ -602,6 +602,21 @@ there first is the only one — one run, one line. Nothing shows until a backgro
 happened. It is the difference between *it never woke up* and *it woke up and ran out of time*,
 which want opposite fixes and were previously the same observation.
 
+The log answers what happened to runs that happened. The line above it answers whether one is
+coming at all: *"Next run booked for 12:03. The system is holding it."* Every way `scheduleNext`
+can end now leaves that note, including the two that used to end in silence — a scheduler that
+refused the booking, and a device with no scheduler to ask. "Holding it" is `getPendingJob`, the
+system's own view rather than the app's, and the one fact the app cannot talk itself into: a
+booking still held after its hour has passed is not a booking problem.
+
+Showing nothing until a run had happened was wrong, and wrong in the only case it mattered. An
+empty log, a build too old to keep one, a refused booking and a booking whose hour has not come
+round all render as the same blank space, so the panel says which. While the log is empty it also
+offers **Test briefing job**, which runs one by the same road the schedule uses and writes its line
+like any other — so *does a background job ever run on this phone* takes a minute to answer rather
+than waiting until five tomorrow morning. The button goes once a run has written the line that
+answers it; a foot of buttons is short for a reason.
+
 Every edition is kept for four days, newest first, so this morning's is still there at teatime.
 Today's sit together under **Briefings** in the Today tab, each labelled with the edition it is;
 the ☰ panel lists everything held, including the previous few days'. An edition rewritten — by the
