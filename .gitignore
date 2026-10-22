@@ -3,3 +3,6 @@
 # jsdom, installed on demand by the logic tests and by CI.
 node_modules/
 package-lock.json
+# kotlinc and android.jar, fetched on demand by tests/typecheck.sh. Around 110MB,
+# used only to resolve names while checking, and never part of a build.
+tests/.tools/

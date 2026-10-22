@@ -770,15 +770,33 @@ suite('A background run says what became of it', (t) => {
   t.ok(/fun held\(ctx: Context\): Boolean\?/.test(kt),
     'the system is asked whether it still holds the booking');
   t.ok(/getPendingJob\(JOB_ID\)/.test(kt), 'which is the one fact the app cannot talk itself into');
-  t.ok(/BriefStore\.setBooking\(ctx, 0L, "The system refused the booking"\)/.test(kt),
+  t.ok(/"The system refused the booking \(" \+ firstRefusal/.test(kt),
     'and a refused booking is written down rather than dropped');
-  const sched = kt.slice(kt.indexOf('fun scheduleNext'), kt.indexOf('fun held'));
+  const sched = kt.slice(kt.indexOf('fun scheduleNext'), kt.indexOf('private const val LADDER'));
   t.ok((sched.match(/setBooking/g) || []).length >= 3,
     'every way scheduleNext can end leaves a note, or the silence is back');
 
+  /* A refusal does not say which part it objected to, so the only way to find out is
+     to take parts away. Whichever rung is accepted is kept and named: a job that does
+     not survive a reboot beats the nothing this was getting. */
+  t.ok(/private const val LADDER = 4/.test(kt) && /private val RUNGS = arrayOf\(/.test(kt),
+    'a refusal is answered by asking for less, not by giving up');
+  t.ok(/private fun book\(js: JobScheduler, ctx: Context, wait: Long, rung: Int\): String/.test(kt),
+    'and each rung reports why, rather than returning a bare false');
+  t.ok(/val m = e\.message/.test(kt),
+    'carrying the exception message, which names the rule that was broken');
+  t.not(/catch \(e: Exception\) \{\s*\n\s*false\s*\n\s*\}/.test(kt),
+    'nothing swallows the one fact worth having');
+  t.ok(/fun bucket\(ctx: Context\): String/.test(kt),
+    'and the standby bucket is reported, being a phone setting rather than a bug');
+
+  // A button that quietly does nothing is worse than no button.
+  t.ok(/fun briefTest\(\): String/.test(read(KT + 'MainActivity.kt')), 'a run can be asked for now');
+  t.ok(/fun runNow\(ctx: Context\): String/.test(kt), 'and that ask can be refused out loud');
+  t.ok(/S\.testSaid/.test(page), 'with the panel saying so when it is');
+
   // The question is "does a job ever run on this phone", and it should not take
   // until five tomorrow morning to answer it.
-  t.ok(/fun briefTest\(\): Boolean/.test(read(KT + 'MainActivity.kt')), 'a run can be asked for now');
   t.ok(/label: 'Test briefing job'/.test(page), 'from the panel itself');
   t.ok(/!briefRuns\(\)\.length;/.test(page),
     'and the button goes once a run has written the line that answers it');

@@ -461,6 +461,20 @@ promptly — and the genuinely offline case is still caught up front and costs n
 
 `Net.kt` imports nothing from Android, so it compiles and runs on its own against a real socket.
 
+## Checking the Kotlin without a build
+
+`tests/typecheck.sh` type-checks every Kotlin file in about thirty seconds, without Gradle, Android
+Studio, or a network that will talk to Google. It fetches `kotlinc` from JetBrains and an
+`android.jar` from a mirror of the platform jars into `tests/.tools` (not committed, ~110MB, used
+only to resolve names — nothing built there is ever run or shipped), and generates `R.java` from
+the `R.` references the Kotlin actually makes, which is all aapt would give it that matters here.
+
+It exists because the Kotlin was for a long time only ever compiled on the runner, twenty minutes
+and a push away, so a signature that no longer matched its caller was CI's news to break rather
+than something to find first. `check-source.js` grew a hand-rolled half-compiler for the commonest
+of those; this is the other half, and the two disagree now and then — a real compiler was what
+settled that `InterruptedException` needs no import, which the hand-rolled one was insisting on.
+
 ## Without looking at it
 
 The app is used on a phone with a screen reader as well as on a television with a remote, and
