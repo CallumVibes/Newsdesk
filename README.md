@@ -626,6 +626,26 @@ Android 13 and later ask permission the first time the app opens; refusing chang
 the briefings arrive silently. A television is watched rather than notified at, so it gets none. Turn
 them off like any other app's, under Briefings in Android's notification settings.
 
+### The one line that stopped all of it
+
+`ACCESS_NETWORK_STATE` was not in the manifest, and the briefing job asks for a network. That
+permission is needed to **book** such a job, not merely to run it: without it `JobScheduler` does
+not defer the job or run it late, it refuses it outright. Every time, on every build, since the job
+was written. No background briefing had ever run, which is why they only ever appeared when the app
+was opened. It is not a runtime permission and nobody is asked for anything — it was simply never
+declared.
+
+Nothing said so. `schedule()` returns a bare int, and the `IllegalArgumentException` that names the
+rule went into a `catch` block that returned `false`. The whole of what anyone could learn was that
+no briefing had arrived.
+
+WebView wants the same permission to answer `navigator.onLine` honestly rather than assuming it is
+online, so the no-signal shortcut in `refresh()` had most likely never fired either.
+
+`check-source.js` now holds a table of Android calls against the permissions they need, because the
+manifest is the one thing that cannot be inferred from the Kotlin, and the next one of these will
+be some other call.
+
 ### When no briefing arrives
 
 A background run has four limits to fit inside, and they have to nest. The page stops waiting at
@@ -659,6 +679,14 @@ can end now leaves that note, including the two that used to end in silence — 
 refused the booking, and a device with no scheduler to ask. "Holding it" is `getPendingJob`, the
 system's own view rather than the app's, and the one fact the app cannot talk itself into: a
 booking still held after its hour has passed is not a booking problem.
+
+When a booking is refused the app does not give up on it: it asks for less, down a ladder —
+persisted, then not, then without a deadline, then by deadline alone, then without asking for a
+network at all. Whichever rung is accepted is kept and named, since a job that does not survive a
+reboot beats no job. The last rung is there because the first four varied persisting, the latency
+and the deadline and kept the network ask on every one of them — so when the network ask was the
+thing being refused, all four were refused for the same reason and four tries bought what one
+would have. A ladder has to vary the rung you did not think of.
 
 Showing nothing until a run had happened was wrong, and wrong in the only case it mattered. An
 empty log, a build too old to keep one, a refused booking and a booking whose hour has not come

@@ -667,6 +667,48 @@ suite('A briefing has time to be written in the background', (t) => {
 });
 
 /*
+ * Every Android call that needs a permission, against the manifest that has to declare it.
+ *
+ * The briefing job asked for a network, which needs ACCESS_NETWORK_STATE to *book*, not
+ * merely to run. It was never declared, so JobScheduler refused the job outright - not
+ * deferred, not run late, refused - every time, on every build since the job was written.
+ * Nothing said so: schedule() returns a bare int and the exception went into a catch
+ * block that returned false. Weeks of "the briefing only writes when the app is opened"
+ * was one undeclared line in the manifest.
+ *
+ * So: a table, because the next one of these will be some other call with some other
+ * permission, and the manifest is the one place that cannot be inferred from the Kotlin.
+ */
+suite('What the Kotlin asks for, the manifest declares', (t) => {
+  const mf = read('app/src/main/AndroidManifest.xml');
+  const kt = ['MainActivity.kt', 'Briefings.kt', 'Widget.kt', 'WidgetFeed.kt',
+              'WidgetHistory.kt', 'Net.kt'].map((f) => read(KT + f)).join('\n');
+  const declared = (p) =>
+    new RegExp('uses-permission android:name="android\\.permission\\.' + p + '"').test(mf);
+
+  [
+    ['setRequiredNetworkType', 'ACCESS_NETWORK_STATE',
+     'a job with a connectivity constraint cannot even be booked without it'],
+    ['setPersisted(true)', 'RECEIVE_BOOT_COMPLETED',
+     'a job that outlives a reboot has to say so up front'],
+    ['NotificationManager', 'POST_NOTIFICATIONS',
+     'nothing can be posted on Android 13 without it'],
+    ['URL(', 'INTERNET', 'and nothing can be fetched at all without it']
+  ].forEach(([call, perm, why]) => {
+    if (kt.indexOf(call) < 0) return;      // not used, so nothing to declare
+    t.ok(declared(perm), call + ' is used, so ' + perm + ' is declared - ' + why);
+  });
+
+  /* The ladder has to vary the constraint you did not think of. Its first four rungs
+     varied persisting, the latency and the deadline and kept the network ask on all
+     four - so the one refusal they all hit refused every rung, and four tries bought
+     exactly what one would have. */
+  const job = read(KT + 'Briefings.kt');
+  t.ok(/if \(rung < LADDER - 1\) b\.setRequiredNetworkType/.test(job),
+    'and the last rung asks for no network either, the constraint that did this');
+});
+
+/*
  * A weak signal did not make some sources fail. It made all of them fail, every time,
  * while the same phone on good signal read the lot in four seconds - which is the
  * signature of the fetching making the link worse rather than of the link being bad.
@@ -779,7 +821,7 @@ suite('A background run says what became of it', (t) => {
   /* A refusal does not say which part it objected to, so the only way to find out is
      to take parts away. Whichever rung is accepted is kept and named: a job that does
      not survive a reboot beats the nothing this was getting. */
-  t.ok(/private const val LADDER = 4/.test(kt) && /private val RUNGS = arrayOf\(/.test(kt),
+  t.ok(/private const val LADDER = \d/.test(kt) && /private val RUNGS = arrayOf\(/.test(kt),
     'a refusal is answered by asking for less, not by giving up');
   t.ok(/private fun book\(js: JobScheduler, ctx: Context, wait: Long, rung: Int\): String/.test(kt),
     'and each rung reports why, rather than returning a bare false');
