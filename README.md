@@ -56,6 +56,31 @@ what is on this week. Ordered by its posting date it would sink to the bottom an
 it's threaded through at one event every six stories (`DIARY_EVERY`), still reading forwards, with
 anything that won't fit at that spacing following at the end.
 
+## The sources panel
+
+Everything the app read, where it read it from, and what would not answer — on ☰, or the Sources
+button on a phone.
+
+It used to answer *"why is this one broken"* every single time, which is the right answer to a
+question asked about once a fortnight. Nine sources at three lines each, every dead route named
+with its URL, four held editions with their headlines, six background runs — on a phone, in an app
+whose pitch is no clutter. The question actually being asked is *"is everything alright"*.
+
+So that is what it answers now. A working source is one line — `24 stories, 09:11 · Nostr relay
+damus.io`, since how many, when, and which route answered are one fact and read as one. A route
+that **failed** is named with what happened to it — `a-shelf-of-pictures - HTTP 503` — and routes
+that merely **had nothing on them** are counted: `3 other routes had nothing on them`. A shelf
+answering 503 is something broken; a feed that worked and had one giveaway on it is a Tuesday. The
+last background run is shown and the five before it are not.
+
+**Show the workings** unfolds the lot: every route and its reason, every price's provenance, every
+edition held, the whole run log. Nothing was removed. On a phone it is a line at the foot of the
+panel, because the foot is already four buttons over three rows and the cure should not be another
+one; on the remote it is an action beside Search, which has the same split for the same reason.
+
+Kagi's licence line is always shown, being a condition of using their summaries rather than a
+detail about them.
+
 ## Weather
 
 A small icon and the temperature, leading the band of prices under the tabs, on both devices.
