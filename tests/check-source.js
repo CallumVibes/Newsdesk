@@ -700,8 +700,35 @@ suite('A background run says what became of it', (t) => {
   t.ok(/function renderBriefRuns\(box\)/.test(page), 'the sources panel shows the log');
   // A bare string has a length, so it survives a truthiness check and then throws on
   // forEach - taking the panel down over a log nobody asked to see.
-  t.ok(/if \(!Array\.isArray\(runs\) \|\| !runs\.length\) return;/.test(page),
+  t.ok(/return Array\.isArray\(runs\) \? runs : \[\];/.test(page),
     'and insists on an array, not merely something with a length');
+
+  /* An empty log and a build too old to keep one both showed nothing, and so did a
+     booking the system refused and a booking whose hour had not come round. Four
+     states, one blank space - in the one case the log was built to speak up in. */
+  const render = page.slice(page.indexOf('function renderBriefRuns'),
+                            page.indexOf('function sheetScroll'));
+  t.ok(/No background run has happened yet/.test(render),
+    'an empty log says it is empty rather than showing nothing at all');
+  t.ok(render.indexOf('briefNext()') < render.indexOf('if (!runs.length)'),
+    'and what is booked next is said either way, since that is the other half of it');
+
+  const kt = read(KT + 'Briefings.kt');
+  t.ok(/fun held\(ctx: Context\): Boolean\?/.test(kt),
+    'the system is asked whether it still holds the booking');
+  t.ok(/getPendingJob\(JOB_ID\)/.test(kt), 'which is the one fact the app cannot talk itself into');
+  t.ok(/BriefStore\.setBooking\(ctx, 0L, "The system refused the booking"\)/.test(kt),
+    'and a refused booking is written down rather than dropped');
+  const sched = kt.slice(kt.indexOf('fun scheduleNext'), kt.indexOf('fun held'));
+  t.ok((sched.match(/setBooking/g) || []).length >= 3,
+    'every way scheduleNext can end leaves a note, or the silence is back');
+
+  // The question is "does a job ever run on this phone", and it should not take
+  // until five tomorrow morning to answer it.
+  t.ok(/fun briefTest\(\): Boolean/.test(read(KT + 'MainActivity.kt')), 'a run can be asked for now');
+  t.ok(/label: 'Test briefing job'/.test(page), 'from the panel itself');
+  t.ok(/!briefRuns\(\)\.length;/.test(page),
+    'and the button goes once a run has written the line that answers it');
   t.ok(page.indexOf('renderBriefRuns(box)') < page.indexOf('function renderBriefRuns'),
     'from inside the briefing block, which is where someone would look for it');
 });

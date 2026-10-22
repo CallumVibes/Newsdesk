@@ -4589,9 +4589,20 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
       return halfDown.window.document.getElementById('sheetBody').textContent;
     };
 
+    /* The empty log used to render as nothing at all, which is the same nothing a build
+       too old to keep one renders, and the same nothing a refused booking renders. The
+       one case the log exists for was the case it could not speak in. */
     halfDown.calls.runs = [];
-    t.not(/in the background, newest first/.test(panel()),
-      'a device that has never run one is told nothing about a history it has not got');
+    const empty = panel();
+    t.not(/in the background, newest first/.test(empty), 'with no runs there is no list');
+    t.ok(/No background run has happened yet/.test(empty), 'but it says so, rather than nothing');
+    t.ok(/Next run booked for 12:03/.test(empty), 'and says what is coming, which is the other half');
+    t.ok(/The system is holding it/.test(empty), 'including what the scheduler itself says');
+
+    // The button that settles it exists only while it is unsettled.
+    const offered = () => halfDown.nd.SHEET_ACTS.filter((a) => !a.when || a.when())
+      .map((a) => (typeof a.label === 'function' ? a.label() : a.label));
+    t.ok(offered().indexOf('Test briefing job') >= 0, 'and a run can be asked for there and then');
 
     halfDown.calls.runs = [
       '05:04 · wrote the morning briefing · 2m 41s',
@@ -4605,6 +4616,8 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.ok(/no PPQ key/.test(shown), 'and the one that never had anything to write with');
     t.ok(shown.indexOf('wrote the morning') < shown.indexOf('gave up waiting'),
       'in the order the store hands them over, which is newest first');
+    t.not(offered().indexOf('Test briefing job') >= 0,
+      'and once a run has written a line, the button that asked for one goes');
 
     // Whatever Kotlin hands over, the panel is not the place to find out it was wrong.
     halfDown.calls.runs = 'not json at all';
