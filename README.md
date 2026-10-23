@@ -671,6 +671,33 @@ online, so the no-signal shortcut in `refresh()` had most likely never fired eit
 manifest is the one thing that cannot be inferred from the Kotlin, and the next one of these will
 be some other call.
 
+### A booked job is not a job that runs
+
+With the permission declared the job books and runs — and still not at five in the morning. A phone
+left on a bedside table is in Doze by two, and Doze defers jobs to maintenance windows that grow
+further apart the longer it lasts. It does that to whitelisted apps too: being excused battery
+optimisation buys network and alarms during Doze and explicitly does not buy having your jobs run.
+So the booking sat there until the phone was picked up, the device left Doze, the job ran and a
+notification arrived — which looks exactly like opening the app having caused it, and is the
+opposite. It had been waiting.
+
+The tell was that a notification arrived at all. `Notify.briefing` is called from one place, the
+background job's `briefDone`; the app's own bridge has no `briefDone` to call. A notification is
+therefore proof that a background run happened, so the job was never the thing that was broken by
+then — only its timing.
+
+An alarm is the one thing Doze does not defer. `setAndAllowWhileIdle`, deliberately inexact: the
+exact version wants `SCHEDULE_EXACT_ALARM` and is meant for alarm clocks, while "a few minutes
+after five" is what the briefing promises anyway. It does not replace the job — a phone in use runs
+the job on time and the alarm finds the edition already written. It is there for the hours nobody
+is holding it.
+
+`BriefingAlarm` is what gets woken. A receiver has about ten seconds, nowhere near enough to read
+nine sources, so it does not try: it asks for a run the way the widget's button does and gets out
+of the way. It writes *"woken by the alarm"* to the log before doing anything, so that a run which
+never happens still says whether the alarm was the part that failed. Alarms do not survive a reboot
+the way a persisted job does, so `BOOT_COMPLETED` lands there too.
+
 ### When no briefing arrives
 
 A background run has four limits to fit inside, and they have to nest. The page stops waiting at

@@ -679,6 +679,53 @@ suite('A briefing has time to be written in the background', (t) => {
  * So: a table, because the next one of these will be some other call with some other
  * permission, and the manifest is the one place that cannot be inferred from the Kotlin.
  */
+/*
+ * A booked job is not a job that runs. A phone on a bedside table is in Doze by two in
+ * the morning, and Doze defers jobs to maintenance windows that grow further apart the
+ * longer it lasts - to whitelisted apps as well, which get network and alarms out of
+ * being excused battery optimisation and explicitly do not get their jobs run. So the
+ * five o'clock booking waited, and the moment the phone was picked up it ran and a
+ * notification arrived, which looks exactly like opening the app having caused it.
+ */
+suite('Something fires at five in the morning, not when the phone is picked up', (t) => {
+  const kt = read(KT + 'Briefings.kt');
+  t.ok(/fun armAlarm\(ctx: Context, due: Long\)/.test(kt), 'an alarm is set as well as a job');
+  t.ok(/setAndAllowWhileIdle\(AlarmManager\.RTC_WAKEUP/.test(kt),
+    'with the one call that fires in Doze, and RTC_WAKEUP so it wakes the thing');
+  // The exact version wants SCHEDULE_EXACT_ALARM and is meant for alarm clocks. "A few
+  // minutes after five" is what the briefing promises anyway.
+  t.not(/setExactAndAllowWhileIdle/.test(kt), 'inexact, so it needs no permission to be set');
+  const sched = kt.slice(kt.indexOf('fun scheduleNext'), kt.indexOf('private const val LADDER'));
+  t.ok(/armAlarm\(ctx, due\)/.test(sched), 'armed whenever the job is booked');
+  t.ok(sched.indexOf('armAlarm') < sched.indexOf('for (rung'),
+    'and before the booking, so a refused booking still leaves an alarm');
+
+  t.ok(/class BriefingAlarm : BroadcastReceiver\(\)/.test(kt), 'something is there to be woken');
+  const recv = kt.slice(kt.indexOf('class BriefingAlarm'), kt.indexOf('class BriefingJob'));
+  t.ok(/Briefings\.runNow\(c\)/.test(recv),
+    'which asks for a run rather than doing the work in a receiver\'s ten seconds');
+  t.ok(/ACTION_BOOT_COMPLETED/.test(recv),
+    'and re-arms after a reboot, which an alarm does not survive the way a job does');
+  t.ok(/logRun\(c, System\.currentTimeMillis\(\), "woken by the alarm"/.test(recv),
+    'saying so in the log, or a silent alarm is the old problem again');
+});
+
+/* A component the manifest names and the Kotlin does not have is an error nothing
+   notices until the system tries to start it, which for a receiver is at five in the
+   morning on somebody else's phone. */
+suite('Every component the manifest names exists', (t) => {
+  const mf = read('app/src/main/AndroidManifest.xml');
+  const kt = ['MainActivity.kt', 'Briefings.kt', 'Widget.kt', 'WidgetFeed.kt',
+              'WidgetHistory.kt', 'Net.kt'].map((f) => read(KT + f)).join('\n');
+  const named = (mf.match(/android:name="\.(\w+)"/g) || [])
+    .map((m) => m.replace(/android:name="\./, '').replace(/"$/, ''));
+  t.ok(named.length >= 6, 'the manifest names components at all');
+  named.forEach((n) => {
+    t.ok(new RegExp('(class|object) ' + n + '\\b').test(kt),
+      n + ' is declared in the Kotlin as well as in the manifest');
+  });
+});
+
 suite('What the Kotlin asks for, the manifest declares', (t) => {
   const mf = read('app/src/main/AndroidManifest.xml');
   const kt = ['MainActivity.kt', 'Briefings.kt', 'Widget.kt', 'WidgetFeed.kt',
