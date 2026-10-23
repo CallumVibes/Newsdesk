@@ -891,6 +891,41 @@ suite('A weak link is not asked for everything at once', (t) => {
     'and half a feed is thrown away rather than handed to a parser as a whole one');
 });
 
+/*
+ * Tapping a briefing opens that briefing.
+ *
+ * It used to open the app, which left you on Today hunting for the thing you had just
+ * tapped. Nothing had to be built for this: the page already makes every held edition
+ * into something the reader can open, and nd.open looks any id up in the pool the
+ * search uses. All that was missing was the notification saying which one.
+ *
+ * Which makes the id a fact written in two languages, like the briefing hours, so it
+ * gets the same treatment: the two spellings are compared here rather than discovered
+ * to differ by a tap that lands on the Today tab.
+ */
+suite('A tapped briefing opens that briefing', (t) => {
+  const store = read(KT + 'Widget.kt');
+  const page = read(PAGE);
+  const ktId = (store.match(/fun itemId\(at: Long\): String = "([^"]*)" \+ at/) || [])[1];
+  const jsId = (page.match(/id: '([^']*)' \+ b\.at,/) || [])[1];
+  t.ok(!!ktId, 'Kotlin names an edition');
+  t.ok(!!jsId, 'and so does the page');
+  t.is(ktId, jsId, 'in the same words, or the tap lands on nothing');
+
+  const notify = read(KT + 'Briefings.kt');
+  const fn = notify.slice(notify.indexOf('fun briefing(ctx: Context'), notify.indexOf('object Briefings'));
+  t.ok(/putExtra\(MainActivity\.EXTRA_ITEM, BriefStore\.itemId\(at\)\)/.test(fn),
+    'the notification carries the edition it is about');
+  t.ok(/BriefStore\.read\(ctx\)\?\.at/.test(fn),
+    'read from the store the page had just written, which is why there is one to post about');
+
+  // The paragraphs pass an empty fill-in, so the destination has to be in the template.
+  t.ok(/fun openTemplate\(ctx: Context, code: Int, id: String\)/.test(store),
+    'and the widget has a template that knows where it goes');
+  t.ok(/Taps\.openTemplate\(ctx, 1, mine\)/.test(store), 'which its paragraphs use');
+  t.ok(/Taps\.openAt\(ctx, 0, mine\)/.test(store), 'as do its headline and edition line');
+});
+
 /* A briefing that fails while nobody is looking used to leave no trace at all, so
    "it never woke up" and "it woke up and ran out of time" were the same observation.
    They want different fixes, so every run now says which it was. */

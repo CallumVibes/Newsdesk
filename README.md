@@ -676,6 +676,13 @@ Android 13 and later ask permission the first time the app opens; refusing chang
 the briefings arrive silently. A television is watched rather than notified at, so it gets none. Turn
 them off like any other app's, under Briefings in Android's notification settings.
 
+Tapping one opens **that edition**, not the Today tab with the briefing somewhere down it.
+Likewise the briefing widget — its headline, its edition line and any of its paragraphs. Nothing
+had to be built for this: the page already turns every held edition into something the reader can
+open, under the id `brief:<timestamp>`, and `nd.open` looks any id up in the pool the search uses.
+All that was missing was the notification saying which one. That id is a fact written in two
+languages now, so a check compares the two spellings rather than letting a tap land on nothing.
+
 ### The one line that stopped all of it
 
 `ACCESS_NETWORK_STATE` was not in the manifest, and the briefing job asks for a network. That
