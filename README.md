@@ -486,6 +486,31 @@ promptly — and the genuinely offline case is still caught up front and costs n
 
 `Net.kt` imports nothing from Android, so it compiles and runs on its own against a real socket.
 
+## What the bridge is allowed to touch
+
+The main WebView carries the `Native` bridge. It hands out the PPQ key, fetches anything and posts
+anywhere, and every bit of that is safe for exactly one reason: the only page it ever runs is the
+app's own, out of assets. Nothing enforced it. `shouldOverrideUrlLoading` defaults to following
+whatever navigation it is given, and the page has no anchor, no form and no write to `location` —
+but that was the whole of the guarantee, and one `<a href>` added later would have put somebody
+else's page on the end of the bridge. It is refused explicitly now, in both the old and new forms
+of the callback.
+
+The scraper is the opposite WebView: somebody else's page, and no bridge at all. It takes `http`
+and `https` and turns anything else away before a WebView is even made, and `allowFileAccess`,
+`allowContentAccess` and the two `FileURLs` settings are off. It is only ever handed one hard-coded
+address today — but it is reached through the bridge, from the page whose job is other people's
+feeds, and `allowFileAccess` defaults to **true** below API 30, where `shared_prefs` is where the
+PPQ key lives. The app's own page is unaffected: `android_asset` and `android_res` are exempt from
+that setting.
+
+Article text is never live HTML. Feeds are parsed with `DOMParser` and read — `querySelector`,
+`textContent`, attributes — and the reader builds its paragraphs with `textContent`, so nothing
+from a feed is ever adopted into the live document. `DOMParser` stops `<script>` running; it does
+not stop `onerror=`, so not adopting is what matters. The one `innerHTML` write that takes feed
+text is `decode()`, which assigns into a detached `<textarea>` to turn entities into characters —
+RCDATA, so nothing in it can run.
+
 ## Checking the Kotlin without a build
 
 `tests/typecheck.sh` type-checks every Kotlin file in about thirty seconds, without Gradle, Android

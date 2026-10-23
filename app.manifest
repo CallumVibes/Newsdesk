@@ -9,10 +9,10 @@ e6480cb70ec8b1c8e15c9b08ed1fa94ba788a1d264855ce47d3ae200e8a30ab9  app/src/main/a
 add4c7aab6258869251161113c08b5233682f4a5f5bcb2c8e7204b4cf4bd1685  app/src/main/assets/icon-512.png
 d8236373c79329803e7f634fd69d294de6368e596ca7e3eed7a2cc4309a04d5a  app/src/main/assets/index.html
 bd23e821dd199727b7c0625849b2de9568ebe406939d416ca00d1b9ad2258c36  app/src/main/assets/manifest.webmanifest
-9ae9a77484efb0e30f9777c4ac2bdad80a345cdbe93284d31e67cd6de8010efd  app/src/main/assets/sw.js
+7c35b424a706118ee970488d2512396c77b2fd0d8a32887776a9c8be343d472b  app/src/main/assets/sw.js
 51245439efae1b722a1513cd42a6f045ad44c3ab5221b060810f07e18813ea75  app/src/main/java/com/callum/newsdesk/Briefings.kt
-7e85f6463f32271d451e3720cd3fb29043a0a4cb46b67a26b90d5be2fdb3b698  app/src/main/java/com/callum/newsdesk/MainActivity.kt
-b4d244cd0a39d5c833eff5e1d27e2acaaa80e98fae0ee2d1bfee5e9199e79bac  app/src/main/java/com/callum/newsdesk/Net.kt
+451bf291ee509cf80e4c0758a8a93d1b30cd4af580c0cfe08c6d6e3987fd29ed  app/src/main/java/com/callum/newsdesk/MainActivity.kt
+3911074be2f1bcefbba1e0fc6a033ae5b51724aaf8bd873f64f027534793bb4c  app/src/main/java/com/callum/newsdesk/Net.kt
 eb16433aafb410d212e91311dc84d4843cae8b4fc7faad234f59ae1b82542135  app/src/main/java/com/callum/newsdesk/Widget.kt
 863715f650f4669401b0863a3e3a97907128432adde45d36060cf56862ce43b6  app/src/main/java/com/callum/newsdesk/WidgetFeed.kt
 18f5311d41e06d0126d0961d585ac821ab759f176f6a399396242f75c38ae15d  app/src/main/java/com/callum/newsdesk/WidgetHistory.kt
