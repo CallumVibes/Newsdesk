@@ -680,6 +680,42 @@ suite('A briefing has time to be written in the background', (t) => {
  * permission, and the manifest is the one place that cannot be inferred from the Kotlin.
  */
 /*
+ * The WebView that carries the bridge may only ever be on the app's own page.
+ *
+ * Everything safe about that bridge rests on this one fact. It hands out the PPQ key,
+ * fetches anything and posts anywhere, and all that is fine while the only page running
+ * it comes out of assets. Nothing was enforcing it: the default is to follow whatever
+ * navigation it is given, and the page has no anchor, no form and no write to location
+ * today - but "today" was the whole of the guarantee.
+ */
+suite('Only the app\'s own page is ever on the end of the bridge', (t) => {
+  const kt = read(KT + 'MainActivity.kt');
+  const main = kt.slice(kt.indexOf('web.webViewClient'), kt.indexOf('root.addView(web'));
+  t.ok(/override fun shouldOverrideUrlLoading/.test(main), 'navigation is answered, not defaulted');
+  t.ok((main.match(/shouldOverrideUrlLoading/g) || []).length >= 2,
+    'in both forms, since the old one is what pre-24 calls');
+  t.ok(/!isOwnPage\(/.test(main), 'and anything that is not the app\'s own page is refused');
+  t.ok(/const val PAGE = "file:\/\/\/android_asset\/index\.html"/.test(kt),
+    'with one name for that page rather than a string in two places');
+  t.ok(/web\.loadUrl\(PAGE\)/.test(kt), 'which is the one it loads');
+
+  /* The scraper is the opposite WebView: somebody else's page, no bridge. It is only
+     ever handed one hard-coded address today, but it is reached through the bridge from
+     the page that handles other people's feeds, and allowFileAccess defaults to true
+     below API 30 - where shared_prefs is where the PPQ key lives. */
+  const scrape = kt.slice(kt.indexOf('private fun startScrape'), kt.indexOf('private fun finishScrape'));
+  t.ok(/startsWith\("http:\/\/"\) && !url\.startsWith\("https:\/\/"\)/.test(scrape),
+    'the scraper takes the web and nothing else');
+  t.ok(scrape.indexOf('return') < scrape.indexOf('WebView(this)'),
+    'turning anything else away before a WebView is even made');
+  ['allowFileAccess', 'allowContentAccess', 'allowFileAccessFromFileURLs',
+   'allowUniversalAccessFromFileURLs'].forEach((s) => {
+    t.ok(new RegExp('settings\\.' + s + ' = false').test(scrape),
+      s + ' is off for a page the app did not write');
+  });
+});
+
+/*
  * A booked job is not a job that runs. A phone on a bedside table is in Doze by two in
  * the morning, and Doze defers jobs to maintenance windows that grow further apart the
  * longer it lasts - to whitelisted apps as well, which get network and alarms out of
@@ -812,7 +848,7 @@ suite('A weak link is not asked for everything at once', (t) => {
   t.ok(/width\+\+/.test(net), 'and opened one at a time when it answers');
 
   const get = net.slice(net.indexOf('fun get('), net.indexOf('private fun walk'));
-  t.ok(/Gate\.enter\(\)/.test(get) && /Gate\.leave\(\)/.test(get), 'every request goes through it');
+  t.ok(/Gate\.enter\(until\)/.test(get) && /Gate\.leave\(\)/.test(get), 'every request goes through it');
   t.ok(/\} finally \{\s*\n\s*Gate\.leave\(\)/.test(get),
     'and leaves in a finally, or the gate wedges shut and the app stops fetching');
   t.ok(/catch \(e: SocketTimeoutException\)[\s\S]{0,120}Gate\.narrow\(\)/.test(get),
@@ -820,6 +856,22 @@ suite('A weak link is not asked for everything at once', (t) => {
   t.ok(get.indexOf('Gate.widen()') > 0, 'while any answer at all opens it up');
   t.ok(/private const val TRIES = \d/.test(net),
     'and a weak signal gets another go, being intermittent rather than absent');
+
+  /* The gate used to give up waiting after twenty seconds and go through anyway, so a
+     missed leave() could not wedge it. Narrowed to two, with every request allowed a
+     minute, a queue of nine waits well past twenty seconds - so they all barged and the
+     link was back to the full pool at once, which is the crowding this exists to stop.
+     Measured against a real socket: peak sixteen of a twelve-wide gate, before. */
+  const gate = net.slice(net.indexOf('fun enter(until: Long)'), net.indexOf('fun leave()'));
+  t.not(/waited < 20_000L/.test(gate), 'a thread does not barge through after a wait');
+  t.ok(/if \(left <= 0L\) return false/.test(gate),
+    'it fails instead, which relieves the link rather than adding to it');
+  t.ok(/if \(!Gate\.enter\(until\)\) return Triple\(false, 0,/.test(net),
+    'and the caller reports that, rather than asking anyway');
+
+  // A width measured on a bad signal half an hour ago is about a link that is gone.
+  t.ok(/private const val STALE_MS/.test(net), 'what was learned has a shelf life');
+  t.ok(/if \(isStale\(\)\) forget\(\)/.test(gate), 'and is let go of once it is past it');
 
   /* Nothing here may outlast the page's own deadline on the same request. When it did,
      the page recorded a failure while this thread still held the link open - and the
