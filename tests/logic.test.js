@@ -55,7 +55,7 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
       ['today', 'local', 'world', 'tech', 'coin', 'vegan', 'recipes', 'hist', 'all', 'saved'],
       'has its tabs, in the order the remote walks them');
     t.is(nd.TABS[nd.HOME_TAB].id, 'today', 'and opens on the first of them');
-    t.same(nd.ORDER, ['cw', 'kg', 'ht', 'yh', 'bb', 'vf', 'lm', 'hh', 'rc'], 'knows its sources');
+    t.same(nd.ORDER, ['cw', 'kg', 'ht', 'yh', 'bb', 'vf', 'lm', 'hh', 'rc', 'bo'], 'knows its sources');
     nd.TABS.forEach((tab) => {
       t.ok(tab.srcs.every((s) => nd.ORDER.indexOf(s) >= 0),
         tab.id + ' draws only from sources that exist');
@@ -1416,9 +1416,14 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
       nd.TABS[nd.TABS.findIndex((x) => x.id === 'all')]), false,
       'a recipe never reaches All, however the words read');
     const tab = nd.TABS[nd.TABS.findIndex((x) => x.id === 'recipes')];
-    t.same(tab.srcs, ['rc'], 'the Recipes tab draws from the kitchens alone');
+    /* The kitchens, and the library threaded through them. BOSH publishes no feed, so
+       its recipes are drawn rather than arriving - but they are still recipes, and the
+       Recipes tab is where they belong. */
+    t.same(tab.srcs, ['rc', 'bo'], 'the Recipes tab draws from the kitchens and the library');
     const all = nd.TABS[nd.TABS.findIndex((x) => x.id === 'all')];
     t.is(all.srcs.indexOf('rc'), -1, 'and All leaves them out, being today\'s news');
+    t.is(all.srcs.indexOf('bo'), -1,
+      'and the library too, where a row with no date would say nothing for itself');
     const today = nd.TABS[nd.TABS.findIndex((x) => x.id === 'today')];
     t.is(today.srcs.indexOf('rc'), -1, 'as does Today');
   });
