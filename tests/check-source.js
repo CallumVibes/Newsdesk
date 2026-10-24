@@ -31,7 +31,7 @@ suite('Everything the build needs is there', (t) => {
     'app/src/main/assets/manifest.webmanifest', 'app/src/main/assets/sw.js',
     'app/src/main/assets/icon-192.png', 'app/src/main/assets/icon-512.png',
     KT + 'MainActivity.kt', KT + 'Net.kt', KT + 'Briefings.kt',
-    KT + 'Widget.kt', KT + 'WidgetFeed.kt', KT + 'WidgetHistory.kt',
+    KT + 'Widget.kt', KT + 'WidgetFeed.kt', KT + 'WidgetHistory.kt', KT + 'Reading.kt',
     'app/src/main/res/drawable/icon.png', 'app/src/main/res/drawable/banner.png',
     'app/src/main/res/drawable/notify.png', 'app/src/main/res/drawable/widget_bg.xml',
     'app/src/main/res/drawable/widget_refresh.png',
@@ -151,7 +151,7 @@ const KOTLIN_FREE = new Set([
 
 suite('Every Kotlin name is one the compiler will find', (t) => {
   const files = ['MainActivity.kt', 'Net.kt', 'Briefings.kt', 'Widget.kt',
-    'WidgetFeed.kt', 'WidgetHistory.kt'];
+    'WidgetFeed.kt', 'WidgetHistory.kt', 'Reading.kt'];
   // Anything declared anywhere in the package is reachable from anywhere else in it.
   const inPackage = new Set(['R']);
   const bodies = {};
@@ -394,7 +394,8 @@ suite('The build stays the build we can reason about', (t) => {
 suite('No page freezes another page', (t) => {
   // Comments stripped first: both files say in prose why they no longer call it.
   const code = (s) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ');
-  const kt = ['MainActivity.kt', 'Briefings.kt', 'Widget.kt', 'WidgetFeed.kt', 'WidgetHistory.kt']
+  const kt = ['MainActivity.kt', 'Briefings.kt', 'Widget.kt', 'WidgetFeed.kt', 'WidgetHistory.kt',
+               'Reading.kt']
     .filter((f) => has(KT + f)).map((f) => ({ f, src: code(read(KT + f)) }));
   t.ok(kt.length >= 2, 'the Kotlin is where it was');
   kt.forEach(({ f, src }) => {
@@ -497,7 +498,8 @@ suite('Both languages are lit the same way', (t) => {
    what happened and nothing else, and the work is done after a post, by which time the
    constructor has certainly returned. */
 suite('The voice does not read a field its own constructor has not set yet', (t) => {
-  const kt = read(KT + 'MainActivity.kt');
+  // Lives in Reading.kt now, with the service that keeps it talking past the activity.
+  const kt = read(KT + 'Reading.kt');
   t.ok(/class Speaker\(/.test(kt), 'the speaker is there');
   const make = kt.slice(kt.indexOf('private fun make()'), kt.indexOf('private fun began('));
   t.ok(make.length > 20, 'and makes its engine in one place');
@@ -538,9 +540,11 @@ suite('The voice does not read a field its own constructor has not set yet', (t)
   t.ok(/<queries>/.test(man), 'the manifest says which packages it wants to see');
   t.ok(/android\.intent\.action\.TTS_SERVICE/.test(man), 'naming the speech services');
 
-  // A dead end is no use: there has to be somewhere to go and get a voice.
-  t.ok(/fun voiceSettings\(\)/.test(kt), 'the app can open the speech settings');
-  t.ok(/com\.android\.settings\.TTS_SETTINGS/.test(kt), 'which is where a voice is chosen');
+  // A dead end is no use: there has to be somewhere to go and get a voice. That one
+  // opens a screen, so it stayed with the activity when the speaking moved out.
+  const act = read(KT + 'MainActivity.kt');
+  t.ok(/fun voiceSettings\(\)/.test(act), 'the app can open the speech settings');
+  t.ok(/com\.android\.settings\.TTS_SETTINGS/.test(act), 'which is where a voice is chosen');
   const page0 = read(PAGE);
   t.ok(/noengine:/.test(page0), 'and the page has words for a phone with no engine');
   /* Named engines, not a shrug. Both open source and both read without the network,
@@ -716,6 +720,62 @@ suite('Only the app\'s own page is ever on the end of the bridge', (t) => {
 });
 
 /*
+ * A story being read out carries on when the app does not.
+ *
+ * The engine used to belong to the activity, so it died with it: leaving the story,
+ * opening another, or putting the phone in a pocket each stopped the voice mid sentence.
+ * That was deliberate, on the grounds that a voice carrying on from the last article
+ * while you read the next is worse than no voice - which is right for somebody reading
+ * and exactly wrong for somebody listening, and listening is what the button is for.
+ */
+suite('A story read out loud outlives the screen', (t) => {
+  const kt = read(KT + 'Reading.kt');
+  t.ok(/class ReadingService : Service\(\)/.test(kt),
+    'the speaking happens in a service, the only way to make noise with nothing on screen');
+  t.ok(/startForeground\(ID, build\(\), ServiceInfo\.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK\)/.test(kt),
+    'a foreground one, declaring what kind, which Android 14 requires');
+  const man = read('app/src/main/AndroidManifest.xml');
+  t.ok(/android:foregroundServiceType="mediaPlayback"/.test(man), 'and says so in the manifest');
+  ['FOREGROUND_SERVICE', 'FOREGROUND_SERVICE_MEDIA_PLAYBACK'].forEach((p) => {
+    t.ok(new RegExp('uses-permission android:name="android\\.permission\\.' + p + '"').test(man),
+      p + ' is declared, or it cannot start at all');
+  });
+  // raise() before the command is read: the system kills a process that took a
+  // startForegroundService and did not show itself within a few seconds.
+  const start = kt.slice(kt.indexOf('override fun onStartCommand'), kt.indexOf('/** Reads whatever'));
+  t.ok(start.indexOf('raise()') < start.indexOf('when (intent?.action)'),
+    'it shows itself before doing anything, whatever the command turns out to be');
+
+  t.ok(/object Reading \{/.test(kt), 'the queue is kept outside the activity');
+  t.ok(/@Volatile var listener/.test(kt), 'which reports to a page while there is one');
+  const act = read(KT + 'MainActivity.kt');
+  t.ok(/Reading\.listener = null/.test(act) && /spoke = null/.test(act),
+    'and is unhooked rather than stopped when the activity goes');
+  t.not(/voice\?\.release\(\)/.test(act), 'the activity no longer owns an engine to release');
+
+  /* Queueing rather than interrupting, which is the other half of it. */
+  t.ok(/fun speak\(id: String, title: String, text: String\)/.test(act),
+    'a story is queued by name, so the notification can say what it is reading');
+  t.ok(/Reading\.has\(id\)/.test(kt), 'and the same story is not queued twice over');
+  t.ok(/fun skip\(\)/.test(act) && /ACTION_SKIP/.test(kt), 'with a way past the current one');
+  t.ok(/Taps\.openAt\(this, 7, p\.id\)/.test(kt),
+    'and tapping the notification opens the story being read');
+
+  /* The page stops cutting it off. These three lines are the feature. */
+  const page = read(PAGE);
+  const closeR = page.slice(page.indexOf('function closeReader()'), page.indexOf('function readerNeighbour'));
+  t.not(/\bhush\(\);/.test(closeR), 'leaving the story does not stop it');
+  const openR = page.slice(page.indexOf('function openReader(it)'), page.indexOf('function summaryBlocks'));
+  t.not(/\bhush\(\);/.test(openR), 'nor does opening another');
+  t.ok(/paused: function \(\) \{ stopAmbient\(\); stopTimers\(\); flushSave\(\); \}/.test(page),
+    'nor does the app going off screen, which is when it is most wanted');
+  // One source of truth for whether anything is being read: the queue itself.
+  t.not(/S\.speaking/.test(page), 'and there is no second flag to disagree with the queue');
+  t.ok(/function readingNow\(it\)/.test(page) && /function readingNext\(it\)/.test(page),
+    'the button asks about the story in front of you, not about speech in general');
+});
+
+/*
  * A booked job is not a job that runs. A phone on a bedside table is in Doze by two in
  * the morning, and Doze defers jobs to maintenance windows that grow further apart the
  * longer it lasts - to whitelisted apps as well, which get network and alarms out of
@@ -752,7 +812,7 @@ suite('Something fires at five in the morning, not when the phone is picked up',
 suite('Every component the manifest names exists', (t) => {
   const mf = read('app/src/main/AndroidManifest.xml');
   const kt = ['MainActivity.kt', 'Briefings.kt', 'Widget.kt', 'WidgetFeed.kt',
-              'WidgetHistory.kt', 'Net.kt'].map((f) => read(KT + f)).join('\n');
+              'WidgetHistory.kt', 'Net.kt', 'Reading.kt'].map((f) => read(KT + f)).join('\n');
   const named = (mf.match(/android:name="\.(\w+)"/g) || [])
     .map((m) => m.replace(/android:name="\./, '').replace(/"$/, ''));
   t.ok(named.length >= 6, 'the manifest names components at all');
@@ -765,7 +825,7 @@ suite('Every component the manifest names exists', (t) => {
 suite('What the Kotlin asks for, the manifest declares', (t) => {
   const mf = read('app/src/main/AndroidManifest.xml');
   const kt = ['MainActivity.kt', 'Briefings.kt', 'Widget.kt', 'WidgetFeed.kt',
-              'WidgetHistory.kt', 'Net.kt'].map((f) => read(KT + f)).join('\n');
+              'WidgetHistory.kt', 'Net.kt', 'Reading.kt'].map((f) => read(KT + f)).join('\n');
   const declared = (p) =>
     new RegExp('uses-permission android:name="android\\.permission\\.' + p + '"').test(mf);
 

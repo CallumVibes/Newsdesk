@@ -486,6 +486,34 @@ promptly — and the genuinely offline case is still caught up front and costs n
 
 `Net.kt` imports nothing from Android, so it compiles and runs on its own against a real socket.
 
+## Reading it out
+
+**Listen** reads the story in the voice the device already has — on the device, so it costs nothing
+an article, starts in a moment rather than after a download, and works with the broadband off.
+
+It keeps reading when you leave the story, open another one, or put the phone away. All three used
+to stop it, on the grounds that a voice carrying on from the last article while you read the next
+is worse than no voice at all. That is right for somebody reading and exactly wrong for somebody
+listening, and listening is what the button is for: you put the phone down, and that is precisely
+when you want it still going. An engine owned by the activity dies with the activity, so the
+speaking happens in a foreground service — the only way Android lets a process keep making noise
+with nothing on screen. The notification that requires is not a tax: it is the transport controls,
+it says what is being read, and tapping it opens that article.
+
+Pressing Listen on a second story **queues** it rather than cutting the first off, so the button
+says which of four things it means — *Read aloud*, *Queue to read*, *In the queue*, *Stop reading*
+— about the story in front of you rather than about speech in general. The same story cannot be
+queued twice. Stop takes the queue with it, and Skip moves on. Whether anything is being read is
+the queue's business and only the queue's; there is no second flag to disagree with it.
+
+It asks for audio focus so other things give way, and gives it back at the end. Losing focus stops
+the lot rather than pausing: an engine has no pause, so resuming would mean starting the article
+again, and a paragraph read twice is worse than a session that ended when the phone rang.
+
+A phone with no speech engine — which is how one without Google's services arrives — is told so,
+and told that RHVoice or SherpaTTS from F-Droid will give it a voice, rather than being left with a
+button that says no.
+
 ## What the bridge is allowed to touch
 
 The main WebView carries the `Native` bridge. It hands out the PPQ key, fetches anything and posts
