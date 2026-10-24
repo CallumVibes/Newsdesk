@@ -2945,7 +2945,7 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
          invisible - it answered, so it was not a failure, and it gave nothing, so it
          was not a source either. */
       if (/minimalistbaker/.test(url)) return { ok: true, body: rss('A one-pot lentil dhal') };
-      if (/deliciouslyella/.test(url)) return { ok: true, body: rss('Win a blender in our giveaway') };
+      if (/veganricha/.test(url)) return { ok: true, body: rss('Win a blender in our giveaway') };
       if (/transport/.test(url)) {
         return { ok: true, body: [1, 2, 3].map((i) =>
           `<a href="/view/30${i}-a-transport-picture-${i}">A transport picture ${i}</a>`).join('') };
@@ -3089,7 +3089,7 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     const rc = halfDown.nd.S.by.rc || {};
     t.ok(/1 of 6 kitchens/.test(rc.method || ''), 'one kitchen served dinner');
     const rcQuiet = halfDown.nd.quietReqs(rc).map((x) => halfDown.nd.reqLine(x));
-    t.ok(rcQuiet.some((l) => /deliciouslyella\.com\/feed\/ - 1 in it, none of them recipes/.test(l)),
+    t.ok(rcQuiet.some((l) => /veganricha\.com\/feed\/ - 1 in it, none of them recipes/.test(l)),
       'and the one with nothing but a giveaway on it says that is what was on it');
     t.not(rcQuiet.some((l) => /minimalistbaker/.test(l)), 'while the one that worked does not');
     /* A route that answered and had nothing worth keeping is counted rather than named,
@@ -3103,7 +3103,7 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     halfDown.nd.S.deep = true;
     halfDown.nd.openSheet();
     const workings = halfDown.window.document.getElementById('sheetBody').textContent;
-    t.ok(/deliciouslyella\.com\/feed\/ - 1 in it, none of them recipes/.test(workings),
+    t.ok(/veganricha\.com\/feed\/ - 1 in it, none of them recipes/.test(workings),
       'which reaches the panel as well as the state behind it');
     t.ok(/a-shelf-of-pictures - HTTP 503/.test(workings), 'alongside the one that broke');
     halfDown.nd.S.deep = false;

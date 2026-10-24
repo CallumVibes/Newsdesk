@@ -34,7 +34,7 @@ jobs:
           mkdir -p newsdesk
           cd newsdesk
           base64 -d > src.tgz <<'B64END'
-          H4sIANiL3GoC/+y9CWBcdZ04ntaCEEArIh54vIYjCZ2ZzEzOJk3bXG1Dj4QmbcFSw5uZN5nXzLw3
+          H4sIAFqM3GoC/+y9CWBcdZ04ntaCEEArIh54vIYjCZ2ZzEzOJk3bXG1Dj4QmbcFSw5uZN5nXzLw3
           fe9N0iGpW0FB12tRLm8EdRG80F3w57Giq4InHuuNingj4sHKeqD8P8f3+655k6QV3f3vEmgy8973
           /n6+n/vz+Sba1HK5LVPRi7nEtKXmilpixrEbHtOfJPx0dXTQX/gJ/00nO1PyMz9PtXd2dDcoyYa/
           w0/FdlQLurdM01ms3FLv/3/6Uy5WpnXDVuYbFfjRcy1NWbOUUI2cZeq5BMBGUc+qjm4aTa1uCdOa

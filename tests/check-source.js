@@ -719,6 +719,35 @@ suite('Only the app\'s own page is ever on the end of the bridge', (t) => {
   });
 });
 
+/*
+ * A kitchen named by a test fixture has to be one the app actually asks for.
+ *
+ * Replacing three dead kitchens broke the recipes test, because its fixture answered for
+ * deliciouslyella - which the app no longer fetches, so the reply was never asked for and
+ * the assertion about it could not come true. That is a twenty-minute round trip to find
+ * out something readable from here in a second, and it will happen again the next time a
+ * kitchen closes.
+ */
+suite('The kitchens a fixture answers for are kitchens the app asks', (t) => {
+  const page = read(PAGE);
+  const list = page.slice(page.indexOf('var RC_KITCHENS = ['), page.indexOf('var RC_MAX'));
+  const hosts = Array.from(new Set((list.match(/https:\/\/([\w.-]+)/g) || [])
+    .map((u) => u.replace('https://', '').replace(/^www\./, ''))));
+  t.ok(hosts.length >= 4, 'there are kitchens to compare against');
+
+  const fixture = fs.readFileSync(path.join(__dirname, 'logic.test.js'), 'utf8');
+  /* Only the ones the recipe stub answers for - a bare domain mentioned in prose is not a
+     claim about anything. These are the lines that hand back a feed. */
+  const named = (fixture.match(/if \(\/([\w-]+)\/\.test\(url\)\) return \{ ok: true, body: rss\(/g) || [])
+    .map((m) => (m.match(/\/([\w-]+)\//) || [])[1])
+    .filter(Boolean);
+  t.ok(named.length >= 2, 'and the fixture answers for some of them');
+  named.forEach((n) => {
+    t.ok(hosts.some((h) => h.indexOf(n) === 0 || h.replace(/\..*$/, '') === n),
+      n + ' is a kitchen the app still asks for');
+  });
+});
+
 /* Two of the kitchens hand out links ending "?adt_ei={$email}" - a newsletter template
    leaking into their feed. That is not a parameter, it is the hole where one was meant
    to go, and it should not be in a link handed to somebody. Done in abs(), which every
