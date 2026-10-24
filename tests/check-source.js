@@ -720,6 +720,101 @@ suite('Only the app\'s own page is ever on the end of the bridge', (t) => {
 });
 
 /*
+ * A kitchen named by a test fixture has to be one the app actually asks for.
+ *
+ * Replacing three dead kitchens broke the recipes test, because its fixture answered for
+ * deliciouslyella - which the app no longer fetches, so the reply was never asked for and
+ * the assertion about it could not come true. That is a twenty-minute round trip to find
+ * out something readable from here in a second, and it will happen again the next time a
+ * kitchen closes.
+ */
+suite('The kitchens a fixture answers for are kitchens the app asks', (t) => {
+  const page = read(PAGE);
+  const list = page.slice(page.indexOf('var RC_KITCHENS = ['), page.indexOf('var RC_MAX'));
+  const hosts = Array.from(new Set((list.match(/https:\/\/([\w.-]+)/g) || [])
+    .map((u) => u.replace('https://', '').replace(/^www\./, ''))));
+  t.ok(hosts.length >= 4, 'there are kitchens to compare against');
+
+  const fixture = fs.readFileSync(path.join(__dirname, 'logic.test.js'), 'utf8');
+  /* Only the ones the recipe stub answers for - a bare domain mentioned in prose is not a
+     claim about anything. These are the lines that hand back a feed. */
+  const named = (fixture.match(/if \(\/([\w-]+)\/\.test\(url\)\) return \{ ok: true, body: rss\(/g) || [])
+    .map((m) => (m.match(/\/([\w-]+)\//) || [])[1])
+    .filter(Boolean);
+  t.ok(named.length >= 2, 'and the fixture answers for some of them');
+  named.forEach((n) => {
+    t.ok(hosts.some((h) => h.indexOf(n) === 0 || h.replace(/\..*$/, '') === n),
+      n + ' is a kitchen the app still asks for');
+  });
+});
+
+/*
+ * A library is not a feed, and the difference is the whole of this.
+ *
+ * BOSH publishes no feed - their llms.txt names an API that would not answer, and
+ * robots.txt declares one sitemap and disallows nothing but /admin/. What the sitemap
+ * gives is addresses and lastmod dates, and lastmod is when a page was touched rather
+ * than when the recipe was written. Hundreds of recipes that do not change: sorted by
+ * date they would sit at the bottom for ever, or, dated today, lie about being new.
+ */
+suite('The recipe library is drawn from rather than sorted', (t) => {
+  const page = read(PAGE);
+  t.ok(/bo: \{ name: 'BOSH!'/.test(page), 'the library is a source like the rest');
+  t.ok(/library: true/.test(page), 'marked as one, since it is handled differently');
+  t.ok(/srcs: \['rc', 'bo'\]/.test(page), 'and it is on the Recipes tab');
+  t.not(/FEED_SRCS = \[[^\]]*'bo'/.test(page),
+    'but not on All, where a row with no date would have nothing to say for itself');
+  t.ok(/thread\(thread\(weave\(tNews, RUN_MAX\), tDiary, DIARY_EVERY\), tLib, BOSH_EVERY\)/.test(page),
+    'threaded through at a spacing, the way the diary is and for the same reason');
+  t.ok(/byOrder/.test(page), 'and kept in the order the day drew it, having no date to sort by');
+
+  /* Only a recipe, only one level down, and never the index itself. */
+  const from = page.slice(page.indexOf('function boshFromSitemap'), page.indexOf('function boshHeld'));
+  t.ok(/bosh\\\.tv\\\/recipes\\\/\(\[a-z0-9-\]\+\)\\\/\?\$/.test(from),
+    'the sitemap gives up recipe addresses and nothing else');
+
+  /*
+   * Two bugs lived in this sort, one after the other, and both would have shipped
+   * looking like a working feature showing the same handful of recipes for ever.
+   *
+   * hash() answers with a string, and comparing strings sorts them like words - so the
+   * first character decided it. 30 recipes of 200 over four months.
+   *
+   * Then djb2 multiplies as it goes, so the end of a string counts for far more than the
+   * start: with the day on the front it was drowned by the slug behind it and every day
+   * drew the same five. 15 of 200. The day goes on the end now and the result is stirred
+   * again, which reaches 189 of 200.
+   */
+  const key = page.slice(page.indexOf('function boshKey'), page.indexOf("/** The day's draw"));
+  t.ok(/Number\(hash\(slug \+ ':' \+ day\)\)/.test(key),
+    'read as a number, with the day at the end where djb2 can hear it');
+  t.ok(/Math\.imul/.test(key), 'and stirred, so a day apart is not a place apart');
+  t.ok(/boshKey\(a\.slug, day\) - boshKey\(b\.slug, day\)/.test(page),
+    'the draw subtracts numbers rather than comparing strings');
+
+  // The list of addresses barely changes, so it is not fetched every refresh.
+  t.ok(/BOSH_LIST_DAYS/.test(page) && /Date\.now\(\) - o\.at > BOSH_LIST_DAYS \* DAY/.test(page),
+    'and the addresses are kept for a week rather than fetched again every time');
+});
+
+/* Two of the kitchens hand out links ending "?adt_ei={$email}" - a newsletter template
+   leaking into their feed. That is not a parameter, it is the hole where one was meant
+   to go, and it should not be in a link handed to somebody. Done in abs(), which every
+   link and image passes through, and narrow enough to be sure about: a real URL does not
+   carry braces in a query value. */
+suite('A link is not handed over with the template still in it', (t) => {
+  const page = read(PAGE);
+  t.ok(/function untemplate\(u\)/.test(page), 'there is something that takes them out');
+  t.ok(/return untemplate\(new URL\(u, base\)\.href\)/.test(page),
+    'and abs runs every link through it, which is all of them');
+  const fn = page.slice(page.indexOf('function untemplate(u)'), page.indexOf('function abs(u, base)'));
+  t.ok(/if \(u\.indexOf\('\{'\) < 0\) return u;/.test(fn),
+    'a link with no braces in it is left exactly alone');
+  t.ok(/\[\^\?&=\]\*=\\\{\[\^\}\]\*\\\}/.test(fn.replace(/\s+/g, '')) || /\{\[\^\}\]\*\\?\}/.test(fn),
+    'and only a parameter whose value is a placeholder is removed');
+});
+
+/*
  * A story being read out carries on when the app does not.
  *
  * The engine used to belong to the activity, so it died with it: leaving the story,
