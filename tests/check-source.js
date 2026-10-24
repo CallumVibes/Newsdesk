@@ -805,6 +805,14 @@ suite('The recipe library is drawn from rather than sorted', (t) => {
 suite('A link is not handed over with the template still in it', (t) => {
   const page = read(PAGE);
   t.ok(/function untemplate\(u\)/.test(page), 'there is something that takes them out');
+  /* A source that failed without an HTTP answer read "HTTP 0", which names no problem
+     and suggests no fix. Kotlin knows which it was - timed out, waited too long for a
+     slot - and that was being dropped on the way back. Only at status 0: on a 403 the
+     body is the server's error page. */
+  t.ok(/why: \(!ok && !status\) \? String\(body \|\| ''\)\.slice\(0, 80\) : ''/.test(page),
+    'and a failure with no status carries the reason back from Kotlin');
+  t.ok((page.match(/error: r\.why/g) || []).length >= 4,
+    'which every source that records its attempts passes on');
   t.ok(/return untemplate\(new URL\(u, base\)\.href\)/.test(page),
     'and abs runs every link through it, which is all of them');
   const fn = page.slice(page.indexOf('function untemplate(u)'), page.indexOf('function abs(u, base)'));
@@ -1003,7 +1011,13 @@ suite('A weak link is not asked for everything at once', (t) => {
   t.ok(/width\+\+/.test(net), 'and opened one at a time when it answers');
 
   const get = net.slice(net.indexOf('fun get('), net.indexOf('private fun walk'));
-  t.ok(/Gate\.enter\(until\)/.test(get) && /Gate\.leave\(\)/.test(get), 'every request goes through it');
+  t.ok(/Gate\.enter\(System\.currentTimeMillis\(\) \+ QUEUE_WAIT_MS\)/.test(get)
+       && /Gate\.leave\(\)/.test(get), 'every request goes through it');
+  /* Two clocks. Waiting for a slot used to come out of the same budget as the fetching,
+     so a request that queued for forty seconds had twenty left to read a feed in, timed
+     out, narrowed the gate, and made the queue longer for the next one. */
+  t.ok(get.indexOf('Gate.enter') < get.indexOf('val until = System.currentTimeMillis()'),
+    'and its budget starts once it is through, not while it is waiting');
   t.ok(/\} finally \{\s*\n\s*Gate\.leave\(\)/.test(get),
     'and leaves in a finally, or the gate wedges shut and the app stops fetching');
   t.ok(/catch \(e: SocketTimeoutException\)[\s\S]{0,120}Gate\.narrow\(\)/.test(get),
@@ -1021,8 +1035,18 @@ suite('A weak link is not asked for everything at once', (t) => {
   t.not(/waited < 20_000L/.test(gate), 'a thread does not barge through after a wait');
   t.ok(/if \(left <= 0L\) return false/.test(gate),
     'it fails instead, which relieves the link rather than adding to it');
-  t.ok(/if \(!Gate\.enter\(until\)\) return Triple\(false, 0,/.test(net),
+  t.ok(/return Triple\(false, 0, "waited too long for a free slot"\)/.test(net),
     'and the caller reports that, rather than asking anyway');
+
+  /* Narrowing needs evidence that the width is what hurts. A closed feed times out on a
+     perfect link: six of them took the gate from twelve to two over a loopback socket,
+     at the end of a refresh, after thirty healthy feeds had been read. */
+  const nar = net.slice(net.indexOf('fun narrow()'), net.indexOf('fun widen()'));
+  t.ok(/if \(busy < width\) return/.test(nar),
+    'with slots to spare, taking the width away cannot help anything');
+  t.ok(/QUIET_MS/.test(nar), 'and a link that answered a moment ago is not an overloaded one');
+  t.ok(/lastOk = System\.currentTimeMillis\(\)/.test(net.slice(net.indexOf('fun widen()'))),
+    'which means noting when something last came back');
 
   // A width measured on a bad signal half an hour ago is about a link that is gone.
   t.ok(/private const val STALE_MS/.test(net), 'what was learned has a shelf life');
