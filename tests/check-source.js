@@ -748,6 +748,55 @@ suite('The kitchens a fixture answers for are kitchens the app asks', (t) => {
   });
 });
 
+/*
+ * A library is not a feed, and the difference is the whole of this.
+ *
+ * BOSH publishes no feed - their llms.txt names an API that would not answer, and
+ * robots.txt declares one sitemap and disallows nothing but /admin/. What the sitemap
+ * gives is addresses and lastmod dates, and lastmod is when a page was touched rather
+ * than when the recipe was written. Hundreds of recipes that do not change: sorted by
+ * date they would sit at the bottom for ever, or, dated today, lie about being new.
+ */
+suite('The recipe library is drawn from rather than sorted', (t) => {
+  const page = read(PAGE);
+  t.ok(/bo: \{ name: 'BOSH!'/.test(page), 'the library is a source like the rest');
+  t.ok(/library: true/.test(page), 'marked as one, since it is handled differently');
+  t.ok(/srcs: \['rc', 'bo'\]/.test(page), 'and it is on the Recipes tab');
+  t.not(/FEED_SRCS = \[[^\]]*'bo'/.test(page),
+    'but not on All, where a row with no date would have nothing to say for itself');
+  t.ok(/thread\(thread\(weave\(tNews, RUN_MAX\), tDiary, DIARY_EVERY\), tLib, BOSH_EVERY\)/.test(page),
+    'threaded through at a spacing, the way the diary is and for the same reason');
+  t.ok(/byOrder/.test(page), 'and kept in the order the day drew it, having no date to sort by');
+
+  /* Only a recipe, only one level down, and never the index itself. */
+  const from = page.slice(page.indexOf('function boshFromSitemap'), page.indexOf('function boshHeld'));
+  t.ok(/bosh\\\.tv\\\/recipes\\\/\(\[a-z0-9-\]\+\)\\\/\?\$/.test(from),
+    'the sitemap gives up recipe addresses and nothing else');
+
+  /*
+   * Two bugs lived in this sort, one after the other, and both would have shipped
+   * looking like a working feature showing the same handful of recipes for ever.
+   *
+   * hash() answers with a string, and comparing strings sorts them like words - so the
+   * first character decided it. 30 recipes of 200 over four months.
+   *
+   * Then djb2 multiplies as it goes, so the end of a string counts for far more than the
+   * start: with the day on the front it was drowned by the slug behind it and every day
+   * drew the same five. 15 of 200. The day goes on the end now and the result is stirred
+   * again, which reaches 189 of 200.
+   */
+  const key = page.slice(page.indexOf('function boshKey'), page.indexOf("/** The day's draw"));
+  t.ok(/Number\(hash\(slug \+ ':' \+ day\)\)/.test(key),
+    'read as a number, with the day at the end where djb2 can hear it');
+  t.ok(/Math\.imul/.test(key), 'and stirred, so a day apart is not a place apart');
+  t.ok(/boshKey\(a\.slug, day\) - boshKey\(b\.slug, day\)/.test(page),
+    'the draw subtracts numbers rather than comparing strings');
+
+  // The list of addresses barely changes, so it is not fetched every refresh.
+  t.ok(/BOSH_LIST_DAYS/.test(page) && /Date\.now\(\) - o\.at > BOSH_LIST_DAYS \* DAY/.test(page),
+    'and the addresses are kept for a week rather than fetched again every time');
+});
+
 /* Two of the kitchens hand out links ending "?adt_ei={$email}" - a newsletter template
    leaking into their feed. That is not a parameter, it is the hole where one was meant
    to go, and it should not be in a link handed to somebody. Done in abs(), which every
