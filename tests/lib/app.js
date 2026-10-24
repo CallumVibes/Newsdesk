@@ -39,7 +39,25 @@ async function boot(opts) {
     .replace(/<link[^>]*fonts\.(googleapis|gstatic)[^>]*>/g, '');
 
   const errors = [];
-  const calls = { fetched: [], posted: [], notified: [], scraped: [], widget: [], widgetFeed: [], widgetHist: [], shared: [], diaried: [], themed: [], buzzed: [], spoken: [], hushed: 0, voiceSettings: 0, keysSaved: [], runs: (o.runs || []).slice() };
+  const calls = { fetched: [], posted: [], notified: [], scraped: [], widget: [], widgetFeed: [], widgetHist: [], shared: [], diaried: [], themed: [], buzzed: [], spoken: [], hushed: 0, voiceSettings: 0, keysSaved: [], runs: (o.runs || []).slice(),
+    /* The reading service, in miniature: what it is reading and what is behind it. The
+       page draws its button from this, so a stub that only counted calls would let the
+       button be tested against nothing. */
+    queue: [], skipped: 0 };
+  const readingState = () => (calls.queue.length
+    ? { now: calls.queue[0], next: calls.queue.slice(1) } : { next: [] });
+  let win = null;                       // the page's window, once jsdom has made one
+  const tellReading = () => {
+    try { if (win && win.__reading) win.__reading(JSON.stringify(readingState())); } catch (e) {}
+  };
+  /* The service finishing one article: it says how that went, then moves on - or drops
+     the lot, where what went wrong was the engine rather than the article. A test that
+     only called __spoke would be testing the message and not the queue behind it. */
+  calls.finish = (ok, why) => {
+    try { if (win && win.__spoke) win.__spoke(ok, why || ''); } catch (e) {}
+    if (ok === false && why) calls.queue.length = 0; else calls.queue.shift();
+    tellReading();
+  };
   // What Kotlin is holding on the device's behalf, outside the page's own storage.
   const kept = { ppq: String(o.ppqKey || '') };
   let nd = null;
@@ -68,6 +86,7 @@ async function boot(opts) {
         w.Date = Fake;
       }
       w.__ndTestHook = (api) => { nd = api; };
+      win = w;
       // The Citadel relays would otherwise hold a socket open for nine seconds
       try { Object.defineProperty(w, 'WebSocket', { value: undefined, configurable: true }); } catch (e) {}
       try {
@@ -111,11 +130,16 @@ async function boot(opts) {
         /* The voice. o.speak decides what the device answers: true is an engine that
            took it, false is a device with none. Nothing is spoken here, so the page's
            window.__spoke has to be called by the test when it wants the end of it. */
-        speak(text) {
+        speak(id, title, text) {
           calls.spoken.push(text);
-          return o.speak === undefined ? true : !!o.speak;
+          if (o.speak !== undefined && !o.speak) return false;
+          calls.queue.push({ id: id, title: title });
+          tellReading();
+          return true;
         },
-        hush() { calls.hushed++; },
+        hush() { calls.hushed++; calls.queue.length = 0; tellReading(); },
+        skip() { calls.skipped++; calls.queue.shift(); tellReading(); },
+        readQueue: () => JSON.stringify(readingState()),
         /* Where a voice is chosen. o.voiceSettings false is a build of Android with no
            such screen, which is the other dead end. */
         voiceSettings() {

@@ -3955,47 +3955,47 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     nd2.openReader(dish);
     await new Promise((r) => setTimeout(r, 200));
 
+    const nowReading = () => !!(S2.reading && S2.reading.now);
+    const readAct = () => nd2.readerActions(dish).filter((a) => a.id === 'read')[0] || {};
+
     voice.offered = nd2.readerActions(dish).map((a) => a.id);
     voice.text = nd2.spokenText();
     c.spoken.length = 0;
     c.hushed = 0;
     nd2.readAloud();
     voice.sent = c.spoken.slice();
-    voice.speakingAfter = !!S2.speaking;
-    // Defensively: an action strip with no read button should fail a line, not throw and
-    // take the rest of the run with it.
-    const readAct = () => nd2.readerActions(dish).filter((a) => a.id === 'read')[0] || {};
+    voice.speakingAfter = nowReading();
     voice.labelWhile = readAct().label;
 
-    // Pressing it again stops it.
+    // Pressing it again, on the one being read, stops it.
     nd2.readAloud();
     voice.hushedByPress = c.hushed;
-    voice.speakingAfterStop = !!S2.speaking;
+    voice.speakingAfterStop = nowReading();
     voice.labelAfter = readAct().label;
 
-    // Kotlin saying it has finished puts the button back on its own.
+    // The service reaching the end of it puts the button back on its own.
     nd2.readAloud();
-    kitchen.window.__spoke(true);
-    voice.speakingAfterDone = !!S2.speaking;
+    c.finish(true, '');
+    voice.speakingAfterDone = nowReading();
 
     /* A voice that never arrives says why. There are two nothings that feel identical from
        the outside - no engine installed, and an engine reading to a muted phone - and the
        second is the likelier, so they are told apart. */
     nd2.readAloud();
-    kitchen.window.__spoke(false, 'novoice');
-    voice.speakingAfterFail = !!S2.speaking;
+    c.finish(false, 'novoice');
+    voice.speakingAfterFail = nowReading();
     voice.failNote = doc.getElementById('rdNote').textContent;
     voice.failFoot = doc.getElementById('rdFoot').className;
 
     nd2.readAloud();
-    kitchen.window.__spoke(false, 'silent');
+    c.finish(false, 'silent');
     voice.mutedNote = doc.getElementById('rdNote').textContent;
     voice.afterMuted = nd2.readerActions(dish).map((a) => a.id);
 
     /* A phone with no speech engine installed at all - which is how one without Google's
        services arrives. The button has to become a way out rather than the same no. */
     nd2.readAloud();
-    kitchen.window.__spoke(false, 'noengine');
+    c.finish(false, 'noengine');
     voice.noEngineNote = doc.getElementById('rdNote').textContent;
     voice.afterNoEngine = nd2.readerActions(dish).map((a) => a.id);
     const voiceAct = nd2.readerActions(dish).filter((a) => a.id === 'voice')[0] || {};
@@ -4013,37 +4013,66 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     nd2.hush();
 
     nd2.readAloud();
-    kitchen.window.__spoke(false, '');
+    c.finish(false, '');
     voice.vagueNote = doc.getElementById('rdNote').textContent;
 
     // And a finished reading leaves no message sitting there.
     nd2.readAloud();
-    kitchen.window.__spoke(true, '');
+    c.finish(true, '');
     voice.doneNote = doc.getElementById('rdNote').textContent;
     voice.doneFoot = doc.getElementById('rdFoot').className;
 
-    // Leaving the story stops it, and so does opening another.
+    /* None of these stop it any more, which is the whole point of it: somebody listening
+       puts the phone down, leaves the story, goes to another one. Each used to be a way
+       to lose the thing you were listening to. */
     nd2.readAloud();
     c.hushed = 0;
     nd2.closeReader();
     voice.hushedByClose = c.hushed;
-    voice.speakingAfterClose = !!S2.speaking;
+    voice.speakingAfterClose = nowReading();
 
     nd2.openReader(dish);
     await new Promise((r) => setTimeout(r, 200));
-    nd2.readAloud();
+    const other = Object.assign({}, dish, { id: 'rc:other', title: 'Another dish entirely' });
     c.hushed = 0;
-    nd2.openReader(Object.assign({}, dish, { id: 'rc:other', title: 'Another dish entirely' }));
+    nd2.openReader(other);
     voice.hushedByNext = c.hushed;
-    voice.speakingAfterNext = !!S2.speaking;
+    voice.speakingAfterNext = nowReading();
 
-    // And the app going off screen.
+    // And pressing Listen on that one puts it behind, rather than over the top.
+    const otherAct = () => nd2.readerActions(other).filter((a) => a.id === 'read')[0] || {};
+    voice.labelOnOther = otherAct().label;
     nd2.readAloud();
+    voice.queuedLen = c.queue.length;
+    voice.queuedSecond = c.queue[1] && c.queue[1].id;
+    voice.stillFirst = S2.reading.now && S2.reading.now.id;
+    voice.labelOnQueued = otherAct().label;
+    voice.queueNote = doc.getElementById('rdNote').textContent;
+
+    // Pressing it again on one that is already waiting does not queue it twice.
+    nd2.readAloud();
+    voice.noDoubleQueue = c.queue.length;
+
+    // The first one ending moves on to the one behind it.
+    c.finish(true, '');
+    voice.movedOn = S2.reading.now && S2.reading.now.id;
+    voice.labelOnceItsTurn = otherAct().label;
+
+    // And the app going off screen leaves it talking.
     c.hushed = 0;
     kitchen.window.nd.paused();
     voice.hushedByPause = c.hushed;
-    voice.speakingAfterPause = !!S2.speaking;
+    voice.speakingAfterPause = nowReading();
     nd2.startTimers();
+
+    /* Stop means stop, including whatever was lined up behind it. The reader is on the
+       story being read by now, so pressing the button would be Stop - this asks for it
+       directly so the line says what it is testing. */
+    c.hushed = 0;
+    nd2.hush();
+    voice.hushedByStop = c.hushed;
+    voice.queueAfterStop = c.queue.length;
+
     nd2.closeReader();
     S2.view = [];
   }
@@ -4106,14 +4135,36 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.is(voice.doneNote, '', 'a reading that finished leaves no message behind');
     t.not(/saying/.test(voice.doneFoot), 'and the foot goes back to one row');
 
-    /* Every way you stop listening. A voice carrying on from the last article while you
-       read the next is worse than no voice at all. */
-    t.is(voice.hushedByClose, 1, 'leaving the story stops it');
-    t.is(voice.speakingAfterClose, false, 'and it is not left marked as reading');
-    t.is(voice.hushedByNext, 1, 'opening another story stops it');
-    t.is(voice.speakingAfterNext, false, 'rather than reading the last one over the new one');
-    t.is(voice.hushedByPause, 1, 'and the app going off screen stops it');
-    t.is(voice.speakingAfterPause, false, 'with nothing left speaking to an empty room');
+    /* None of these stop it any anymore, and that inversion is the feature. Each of them
+       used to, on the grounds that a voice carrying on from the last article while you
+       read the next is worse than no voice - which is right for somebody reading and
+       exactly wrong for somebody listening. Putting the phone in a pocket was the most
+       ordinary reason of the lot to want it still going, and it was the one that stopped
+       it fastest. */
+    t.is(voice.hushedByClose, 0, 'leaving the story leaves it reading');
+    t.is(voice.speakingAfterClose, true, 'and it is still marked as reading');
+    t.is(voice.hushedByNext, 0, 'opening another story does not stop it');
+    t.is(voice.speakingAfterNext, true, 'so you can line the next one up while this one finishes');
+    t.is(voice.hushedByPause, 0, 'and the app going off screen does not stop it');
+    t.is(voice.speakingAfterPause, true, 'which is when somebody listening most wants it');
+
+    /* Queueing, which is what the button on another story now means. */
+    t.is(voice.labelOnOther, 'Queue to read',
+      'a second story offers to go behind the one being read');
+    t.is(voice.queuedLen, 2, 'and pressing it adds to the queue rather than replacing it');
+    t.is(voice.queuedSecond, 'rc:other', 'with the new one at the back');
+    t.is(voice.stillFirst, 'rc:stew2', 'and the one that was reading still reading');
+    t.is(voice.labelOnQueued, 'In the queue', 'the button then says it is waiting');
+    t.ok(/queue/i.test(voice.queueNote), 'and says so in words too (' + voice.queueNote + ')');
+    t.is(voice.noDoubleQueue, 2, 'pressing it again does not queue the same story twice');
+
+    t.is(voice.movedOn, 'rc:other', 'the first one ending moves on to the one behind it');
+    t.is(voice.labelOnceItsTurn, 'Stop reading',
+      'and its button becomes the way to stop, now that it is the one being read');
+
+    // Stop is still stop, and takes the queue with it.
+    t.is(voice.hushedByStop, 1, 'Stop stops it');
+    t.is(voice.queueAfterStop, 0, 'and clears what was lined up behind');
   });
 
   /* The evening edition repeated the morning's news. Four editions a day, and each was
