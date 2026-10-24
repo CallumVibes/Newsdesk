@@ -63,11 +63,11 @@ where anything could reach them. Better a door than a hole cut by the tests.
 
 ## In CI
 
-`check-source.js` and `logic.test.js` both run in the workflow, after the project is
-unpacked and before Gradle is asked to build anything, so a bad push fails in
-seconds rather than producing an APK that does not work.
+`check-source.js`, `logic.test.js` and `layout.test.js` all run in the workflow, after
+the project is unpacked and before Gradle is asked to build anything, so a bad push
+fails in seconds rather than producing an APK that does not work.
 
-**`layout.test.js`** — needs `playwright-core` and a Chromium. jsdom has no layout
+**`layout.test.js`** — needs a Chromium, and `playwright-core` if you have it. jsdom has no layout
 engine: every width it reports is zero, so it can say what the page *built* and not
 what the page *looks like*. Every layout fault in this app so far has been invisible
 to it and obvious in a browser — a fifth figure pushing the price band to three rows
@@ -78,13 +78,21 @@ that only have an answer once something is on screen: that the price band holds 
 line, that it gives up size before percentages and percentages before the line, that
 every tab is on screen, that nothing is clipped or hangs off the page.
 
-Not in CI — it needs a browser and takes seconds rather than milliseconds. Run it when
-you touch the header, the tab strip or the price band:
+It runs in CI now. It did not, on the grounds that it needs a browser and takes seconds
+rather than milliseconds — a poor trade against a build that takes a minute and a half,
+and against that list, every item of which reached a device because the one thing that
+could have caught it was the thing not being run. The runner has a Chrome already, so it
+costs one `npm i` and a few seconds of measuring.
 
 ```sh
-npm i --no-save playwright-core
 node tests/layout.test.js .newsdesk-unpacked
 ```
+
+With `playwright-core` installed it uses that. Without it — a sandbox with a browser but
+no route to the npm registry, which is where this app is largely worked on — it falls
+back to `lib/chrome-cdp.js`, which speaks to Chrome's debugging protocol directly and
+implements only what this one test uses. CI installs the real thing, so the run that
+decides anything never touches the fallback.
 
 Set `CHROME_PATH` if your Chromium is not at `/opt/pw-browsers/chromium-1194/…`.
 
@@ -96,7 +104,7 @@ inside the APK, where it would throw.
 ## What is not here
 
 The app's behaviour on screen — focus, the D-pad, the reader, the idle screen — is
-checked with Playwright against a real Chromium. Those tests need a browser and take
-minutes rather than seconds, so they are not in CI and are not committed here.
-`layout.test.js` above is the part of that work worth keeping, because it is the part
-that keeps catching things.
+checked with Playwright against a real Chromium. Those tests take minutes rather than
+seconds, so they are not committed here. `layout.test.js` above is the part of that work
+worth keeping, because it is the part that keeps catching things — which is also why it
+is now in the workflow rather than waiting for somebody to remember to run it.

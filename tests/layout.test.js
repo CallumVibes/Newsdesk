@@ -12,8 +12,12 @@
  * screen. So these run against Chromium, at the sizes a Fire TV and a phone actually
  * are, and check the things that only have an answer once something is drawn.
  *
- * Not in CI: it needs a browser and takes a few seconds rather than a few hundred
- * milliseconds. Run it when you touch the header, the tab strip or the price band.
+ * It runs in CI now. It did not, on the grounds that it needs a browser and takes a few
+ * seconds rather than a few hundred milliseconds - which was a poor trade against a build
+ * that takes a minute and a half, and against the list above. Every one of those faults
+ * reached a device because the only thing that could have caught them was the thing not
+ * being run. The runner has a Chrome on it already, so the cost is one npm install of
+ * playwright-core and a few seconds of measuring.
  */
 'use strict';
 const fs = require('fs');
@@ -26,6 +30,32 @@ if (!process.argv[2] && !process.env.NEWSDESK_DIR) {
   console.error('Give me the unpacked project directory. Run tests/unpack.sh first.');
   process.exit(2);
 }
+
+/*
+ * The page as it is, minus the one thing on it that reaches the network.
+ *
+ * index.html asks Google for Barlow, and whether that arrives changes every width on
+ * the screen - a condensed face is far narrower than the Arial Narrow it falls back to,
+ * so the price band fits more, settles on a different rung, and the numbers this suite
+ * measures all move. Which meant the result depended on whether a CDN was reachable:
+ * the same code passed on a machine with no DNS and failed on a runner with one, which
+ * is not a property a measurement should have.
+ *
+ * So the font links come out and everything is measured in the fallback stack. That is
+ * also the harsher of the two cases - wider glyphs, less room - so a layout that holds
+ * here holds with the font as well. jsdom's harness drops the same links, for the same
+ * reason.
+ *
+ * Written beside the original so that every relative path in the page still resolves.
+ */
+const PAGE_FILE = (function () {
+  const src = path.join(DIR, 'app/src/main/assets/index.html');
+  const out = path.join(DIR, 'app/src/main/assets/index.layout-test.html');
+  fs.writeFileSync(out, fs.readFileSync(src, 'utf8')
+    .replace(/<link[^>]*fonts\.(googleapis|gstatic)[^>]*>\s*/g, ''));
+  process.on('exit', () => { try { fs.unlinkSync(out); } catch (e) {} });
+  return out;
+})();
 
 /** Prices that have actually been on the screen, plus the six figures that are coming. */
 function market(btc) {
@@ -142,7 +172,7 @@ async function open(browser, opts) {
     .replace(/__TV__/g, String(!!opts.tv))
     .replace('__MKT__', JSON.stringify(JSON.stringify(market(opts.btc || 63355))))
     .replace('__THEME__', JSON.stringify(opts.theme || 'dark')));
-  await page.goto('file://' + path.join(DIR, 'app/src/main/assets/index.html'));
+  await page.goto('file://' + PAGE_FILE);
   await page.waitForTimeout(900);
   return page;
 }
@@ -897,15 +927,23 @@ async function stripFade(browser) {
 }
 
 (async () => {
-  let chromium;
-  try { chromium = require('playwright-core').chromium; } catch (e) {
-    console.error('Needs playwright-core:  npm i --no-save playwright-core');
-    process.exit(2);
+  /* The real library where it is installed - which is what CI does, so the run that
+     decides anything is always the real one. Where it is not, and there is a browser
+     sitting there anyway, lib/chrome-cdp.js talks to it directly rather than leaving
+     the suite unrunnable. It being unrunnable anywhere but the runner is how it came
+     to not be run at all. */
+  let chromium, via = 'playwright-core';
+  try {
+    chromium = require('playwright-core').chromium;
+  } catch (e) {
+    chromium = require('./lib/chrome-cdp').chromium;
+    via = 'the built-in fallback (no playwright-core installed)';
   }
   if (!fs.existsSync(CHROME)) {
     console.error('No Chromium at ' + CHROME + ' - set CHROME_PATH.');
     process.exit(2);
   }
+  console.log('Measuring in ' + CHROME + ' through ' + via);
   const browser = await chromium.launch({ executablePath: CHROME });
   const seen = {};
   for (const c of [
