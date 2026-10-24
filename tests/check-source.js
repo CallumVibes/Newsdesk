@@ -719,6 +719,23 @@ suite('Only the app\'s own page is ever on the end of the bridge', (t) => {
   });
 });
 
+/* Two of the kitchens hand out links ending "?adt_ei={$email}" - a newsletter template
+   leaking into their feed. That is not a parameter, it is the hole where one was meant
+   to go, and it should not be in a link handed to somebody. Done in abs(), which every
+   link and image passes through, and narrow enough to be sure about: a real URL does not
+   carry braces in a query value. */
+suite('A link is not handed over with the template still in it', (t) => {
+  const page = read(PAGE);
+  t.ok(/function untemplate\(u\)/.test(page), 'there is something that takes them out');
+  t.ok(/return untemplate\(new URL\(u, base\)\.href\)/.test(page),
+    'and abs runs every link through it, which is all of them');
+  const fn = page.slice(page.indexOf('function untemplate(u)'), page.indexOf('function abs(u, base)'));
+  t.ok(/if \(u\.indexOf\('\{'\) < 0\) return u;/.test(fn),
+    'a link with no braces in it is left exactly alone');
+  t.ok(/\[\^\?&=\]\*=\\\{\[\^\}\]\*\\\}/.test(fn.replace(/\s+/g, '')) || /\{\[\^\}\]\*\\?\}/.test(fn),
+    'and only a parameter whose value is a placeholder is removed');
+});
+
 /*
  * A story being read out carries on when the app does not.
  *
