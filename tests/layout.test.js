@@ -12,8 +12,12 @@
  * screen. So these run against Chromium, at the sizes a Fire TV and a phone actually
  * are, and check the things that only have an answer once something is drawn.
  *
- * Not in CI: it needs a browser and takes a few seconds rather than a few hundred
- * milliseconds. Run it when you touch the header, the tab strip or the price band.
+ * It runs in CI now. It did not, on the grounds that it needs a browser and takes a few
+ * seconds rather than a few hundred milliseconds - which was a poor trade against a build
+ * that takes a minute and a half, and against the list above. Every one of those faults
+ * reached a device because the only thing that could have caught them was the thing not
+ * being run. The runner has a Chrome on it already, so the cost is one npm install of
+ * playwright-core and a few seconds of measuring.
  */
 'use strict';
 const fs = require('fs');
@@ -897,15 +901,23 @@ async function stripFade(browser) {
 }
 
 (async () => {
-  let chromium;
-  try { chromium = require('playwright-core').chromium; } catch (e) {
-    console.error('Needs playwright-core:  npm i --no-save playwright-core');
-    process.exit(2);
+  /* The real library where it is installed - which is what CI does, so the run that
+     decides anything is always the real one. Where it is not, and there is a browser
+     sitting there anyway, lib/chrome-cdp.js talks to it directly rather than leaving
+     the suite unrunnable. It being unrunnable anywhere but the runner is how it came
+     to not be run at all. */
+  let chromium, via = 'playwright-core';
+  try {
+    chromium = require('playwright-core').chromium;
+  } catch (e) {
+    chromium = require('./lib/chrome-cdp').chromium;
+    via = 'the built-in fallback (no playwright-core installed)';
   }
   if (!fs.existsSync(CHROME)) {
     console.error('No Chromium at ' + CHROME + ' - set CHROME_PATH.');
     process.exit(2);
   }
+  console.log('Measuring in ' + CHROME + ' through ' + via);
   const browser = await chromium.launch({ executablePath: CHROME });
   const seen = {};
   for (const c of [

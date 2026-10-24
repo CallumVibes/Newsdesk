@@ -3208,6 +3208,25 @@ jobs:
           npm i --no-save --silent jsdom
           node tests/logic.test.js newsdesk
 
+      # jsdom has no layout engine, so every width it reports is zero: it can say what
+      # the page built and not what the page looks like. Every layout fault this app has
+      # had reached a device, because the one thing that could have caught them was the
+      # thing not being run. The runner already has a Chrome, so this costs one install
+      # and a few seconds of measuring at the sizes a Fire TV and a phone actually are.
+      - name: Check the layout
+        run: |
+          npm i --no-save --silent playwright-core
+          CHROME="$(command -v google-chrome || command -v google-chrome-stable \
+            || command -v chromium-browser || command -v chromium || true)"
+          if [ -z "$CHROME" ]; then
+            echo "No browser on this runner - fetching one."
+            npm i --no-save --silent playwright
+            npx playwright install --with-deps chromium
+            CHROME="$(node -e "console.log(require('playwright-core').chromium.executablePath())")"
+          fi
+          echo "Measuring with $CHROME"
+          CHROME_PATH="$CHROME" node tests/layout.test.js newsdesk
+
       - name: Add PPQ.ai settings from repo secrets
         env:
           PPQ_API_KEY: ${{ secrets.PPQ_API_KEY }}
