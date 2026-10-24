@@ -31,6 +31,32 @@ if (!process.argv[2] && !process.env.NEWSDESK_DIR) {
   process.exit(2);
 }
 
+/*
+ * The page as it is, minus the one thing on it that reaches the network.
+ *
+ * index.html asks Google for Barlow, and whether that arrives changes every width on
+ * the screen - a condensed face is far narrower than the Arial Narrow it falls back to,
+ * so the price band fits more, settles on a different rung, and the numbers this suite
+ * measures all move. Which meant the result depended on whether a CDN was reachable:
+ * the same code passed on a machine with no DNS and failed on a runner with one, which
+ * is not a property a measurement should have.
+ *
+ * So the font links come out and everything is measured in the fallback stack. That is
+ * also the harsher of the two cases - wider glyphs, less room - so a layout that holds
+ * here holds with the font as well. jsdom's harness drops the same links, for the same
+ * reason.
+ *
+ * Written beside the original so that every relative path in the page still resolves.
+ */
+const PAGE_FILE = (function () {
+  const src = path.join(DIR, 'app/src/main/assets/index.html');
+  const out = path.join(DIR, 'app/src/main/assets/index.layout-test.html');
+  fs.writeFileSync(out, fs.readFileSync(src, 'utf8')
+    .replace(/<link[^>]*fonts\.(googleapis|gstatic)[^>]*>\s*/g, ''));
+  process.on('exit', () => { try { fs.unlinkSync(out); } catch (e) {} });
+  return out;
+})();
+
 /** Prices that have actually been on the screen, plus the six figures that are coming. */
 function market(btc) {
   const now = Date.now();
@@ -146,7 +172,7 @@ async function open(browser, opts) {
     .replace(/__TV__/g, String(!!opts.tv))
     .replace('__MKT__', JSON.stringify(JSON.stringify(market(opts.btc || 63355))))
     .replace('__THEME__', JSON.stringify(opts.theme || 'dark')));
-  await page.goto('file://' + path.join(DIR, 'app/src/main/assets/index.html'));
+  await page.goto('file://' + PAGE_FILE);
   await page.waitForTimeout(900);
   return page;
 }

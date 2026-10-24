@@ -3214,6 +3214,7 @@ jobs:
       # thing not being run. The runner already has a Chrome, so this costs one install
       # and a few seconds of measuring at the sizes a Fire TV and a phone actually are.
       - name: Check the layout
+        shell: bash
         run: |
           npm i --no-save --silent playwright-core
           CHROME="$(command -v google-chrome || command -v google-chrome-stable \
@@ -3225,7 +3226,19 @@ jobs:
             CHROME="$(node -e "console.log(require('playwright-core').chromium.executablePath())")"
           fi
           echo "Measuring with $CHROME"
-          CHROME_PATH="$CHROME" node tests/layout.test.js newsdesk
+          CHROME_PATH="$CHROME" node tests/layout.test.js newsdesk 2>&1 | tee layout-report.txt
+          exit "${PIPESTATUS[0]}"
+
+      # Kept where it can be fetched afterwards. A failing measurement is a list of
+      # numbers, and reading it back off a phone is no way to work out which of eight
+      # screen sizes moved by two pixels.
+      - name: Keep what the measurements said
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: layout-report
+          path: layout-report.txt
+          if-no-files-found: ignore
 
       - name: Add PPQ.ai settings from repo secrets
         env:
