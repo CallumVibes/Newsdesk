@@ -749,15 +749,25 @@ then — only its timing.
 
 An alarm is the one thing Doze does not defer. `setAndAllowWhileIdle`, deliberately inexact: the
 exact version wants `SCHEDULE_EXACT_ALARM` and is meant for alarm clocks, while "a few minutes
-after five" is what the briefing promises anyway. It does not replace the job — a phone in use runs
-the job on time and the alarm finds the edition already written. It is there for the hours nobody
-is holding it.
+after five" is what the briefing promises anyway.
 
-`BriefingAlarm` is what gets woken. A receiver has about ten seconds, nowhere near enough to read
-nine sources, so it does not try: it asks for a run the way the widget's button does and gets out
-of the way. It writes *"woken by the alarm"* to the log before doing anything, so that a run which
-never happens still says whether the alarm was the part that failed. Alarms do not survive a reboot
-the way a persisted job does, so `BOOT_COMPLETED` lands there too.
+That was half the answer, and the half that shipped first was the wrong half. The alarm fired, and
+then **asked `JobScheduler` for a run** — which is the exact thing Doze defers, and the exact thing
+the alarm existed to get past. It walked round the wall and handed the work back over it.
+
+A foreground service is not deferred. An alarm firing while idle lets the app out for a few
+seconds, which is long enough to start one, and once it is up Doze has no say. So `BriefingAlarm`
+starts `BriefingWork`, which costs a quiet line in the shade saying what it is doing, gone again
+when it is done. A receiver has about ten seconds and reading nine sources takes minutes, so it
+does not try to do the work itself.
+
+The work is the same whichever way in it came, so it is written once: `BriefingRun` owns the
+off-screen WebView and the bridge, and `BriefingJob` (what the scheduler can start, good for the
+hours the phone is awake) and `BriefingWork` (what survives Doze) both just run it.
+
+The alarm writes *"woken by the alarm"* to the log before anything else, so a run that never
+happens still says whether the alarm was the part that failed. Alarms do not survive a reboot the
+way a persisted job does, so `BOOT_COMPLETED` lands there too.
 
 ### When no briefing arrives
 
