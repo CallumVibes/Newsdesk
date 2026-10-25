@@ -900,7 +900,7 @@ suite('Something fires at five in the morning, not when the phone is picked up',
     'and before the booking, so a refused booking still leaves an alarm');
 
   t.ok(/class BriefingAlarm : BroadcastReceiver\(\)/.test(kt), 'something is there to be woken');
-  const recv = kt.slice(kt.indexOf('class BriefingAlarm'), kt.indexOf('class BriefingJob'));
+  const recv = kt.slice(kt.indexOf('class BriefingAlarm'), kt.indexOf('class BriefingRun('));
   /* A foreground service, not a job. Asking JobScheduler from here was walking round
      the wall and handing the work back over it: the alarm fires in Doze and the job it
      asked for was deferred by the very Doze it had just got past. An alarm firing while
@@ -912,6 +912,30 @@ suite('Something fires at five in the morning, not when the phone is picked up',
   t.ok(/class BriefingWork : Service\(\)/.test(kt), 'that service exists');
   t.ok(/startForeground\(ID, b\.build\(\), ServiceInfo\.FOREGROUND_SERVICE_TYPE_DATA_SYNC\)/.test(kt),
     'and raises itself, saying what kind, which Android 14 requires');
+  /*
+   * A run must never book the job it is running under.
+   *
+   * Scheduling a JobScheduler id that is already executing cancels the execution. The
+   * run's first instruction used to be scheduleNext(), which books JOB_ID - and the
+   * scheduled run IS JOB_ID. So every scheduled briefing stopped itself on its first
+   * line: "stopped by the system - 1s", four times a day, for as long as the job has
+   * existed. Only the alarm's runs got anywhere, because runNow books a different id,
+   * and that one difference is why this took two days and three wrong theories to find.
+   */
+  // Comments stripped: both of these explain in prose what they must not do.
+  const bare = (t2) => t2.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  const runBody = bare(kt.slice(kt.indexOf('class BriefingRun('), kt.indexOf('class BriefingJob :')));
+  t.not(/scheduleNext/.test(runBody), 'the run books nothing while it is the thing running');
+  /* One scheduleNext in the receiver and one only: the boot branch, where nothing of
+     ours can be running. The branch that fires alongside the job arms the alarm alone. */
+  t.ok(/Briefings\.armNext\(c\)/.test(bare(recv)),
+    'the alarm arms the next alarm without touching a job it fires alongside');
+  t.is((bare(recv).match(/scheduleNext/g) || []).length, 1,
+    'and books a job only after a reboot, which is the one time nothing is running');
+  const jobHost = kt.slice(kt.indexOf('class BriefingJob :'), kt.indexOf('class BriefingWork :'));
+  t.ok(jobHost.indexOf('jobFinished') < jobHost.indexOf('Briefings.scheduleNext'),
+    'the job finishes before it books the next, in that order');
+
   /* The work is the same whichever starts it, so it is written once. */
   t.ok(/class BriefingRun\(private val app: Context, private val onEnd: \(\) -> Unit\)/.test(kt),
     'the run itself belongs to neither of them');

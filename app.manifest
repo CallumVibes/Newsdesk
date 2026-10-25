@@ -10,7 +10,7 @@ add4c7aab6258869251161113c08b5233682f4a5f5bcb2c8e7204b4cf4bd1685  app/src/main/a
 515a838bf7ecbd31da66c38ae461d991e3e38d030f552a3f609eabf40410582f  app/src/main/assets/index.html
 bd23e821dd199727b7c0625849b2de9568ebe406939d416ca00d1b9ad2258c36  app/src/main/assets/manifest.webmanifest
 7c35b424a706118ee970488d2512396c77b2fd0d8a32887776a9c8be343d472b  app/src/main/assets/sw.js
-62fc1afafd3e90901d362dd402233b42538a652bfd08fe82fbdbee9fbca162b6  app/src/main/java/com/callum/newsdesk/Briefings.kt
+0f48afffe181b8963351d3e8395eefa5320014b78a732a2a73d99dedd0b0a475  app/src/main/java/com/callum/newsdesk/Briefings.kt
 d14a34dccb2f135bbeb6794071543ebf9a6721d52461b52484cc1278d4c35415  app/src/main/java/com/callum/newsdesk/MainActivity.kt
 3797290fd4ce2cf7d91fc5bba250cd55e9cc273cd6b921f6c0e497efeddc9675  app/src/main/java/com/callum/newsdesk/Net.kt
 63b78bdc3a92ef00900ecd33b1ca2dd8a41a3e4d2e81eeae548c092bf1b583f0  app/src/main/java/com/callum/newsdesk/Reading.kt
