@@ -152,7 +152,7 @@ const KOTLIN_FREE = new Set([
 
 suite('Every Kotlin name is one the compiler will find', (t) => {
   const files = ['MainActivity.kt', 'Net.kt', 'Briefings.kt', 'Widget.kt',
-    'WidgetFeed.kt', 'WidgetHistory.kt', 'Reading.kt', 'Spoken.kt'];
+    'WidgetFeed.kt', 'WidgetHistory.kt', 'Reading.kt', 'Spoken.kt', 'Edition.kt'];
   // Anything declared anywhere in the package is reachable from anywhere else in it.
   const inPackage = new Set(['R']);
   const bodies = {};
@@ -569,9 +569,9 @@ suite('The voice does not read a field its own constructor has not set yet', (t)
 
   /* A voice reading to a muted phone is the same nothing as no voice, and likelier. The
      two are told apart before a word is queued. */
-  const say = kt.slice(kt.indexOf('private fun say('), kt.indexOf('fun split('));
+  const say = kt.slice(kt.indexOf('private fun deliver('), kt.indexOf('fun split('));
   t.ok(/muted\(\)/.test(say), 'a muted phone is checked before anything is queued');
-  t.ok(/ended\(false, "silent"\)/.test(say), 'and said to be muted rather than voiceless');
+  t.ok(/ended\("silent"\)/.test(say), 'and said to be muted rather than voiceless');
   t.ok(/STREAM_MUSIC/.test(kt), 'read off the volume the voice will come out of');
 
   // Both reasons have words for them on the page, or the page would say nothing useful.
@@ -906,7 +906,7 @@ suite('Written news is turned into something a voice can read', (t) => {
   t.not(/^import android/m.test(sp),
     'the rules import nothing from Android, which is what lets them run on a JVM');
   t.ok(/^import /m.test(sp) === false,
-    'nor anything else: pure Kotlin, or tests/spoken.test.sh cannot compile it alone');
+    'nor anything else: pure Kotlin, or tests/kotlin.test.sh cannot compile it alone');
   t.ok(/object Spoken \{/.test(sp) && /fun forVoice\(text: String\): String/.test(sp),
     'there is one entry point for turning written text into spoken text');
   t.ok(/catch \(e: Exception\) \{\s*text\s*\}/.test(sp),
@@ -916,8 +916,8 @@ suite('Written news is turned into something a voice can read', (t) => {
      goes through split(), so normalising there cannot be bypassed by a new caller. */
   t.ok(/for \(raw in Spoken\.forVoice\(text\)\.split\("\\n"\)\)/.test(kt),
     'and it sits in split(), which everything spoken passes through');
-  const say = kt.slice(kt.indexOf('private fun say('), kt.indexOf('fun split('));
-  t.ok(/t\.speak\(part/.test(say) && !/t\.speak\(text/.test(kt),
+  const hand = kt.slice(kt.indexOf('private fun hand('), kt.indexOf('/** A paragraph at a time'));
+  t.ok(/t\.speak\(seg\.parts\[i\]/.test(hand) && !/t\.speak\(text/.test(kt),
     'nothing hands the engine text that has not been through it');
 
   /* Only the engine gets the rewritten words. The screen keeps its pound signs. */
@@ -936,9 +936,186 @@ suite('Written news is turned into something a voice can read', (t) => {
     'the engine is told to play as the stream the service asked focus for');
 
   // These live in the repository rather than the tarball, so not through has().
-  t.ok(fs.existsSync(path.join(__dirname, 'spoken.test.kt'))
-    && fs.existsSync(path.join(__dirname, 'spoken.test.sh')),
+  t.ok(fs.existsSync(path.join(__dirname, 'kotlin.test.kt'))
+    && fs.existsSync(path.join(__dirname, 'kotlin.test.sh')),
     'and the rules are checked against written-out answers, not by listening');
+});
+
+/*
+ * The difference between a queue of articles and something you listen to is the seams. A
+ * neural engine takes a moment to synthesise, so handed the next piece only once the last
+ * has finished, that moment is silence - every seam, every time. And an interruption used
+ * to end the session outright, which is survivable for one article and not for a
+ * four-minute programme.
+ */
+suite('What is read runs on without gaps, and survives being interrupted', (t) => {
+  const kt = read(KT + 'Reading.kt');
+
+  /* Both of these need the same missing thing: a record of where the voice has got to. */
+  t.ok(/private var atSeg = 0/.test(kt) && /private var atPart = 0/.test(kt),
+    'the speaker knows which paragraph of which piece is being spoken');
+  t.ok(/@Volatile private var run = 0/.test(kt),
+    'and the run is volatile, being written on the main thread and read on the engine\'s');
+
+  const pause = kt.slice(kt.indexOf('fun pause()'), kt.indexOf('fun resume()'));
+  t.not(/segs\.clear\(\)/.test(pause), 'pausing keeps what was queued, which is the point of it');
+  t.ok(pause.indexOf('run++') < pause.indexOf('tts?.stop()'),
+    'and bumps the run before stopping, so the callbacks the stop provokes arrive stale');
+
+  const hush = kt.slice(kt.indexOf('fun hush()'), kt.indexOf('fun release()'));
+  t.ok(/segs\.clear\(\)/.test(hush), 'where hush, which is a real stop, throws it away');
+
+  /* Only the first thing handed over may flush; everything after it is added behind. */
+  const q = kt.slice(kt.indexOf('fun queue(text: String)'), kt.indexOf('fun pause()'));
+  t.not(/QUEUE_FLUSH/.test(q), 'a queued piece never flushes what is already being read');
+  t.ok(/hand\(t, segs\.size - 1, 0, false\)/.test(q),
+    'and is handed over with the flush explicitly off, not merely without the word in sight');
+  t.ok(/!held/.test(q), 'and is not handed over while paused, which would start it talking');
+  t.ok(/if \(flush && i == from\) TextToSpeech\.QUEUE_FLUSH else TextToSpeech\.QUEUE_ADD/.test(kt),
+    'the flush is spent on the very first paragraph and nothing else');
+
+  /* Kept exactly one piece ahead. Further ahead is work thrown away on a skip. */
+  t.ok(/private const val AHEAD = 2/.test(kt), 'the engine holds the one being read and the next');
+  const ahead = kt.slice(kt.indexOf('private fun feedAhead()'), kt.indexOf('private fun read()'));
+  t.ok(/while \(fed < AHEAD\)/.test(ahead), 'and is topped up to there, never past it');
+
+  const skip = kt.slice(kt.indexOf('ACTION_SKIP ->'), kt.indexOf('ACTION_PAUSE ->'));
+  t.ok(/voice\?\.hush\(\)/.test(skip) && /fed = 0/.test(skip),
+    'skipping throws away what the engine holds, because part of it is the next piece');
+
+  const after = kt.slice(kt.indexOf('private fun read()'), kt.indexOf('private fun failed('));
+  t.ok(/if \(fed == 0\) \{ speakNow\(\); return \}/.test(after),
+    'and a piece that was never pre-fed is started rather than waited for for ever');
+
+  /* The behaviour change: a loss holds its place instead of emptying the queue. */
+  const focus = kt.slice(kt.indexOf('private fun focusChanged('), kt.indexOf('private fun drop()'));
+  t.not(/allDone\(\)/.test(focus), 'losing the audio no longer ends the session');
+  t.ok(/AUDIOFOCUS_GAIN -> if \(v\.holding\(\)\) \{ v\.resume\(\)/.test(focus),
+    'getting it back carries on from where it stopped');
+  ['AUDIOFOCUS_LOSS', 'AUDIOFOCUS_LOSS_TRANSIENT', 'AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK'].forEach((k) => {
+    t.ok(new RegExp('AudioManager\\.' + k + '\\b').test(focus), k + ' is handled');
+  });
+  t.ok(/v\.pause\(\)/.test(focus), 'all three by pausing - speech under another sound is lost, not quieter');
+
+  /* A permanent loss never comes back on its own, so there has to be a way out by hand. */
+  const build = kt.slice(kt.indexOf('private fun build()'), kt.indexOf('private fun act('));
+  t.ok(/if \(paused\) b\.addAction\(act\("Play", ACTION_PLAY/.test(build),
+    'so the notification offers Play once it is paused');
+  t.ok(/else b\.addAction\(act\("Pause", ACTION_PAUSE/.test(build), 'and Pause while it is not');
+  t.ok(/if \(paused\) "Paused" else "Reading aloud"/.test(build), 'and says which it is');
+  const play = kt.slice(kt.indexOf('ACTION_PLAY ->'), kt.indexOf('else -> allDone()'));
+  t.ok(/if \(hold\(\)\) voice\?\.resume\(\)/.test(play),
+    'asking for the audio again first, since something else took it');
+});
+
+/*
+ * The whole point of a spoken edition is that it plays from the five o'clock
+ * notification with the app shut, which means none of it may need the WebView. A page
+ * that has not been opened holds nothing, so what the edition is made of has to be
+ * sitting in preferences before it is asked for.
+ */
+suite('An edition can be read out with the app never opened', (t) => {
+  const ed = read(KT + 'Edition.kt');
+  const w = read(KT + 'Widget.kt');
+  const r = read(KT + 'Reading.kt');
+  const page = read(PAGE);
+
+  t.ok(/^import /m.test(ed) === false,
+    'the running order imports nothing, so it can be checked off a device');
+  t.ok(/fun build\(/.test(ed) && /fun covered\(/.test(ed),
+    'and holds both the order of the parts and the did-we-say-this-already rule');
+  t.ok(/private const val HEADS = 5/.test(ed) && /private const val SLOTS = 4/.test(ed),
+    'a bulletin rather than a list: five headlines and four diary entries');
+
+  /* Three stores, none of them the page. The first two were already there for the home
+     screen; the third exists because nothing outside the page had what is on in town. */
+  const store = w.slice(w.indexOf('object EditionStore'), w.indexOf('class BriefingWidget'));
+  ['BriefStore.read', 'FeedStore.read'].forEach((s) => {
+    t.ok(store.indexOf(s) >= 0, 'it assembles from ' + s + ', which is already kept for the widgets');
+  });
+  t.ok(/getSharedPreferences\(FILE, Context\.MODE_PRIVATE\)\.getString\(KEY, null\)/.test(store),
+    'and from what the page handed over for the two parts nothing else keeps');
+  t.ok(/\.commit\(\)/.test(store), 'written with commit, since the job can be killed as it reports done');
+  t.not(/Net\./.test(store) || /Net\./.test(ed),
+    'and nothing in it fetches: the edition is the bulletin as written, not as refetched');
+
+  /* The page hands it over where it hands the other two over, which is also the path the
+     background job takes - so this is current on a day the app is never opened. */
+  t.ok(/widgetEdition\(\);/.test(page), 'the page pushes it when a refresh settles');
+  const push = page.slice(page.indexOf('function widgetPush()'), page.indexOf('function widgetEdition()'));
+  t.ok(/widgetEdition\(\)/.test(push), 'from widgetPush, alongside the headlines and the archive');
+  t.ok(/Native\.editionSave\(/.test(page), 'through the bridge, like everything else that leaves the page');
+  t.ok(/briefPrices\(\)/.test(page.slice(page.indexOf('function widgetEdition()'))),
+    'reusing the sentence the briefing prompt has been using all along');
+
+  /* Both bridges. The background one is the one that matters, and the one that would
+     have been missed: it is the run at five in the morning that posts the notification. */
+  t.ok(/fun editionSave\(json: String\)/.test(read(KT + 'MainActivity.kt')),
+    'the activity answers it');
+  t.ok(/fun editionSave\(json: String\)/.test(read(KT + 'Briefings.kt')),
+    'and so does the background job, which is the path the whole thing is for');
+
+  /* Played from the notification, with no activity in it anywhere. */
+  const notify = read(KT + 'Briefings.kt');
+  t.ok(/ReadingService\.ACTION_EDITION/.test(notify) && /PendingIntent\.getService/.test(notify),
+    'the briefing notification starts the service directly, not an activity');
+  t.ok(/if \(EditionStore\.parts\(ctx\)\.isNotEmpty\(\)\)/.test(notify),
+    'and only offers it when there is something to play');
+  t.ok(/"Play the edition"/.test(notify), 'in those words');
+
+  const act = r.slice(r.indexOf('ACTION_EDITION ->'), r.indexOf('ACTION_PAUSE ->'));
+  t.ok(/EditionStore\.parts\(applicationContext\)/.test(act), 'the service assembles it on the spot');
+  t.ok(/if \(!Reading\.has\(id\)\) Reading\.add/.test(act),
+    'and pressing play twice does not queue the same bulletin behind itself');
+});
+
+/*
+ * Five new sources and a tab to put them in. The thing worth guarding is not that they
+ * work - only the running app can say that, and the sources panel is where it says it -
+ * but that the wiring agrees with itself: a source in no tab is fetched and never shown,
+ * a tab naming a source that does not exist draws nothing, and a loader missing from the
+ * table means a source that is simply never asked.
+ */
+suite('The gaming sources are wired to a tab and to a loader', (t) => {
+  const page = read(PAGE);
+  const srcs = ['px', 'xw', 'eg', 'vg', 'pg'];
+
+  t.ok(/var GAME_SRCS = \['px', 'xw', 'eg', 'vg', 'pg'\];/.test(page), 'the five are named in one place');
+  t.ok(/\{ id: 'gaming',\s+name: 'Gaming',.*srcs: GAME_SRCS/.test(page),
+    'and the tab takes that list rather than a second copy of it');
+
+  srcs.forEach((k) => {
+    t.ok(new RegExp('\\b' + k + ': \\{ name:').test(page), k + ' is in the source table');
+    t.ok(new RegExp("'" + k + "'").test(page.slice(page.indexOf('var ORDER ='), page.indexOf('var GAME_SRCS'))),
+      'and in ORDER, or it is never fetched at all');
+    t.ok(new RegExp('\\b' + k + ': feedSite\\(').test(page), 'and has a loader in the table');
+  });
+
+  /* Out of Today and All on purpose: five more sites in the main feed would drown the
+     nine already there, and this is a tab you go to rather than one you are shown. */
+  const feed = page.slice(page.indexOf('var FEED_SRCS ='), page.indexOf('/* Kagi files everything'));
+  srcs.forEach((k) => {
+    t.not(new RegExp("'" + k + "'").test(feed), k + ' is kept out of Today and All');
+  });
+
+  /* Several addresses each, because a feed that has moved is how a source dies quietly. */
+  ['PX_FEEDS', 'XW_FEEDS', 'EG_FEEDS', 'VG_FEEDS', 'PG_FEEDS'].forEach((v) => {
+    const m = page.match(new RegExp('var ' + v + ' = \\[([\\s\\S]*?)\\];'));
+    t.ok(!!m && (m[1].match(/https?:/g) || []).length >= 2, v + ' has more than one address to try');
+  });
+  t.ok(/function feedSite\(key, feeds, api\)/.test(page),
+    'and one loader serves all five rather than five near-copies of it');
+
+  /* The briefing sees them, and is told to leave them alone on an ordinary day. */
+  t.ok(/function briefGaming\(\)/.test(page), 'the briefing is given the gaming headlines');
+  t.ok(/SRC\[it\.src\]\.game/.test(page), 'picked out by the flag on the source, not a second list');
+  const rules = page.slice(page.indexOf('var BRIEF_SYSTEM = ['), page.indexOf('].join(\'\\n\');'));
+  t.ok(/A GAMING block, where there is one, is there to be ignored on most days/.test(rules),
+    'and told plainly that most days it says nothing about games');
+  t.ok(/never more than one of them/.test(rules), 'and at most one of them when it does');
+  // Not a section of Today: those are Today's list, and gaming is not in Today.
+  const today = page.slice(page.indexOf('function buildToday('), page.indexOf('/* Diary entries still to come'));
+  t.not(/\.game\b/.test(today), 'gaming is not a section of Today');
 });
 
 /*

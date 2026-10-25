@@ -52,10 +52,11 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
   suite('The page itself', (t) => {
     t.same(errors, [], 'boots with no error on the console');
     t.same(nd.TABS.map((x) => x.id),
-      ['today', 'local', 'world', 'tech', 'coin', 'vegan', 'recipes', 'hist', 'all', 'saved'],
+      ['today', 'local', 'world', 'tech', 'coin', 'gaming', 'vegan', 'recipes', 'hist', 'all', 'saved'],
       'has its tabs, in the order the remote walks them');
     t.is(nd.TABS[nd.HOME_TAB].id, 'today', 'and opens on the first of them');
-    t.same(nd.ORDER, ['cw', 'kg', 'ht', 'yh', 'bb', 'vf', 'lm', 'hh', 'rc', 'bo'], 'knows its sources');
+    t.same(nd.ORDER, ['cw', 'kg', 'ht', 'yh', 'bb', 'vf', 'lm', 'hh', 'rc', 'bo',
+      'px', 'xw', 'eg', 'vg', 'pg'], 'knows its sources');
     nd.TABS.forEach((tab) => {
       t.ok(tab.srcs.every((s) => nd.ORDER.indexOf(s) >= 0),
         tab.id + ' draws only from sources that exist');
