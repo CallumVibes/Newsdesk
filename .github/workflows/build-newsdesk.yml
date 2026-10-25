@@ -3454,10 +3454,24 @@ jobs:
       - name: Check the source
         run: node tests/check-source.js newsdesk
 
+      # Kept like the other two, and for a worse reason: this is the one suite that
+      # cannot be run where this app is worked on - jsdom needs a package registry, and
+      # there is not always one reachable - so when it fails here its numbers are the
+      # only account of why. The job log is not readable from everywhere either.
       - name: Check the rules
+        shell: bash
         run: |
           npm i --no-save --silent jsdom
-          node tests/logic.test.js newsdesk
+          node tests/logic.test.js newsdesk 2>&1 | tee rules-report.txt
+          exit "${PIPESTATUS[0]}"
+
+      - name: Keep what the rules said
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rules-report
+          path: rules-report.txt
+          if-no-files-found: ignore
 
       # These are the parts of the app that can be wrong without leaving a trace: a bad
       # spoken-text rule costs one daft sentence, out loud, heard once, with nothing
