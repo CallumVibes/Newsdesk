@@ -13,7 +13,7 @@ bd23e821dd199727b7c0625849b2de9568ebe406939d416ca00d1b9ad2258c36  app/src/main/a
 0f48afffe181b8963351d3e8395eefa5320014b78a732a2a73d99dedd0b0a475  app/src/main/java/com/callum/newsdesk/Briefings.kt
 d14a34dccb2f135bbeb6794071543ebf9a6721d52461b52484cc1278d4c35415  app/src/main/java/com/callum/newsdesk/MainActivity.kt
 3797290fd4ce2cf7d91fc5bba250cd55e9cc273cd6b921f6c0e497efeddc9675  app/src/main/java/com/callum/newsdesk/Net.kt
-54cf1939a500b48c8d0c3ffc80a5723efa66bc7418974ea41688ce246b6f6954  app/src/main/java/com/callum/newsdesk/Reading.kt
+04997a5a0cd8bf97fbf0c772b8820f16a074fe2f245ada12f1a0af744b562172  app/src/main/java/com/callum/newsdesk/Reading.kt
 b11f4be445ccf4e7d50c74e28c04d6a57f69985c3ecf80f218ab4b5ebed1e22a  app/src/main/java/com/callum/newsdesk/Spoken.kt
 b239a05d1ecacdaece9319dd3a68d54c234c79d01c4c40f7e3ce949969bc3c50  app/src/main/java/com/callum/newsdesk/Widget.kt
 863715f650f4669401b0863a3e3a97907128432adde45d36060cf56862ce43b6  app/src/main/java/com/callum/newsdesk/WidgetFeed.kt

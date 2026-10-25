@@ -569,9 +569,9 @@ suite('The voice does not read a field its own constructor has not set yet', (t)
 
   /* A voice reading to a muted phone is the same nothing as no voice, and likelier. The
      two are told apart before a word is queued. */
-  const say = kt.slice(kt.indexOf('private fun say('), kt.indexOf('fun split('));
+  const say = kt.slice(kt.indexOf('private fun deliver('), kt.indexOf('fun split('));
   t.ok(/muted\(\)/.test(say), 'a muted phone is checked before anything is queued');
-  t.ok(/ended\(false, "silent"\)/.test(say), 'and said to be muted rather than voiceless');
+  t.ok(/ended\("silent"\)/.test(say), 'and said to be muted rather than voiceless');
   t.ok(/STREAM_MUSIC/.test(kt), 'read off the volume the voice will come out of');
 
   // Both reasons have words for them on the page, or the page would say nothing useful.
@@ -916,8 +916,8 @@ suite('Written news is turned into something a voice can read', (t) => {
      goes through split(), so normalising there cannot be bypassed by a new caller. */
   t.ok(/for \(raw in Spoken\.forVoice\(text\)\.split\("\\n"\)\)/.test(kt),
     'and it sits in split(), which everything spoken passes through');
-  const say = kt.slice(kt.indexOf('private fun say('), kt.indexOf('fun split('));
-  t.ok(/t\.speak\(part/.test(say) && !/t\.speak\(text/.test(kt),
+  const hand = kt.slice(kt.indexOf('private fun hand('), kt.indexOf('/** A paragraph at a time'));
+  t.ok(/t\.speak\(seg\.parts\[i\]/.test(hand) && !/t\.speak\(text/.test(kt),
     'nothing hands the engine text that has not been through it');
 
   /* Only the engine gets the rewritten words. The screen keeps its pound signs. */
@@ -939,6 +939,73 @@ suite('Written news is turned into something a voice can read', (t) => {
   t.ok(fs.existsSync(path.join(__dirname, 'spoken.test.kt'))
     && fs.existsSync(path.join(__dirname, 'spoken.test.sh')),
     'and the rules are checked against written-out answers, not by listening');
+});
+
+/*
+ * The difference between a queue of articles and something you listen to is the seams. A
+ * neural engine takes a moment to synthesise, so handed the next piece only once the last
+ * has finished, that moment is silence - every seam, every time. And an interruption used
+ * to end the session outright, which is survivable for one article and not for a
+ * four-minute programme.
+ */
+suite('What is read runs on without gaps, and survives being interrupted', (t) => {
+  const kt = read(KT + 'Reading.kt');
+
+  /* Both of these need the same missing thing: a record of where the voice has got to. */
+  t.ok(/private var atSeg = 0/.test(kt) && /private var atPart = 0/.test(kt),
+    'the speaker knows which paragraph of which piece is being spoken');
+  t.ok(/@Volatile private var run = 0/.test(kt),
+    'and the run is volatile, being written on the main thread and read on the engine\'s');
+
+  const pause = kt.slice(kt.indexOf('fun pause()'), kt.indexOf('fun resume()'));
+  t.not(/segs\.clear\(\)/.test(pause), 'pausing keeps what was queued, which is the point of it');
+  t.ok(pause.indexOf('run++') < pause.indexOf('tts?.stop()'),
+    'and bumps the run before stopping, so the callbacks the stop provokes arrive stale');
+
+  const hush = kt.slice(kt.indexOf('fun hush()'), kt.indexOf('fun release()'));
+  t.ok(/segs\.clear\(\)/.test(hush), 'where hush, which is a real stop, throws it away');
+
+  /* Only the first thing handed over may flush; everything after it is added behind. */
+  const q = kt.slice(kt.indexOf('fun queue(text: String)'), kt.indexOf('fun pause()'));
+  t.not(/QUEUE_FLUSH/.test(q), 'a queued piece never flushes what is already being read');
+  t.ok(/hand\(t, segs\.size - 1, 0, false\)/.test(q),
+    'and is handed over with the flush explicitly off, not merely without the word in sight');
+  t.ok(/!held/.test(q), 'and is not handed over while paused, which would start it talking');
+  t.ok(/if \(flush && i == from\) TextToSpeech\.QUEUE_FLUSH else TextToSpeech\.QUEUE_ADD/.test(kt),
+    'the flush is spent on the very first paragraph and nothing else');
+
+  /* Kept exactly one piece ahead. Further ahead is work thrown away on a skip. */
+  t.ok(/private const val AHEAD = 2/.test(kt), 'the engine holds the one being read and the next');
+  const ahead = kt.slice(kt.indexOf('private fun feedAhead()'), kt.indexOf('private fun read()'));
+  t.ok(/while \(fed < AHEAD\)/.test(ahead), 'and is topped up to there, never past it');
+
+  const skip = kt.slice(kt.indexOf('ACTION_SKIP ->'), kt.indexOf('ACTION_PAUSE ->'));
+  t.ok(/voice\?\.hush\(\)/.test(skip) && /fed = 0/.test(skip),
+    'skipping throws away what the engine holds, because part of it is the next piece');
+
+  const after = kt.slice(kt.indexOf('private fun read()'), kt.indexOf('private fun failed('));
+  t.ok(/if \(fed == 0\) \{ speakNow\(\); return \}/.test(after),
+    'and a piece that was never pre-fed is started rather than waited for for ever');
+
+  /* The behaviour change: a loss holds its place instead of emptying the queue. */
+  const focus = kt.slice(kt.indexOf('private fun focusChanged('), kt.indexOf('private fun drop()'));
+  t.not(/allDone\(\)/.test(focus), 'losing the audio no longer ends the session');
+  t.ok(/AUDIOFOCUS_GAIN -> if \(v\.holding\(\)\) \{ v\.resume\(\)/.test(focus),
+    'getting it back carries on from where it stopped');
+  ['AUDIOFOCUS_LOSS', 'AUDIOFOCUS_LOSS_TRANSIENT', 'AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK'].forEach((k) => {
+    t.ok(new RegExp('AudioManager\\.' + k + '\\b').test(focus), k + ' is handled');
+  });
+  t.ok(/v\.pause\(\)/.test(focus), 'all three by pausing - speech under another sound is lost, not quieter');
+
+  /* A permanent loss never comes back on its own, so there has to be a way out by hand. */
+  const build = kt.slice(kt.indexOf('private fun build()'), kt.indexOf('private fun act('));
+  t.ok(/if \(paused\) b\.addAction\(act\("Play", ACTION_PLAY/.test(build),
+    'so the notification offers Play once it is paused');
+  t.ok(/else b\.addAction\(act\("Pause", ACTION_PAUSE/.test(build), 'and Pause while it is not');
+  t.ok(/if \(paused\) "Paused" else "Reading aloud"/.test(build), 'and says which it is');
+  const play = kt.slice(kt.indexOf('ACTION_PLAY ->'), kt.indexOf('else -> allDone()'));
+  t.ok(/if \(hold\(\)\) voice\?\.resume\(\)/.test(play),
+    'asking for the audio again first, since something else took it');
 });
 
 /*
