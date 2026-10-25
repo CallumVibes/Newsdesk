@@ -152,7 +152,7 @@ const KOTLIN_FREE = new Set([
 
 suite('Every Kotlin name is one the compiler will find', (t) => {
   const files = ['MainActivity.kt', 'Net.kt', 'Briefings.kt', 'Widget.kt',
-    'WidgetFeed.kt', 'WidgetHistory.kt', 'Reading.kt', 'Spoken.kt'];
+    'WidgetFeed.kt', 'WidgetHistory.kt', 'Reading.kt', 'Spoken.kt', 'Edition.kt'];
   // Anything declared anywhere in the package is reachable from anywhere else in it.
   const inPackage = new Set(['R']);
   const bodies = {};
@@ -906,7 +906,7 @@ suite('Written news is turned into something a voice can read', (t) => {
   t.not(/^import android/m.test(sp),
     'the rules import nothing from Android, which is what lets them run on a JVM');
   t.ok(/^import /m.test(sp) === false,
-    'nor anything else: pure Kotlin, or tests/spoken.test.sh cannot compile it alone');
+    'nor anything else: pure Kotlin, or tests/kotlin.test.sh cannot compile it alone');
   t.ok(/object Spoken \{/.test(sp) && /fun forVoice\(text: String\): String/.test(sp),
     'there is one entry point for turning written text into spoken text');
   t.ok(/catch \(e: Exception\) \{\s*text\s*\}/.test(sp),
@@ -936,8 +936,8 @@ suite('Written news is turned into something a voice can read', (t) => {
     'the engine is told to play as the stream the service asked focus for');
 
   // These live in the repository rather than the tarball, so not through has().
-  t.ok(fs.existsSync(path.join(__dirname, 'spoken.test.kt'))
-    && fs.existsSync(path.join(__dirname, 'spoken.test.sh')),
+  t.ok(fs.existsSync(path.join(__dirname, 'kotlin.test.kt'))
+    && fs.existsSync(path.join(__dirname, 'kotlin.test.sh')),
     'and the rules are checked against written-out answers, not by listening');
 });
 
@@ -1006,6 +1006,67 @@ suite('What is read runs on without gaps, and survives being interrupted', (t) =
   const play = kt.slice(kt.indexOf('ACTION_PLAY ->'), kt.indexOf('else -> allDone()'));
   t.ok(/if \(hold\(\)\) voice\?\.resume\(\)/.test(play),
     'asking for the audio again first, since something else took it');
+});
+
+/*
+ * The whole point of a spoken edition is that it plays from the five o'clock
+ * notification with the app shut, which means none of it may need the WebView. A page
+ * that has not been opened holds nothing, so what the edition is made of has to be
+ * sitting in preferences before it is asked for.
+ */
+suite('An edition can be read out with the app never opened', (t) => {
+  const ed = read(KT + 'Edition.kt');
+  const w = read(KT + 'Widget.kt');
+  const r = read(KT + 'Reading.kt');
+  const page = read(PAGE);
+
+  t.ok(/^import /m.test(ed) === false,
+    'the running order imports nothing, so it can be checked off a device');
+  t.ok(/fun build\(/.test(ed) && /fun covered\(/.test(ed),
+    'and holds both the order of the parts and the did-we-say-this-already rule');
+  t.ok(/private const val HEADS = 5/.test(ed) && /private const val SLOTS = 4/.test(ed),
+    'a bulletin rather than a list: five headlines and four diary entries');
+
+  /* Three stores, none of them the page. The first two were already there for the home
+     screen; the third exists because nothing outside the page had what is on in town. */
+  const store = w.slice(w.indexOf('object EditionStore'), w.indexOf('class BriefingWidget'));
+  ['BriefStore.read', 'FeedStore.read'].forEach((s) => {
+    t.ok(store.indexOf(s) >= 0, 'it assembles from ' + s + ', which is already kept for the widgets');
+  });
+  t.ok(/getSharedPreferences\(FILE, Context\.MODE_PRIVATE\)\.getString\(KEY, null\)/.test(store),
+    'and from what the page handed over for the two parts nothing else keeps');
+  t.ok(/\.commit\(\)/.test(store), 'written with commit, since the job can be killed as it reports done');
+  t.not(/Net\./.test(store) || /Net\./.test(ed),
+    'and nothing in it fetches: the edition is the bulletin as written, not as refetched');
+
+  /* The page hands it over where it hands the other two over, which is also the path the
+     background job takes - so this is current on a day the app is never opened. */
+  t.ok(/widgetEdition\(\);/.test(page), 'the page pushes it when a refresh settles');
+  const push = page.slice(page.indexOf('function widgetPush()'), page.indexOf('function widgetEdition()'));
+  t.ok(/widgetEdition\(\)/.test(push), 'from widgetPush, alongside the headlines and the archive');
+  t.ok(/Native\.editionSave\(/.test(page), 'through the bridge, like everything else that leaves the page');
+  t.ok(/briefPrices\(\)/.test(page.slice(page.indexOf('function widgetEdition()'))),
+    'reusing the sentence the briefing prompt has been using all along');
+
+  /* Both bridges. The background one is the one that matters, and the one that would
+     have been missed: it is the run at five in the morning that posts the notification. */
+  t.ok(/fun editionSave\(json: String\)/.test(read(KT + 'MainActivity.kt')),
+    'the activity answers it');
+  t.ok(/fun editionSave\(json: String\)/.test(read(KT + 'Briefings.kt')),
+    'and so does the background job, which is the path the whole thing is for');
+
+  /* Played from the notification, with no activity in it anywhere. */
+  const notify = read(KT + 'Briefings.kt');
+  t.ok(/ReadingService\.ACTION_EDITION/.test(notify) && /PendingIntent\.getService/.test(notify),
+    'the briefing notification starts the service directly, not an activity');
+  t.ok(/if \(EditionStore\.parts\(ctx\)\.isNotEmpty\(\)\)/.test(notify),
+    'and only offers it when there is something to play');
+  t.ok(/"Play the edition"/.test(notify), 'in those words');
+
+  const act = r.slice(r.indexOf('ACTION_EDITION ->'), r.indexOf('ACTION_PAUSE ->'));
+  t.ok(/EditionStore\.parts\(applicationContext\)/.test(act), 'the service assembles it on the spot');
+  t.ok(/if \(!Reading\.has\(id\)\) Reading\.add/.test(act),
+    'and pressing play twice does not queue the same bulletin behind itself');
 });
 
 /*
