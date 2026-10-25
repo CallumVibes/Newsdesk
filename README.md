@@ -765,6 +765,24 @@ The work is the same whichever way in it came, so it is written once: `BriefingR
 off-screen WebView and the bridge, and `BriefingJob` (what the scheduler can start, good for the
 hours the phone is awake) and `BriefingWork` (what survives Doze) both just run it.
 
+### The run that cancelled itself
+
+Everything above was real, and none of it was what stopped the briefings. The log said so the
+moment there was one to read: every scheduled run ended `stopped by the system · 1s`, while the
+single run the alarm started ran for fifty-five seconds.
+
+Scheduling a `JobScheduler` id that is already executing **cancels the execution**. The run's first
+instruction was `scheduleNext()` — booking the next slot whatever became of this one — and
+`scheduleNext` books `JOB_ID`, which is the job running that very instruction. So every scheduled
+briefing stopped itself on its first line, four times a day, for as long as the job had existed.
+`runNow` books a different id, which is the only reason the alarm's runs ever got anywhere, and
+the only reason this looked like a Doze problem for two days.
+
+Nothing is booked from inside a run now. Whoever started it books the next one when it is over —
+the job after `jobFinished`, in that order, and the service once the run has ended. The alarm arms
+only the next *alarm*, because it fires at the same minute the job is booked for and would cancel
+it on the way in: the same mistake, one floor up.
+
 The alarm writes *"woken by the alarm"* to the log before anything else, so a run that never
 happens still says whether the alarm was the part that failed. Alarms do not survive a reboot the
 way a persisted job does, so `BOOT_COMPLETED` lands there too.
