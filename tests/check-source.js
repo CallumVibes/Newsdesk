@@ -32,6 +32,7 @@ suite('Everything the build needs is there', (t) => {
     'app/src/main/assets/icon-192.png', 'app/src/main/assets/icon-512.png',
     KT + 'MainActivity.kt', KT + 'Net.kt', KT + 'Briefings.kt',
     KT + 'Widget.kt', KT + 'WidgetFeed.kt', KT + 'WidgetHistory.kt', KT + 'Reading.kt',
+    KT + 'Spoken.kt',
     'app/src/main/res/drawable/icon.png', 'app/src/main/res/drawable/banner.png',
     'app/src/main/res/drawable/notify.png', 'app/src/main/res/drawable/widget_bg.xml',
     'app/src/main/res/drawable/widget_refresh.png',
@@ -151,7 +152,7 @@ const KOTLIN_FREE = new Set([
 
 suite('Every Kotlin name is one the compiler will find', (t) => {
   const files = ['MainActivity.kt', 'Net.kt', 'Briefings.kt', 'Widget.kt',
-    'WidgetFeed.kt', 'WidgetHistory.kt', 'Reading.kt'];
+    'WidgetFeed.kt', 'WidgetHistory.kt', 'Reading.kt', 'Spoken.kt'];
   // Anything declared anywhere in the package is reachable from anywhere else in it.
   const inPackage = new Set(['R']);
   const bodies = {};
@@ -160,12 +161,25 @@ suite('Every Kotlin name is one the compiler will find', (t) => {
     bodies[f] = src;
     (src.match(/^\s*(?:private |internal |public |abstract |open |sealed |inner |data )*(?:class|object|interface|enum class) ([A-Z][A-Za-z0-9]*)/gm) || [])
       .forEach((m) => inPackage.add(m.trim().split(/\s+/).pop()));
+    /* A constant counts too. A CAPITALISED name followed by a dot looks exactly like a
+       class to the pattern below, so a precompiled Regex held in a val - TIME.replace(..) -
+       was reported as an unimported class until this line existed. */
+    (src.match(/^\s*(?:(?:private|internal|public|const|lateinit|@Volatile)\s+)*va[lr]\s+([A-Z][A-Za-z0-9_]*)/gm) || [])
+      .forEach((m) => inPackage.add(m.trim().split(/\s+/).pop()));
   });
   t.ok(inPackage.has('MainActivity') && inPackage.has('BriefStore'),
     'the package\'s own classes are found');
+  t.ok(inPackage.has('CHUNK') && inPackage.has('TIME'),
+    'and so are its constants, which read the same way to a regex');
 
   files.forEach((f) => {
-    const src = bodies[f].replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+    /* Comments and string literals both out of the way first. A capitalised word with a
+       dot after it inside a string - "No." in a table of short forms, say - reads to the
+       pattern below exactly like a qualified class name. Raw strings before plain ones,
+       since a raw one is full of quotes. */
+    const src = bodies[f].replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+      .replace(/"""[\s\S]*?"""/g, '""')
+      .replace(/"(?:\\.|[^"\\\n])*"/g, '""');
     const imported = new Set((src.match(/^import [\w.]+$/gm) || [])
       .map((line) => line.trim().split('.').pop()));
     // Foo( as a constructor, Foo. as a qualifier, : Foo as a type or supertype
@@ -876,6 +890,55 @@ suite('A story read out loud outlives the screen', (t) => {
   t.not(/S\.speaking/.test(page), 'and there is no second flag to disagree with the queue');
   t.ok(/function readingNow\(it\)/.test(page) && /function readingNext\(it\)/.test(page),
     'the button asks about the story in front of you, not about speech in general');
+});
+
+/*
+ * News prose is written for the eye. "£3.011tn", "A303", "05:04" and "A&E" all read
+ * perfectly on a screen and all come out of a speech engine as gibberish or silence. The
+ * rules that fix that are the kind of code that is wrong quietly - one daft sentence, out
+ * loud, with nothing written down - so what matters structurally is that they cannot be
+ * got round, and that they stay testable off a device.
+ */
+suite('Written news is turned into something a voice can read', (t) => {
+  const sp = read(KT + 'Spoken.kt');
+  const kt = read(KT + 'Reading.kt');
+
+  t.not(/^import android/m.test(sp),
+    'the rules import nothing from Android, which is what lets them run on a JVM');
+  t.ok(/^import /m.test(sp) === false,
+    'nor anything else: pure Kotlin, or tests/spoken.test.sh cannot compile it alone');
+  t.ok(/object Spoken \{/.test(sp) && /fun forVoice\(text: String\): String/.test(sp),
+    'there is one entry point for turning written text into spoken text');
+  t.ok(/catch \(e: Exception\) \{\s*text\s*\}/.test(sp),
+    'a rule that blows up costs a clumsy sentence, not the article');
+
+  /* The one chokepoint. Everything spoken - article, briefing, anything queued later -
+     goes through split(), so normalising there cannot be bypassed by a new caller. */
+  t.ok(/for \(raw in Spoken\.forVoice\(text\)\.split\("\\n"\)\)/.test(kt),
+    'and it sits in split(), which everything spoken passes through');
+  const say = kt.slice(kt.indexOf('private fun say('), kt.indexOf('fun split('));
+  t.ok(/t\.speak\(part/.test(say) && !/t\.speak\(text/.test(kt),
+    'nothing hands the engine text that has not been through it');
+
+  /* Only the engine gets the rewritten words. The screen keeps its pound signs. */
+  const others = ['MainActivity.kt', 'Briefings.kt', 'Widget.kt', 'WidgetFeed.kt', 'WidgetHistory.kt'];
+  others.forEach((f) => {
+    t.not(/Spoken\./.test(read(KT + f)),
+      f + ' does not use it, so nothing drawn or stored is ever the spoken version');
+  });
+
+  // It must not round. "3.011 trillion" is a mouthful; a bulletin quietly changing a
+  // figure to a nicer one is worse than a mouthful.
+  t.not(/roundTo|Math\.round|BigDecimal|String\.format/.test(sp),
+    'no rounding anywhere in it: a figure is read as written');
+
+  t.ok(/setAudioAttributes\(/.test(kt) && /CONTENT_TYPE_SPEECH/.test(kt),
+    'the engine is told to play as the stream the service asked focus for');
+
+  // These live in the repository rather than the tarball, so not through has().
+  t.ok(fs.existsSync(path.join(__dirname, 'spoken.test.kt'))
+    && fs.existsSync(path.join(__dirname, 'spoken.test.sh')),
+    'and the rules are checked against written-out answers, not by listening');
 });
 
 /*
