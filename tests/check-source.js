@@ -1083,8 +1083,44 @@ suite('An edition can be read out with the app never opened', (t) => {
   t.ok(/fun seconds\(parts: List<Part>\): Int/.test(ed),
     'how long it runs is worked out where it can be tested, not in the page');
 
+  /* Not said twice, and not started over. Both are the same bookkeeping - what has
+     been read today - and it lives in preferences because the case it exists for is the
+     service being killed with the phone in a pocket half way through four minutes. */
+  const st = w.slice(w.indexOf('object EditionStore'), w.indexOf('class BriefingWidget'));
+  ['fun heard(', 'fun begin(', 'fun markHeard(', 'fun toPlay(', 'fun nextUp(', 'fun midway(']
+    .forEach((f) => t.ok(st.indexOf(f) >= 0, 'the store offers ' + f.replace('fun ', '')));
+  t.ok(/if \(o\.optString\("day", ""\) != today\(\)\) return none/.test(st),
+    'the day\'s record is the day\'s, and goes when the day does');
+  t.ok(/if \(was == now\) list\(o\.optJSONArray\("done"\)\) else emptyList\(\)/.test(st),
+    'but what is done belongs to one edition: the afternoon brief is not the morning read twice');
+  t.ok(/while \(titles\.size > KEEP_TITLES\) titles\.removeAt\(0\)/.test(st),
+    'and the list of them is capped rather than kept for ever');
+  t.ok(/heard\(ctx\)\.titles/.test(st), 'what was read today is handed to the running order');
+  t.ok(/begin\(ctx, all\)/.test(st),
+    'all the parts are stashed, not only those left, or a finished part cannot be looked up');
+
   const act = r.slice(r.indexOf('ACTION_EDITION ->'), r.indexOf('ACTION_PAUSE ->'));
-  t.ok(/EditionStore\.parts\(applicationContext\)/.test(act), 'the service assembles it on the spot');
+  t.ok(/EditionStore\.toPlay\(applicationContext\)/.test(act),
+    'playing picks up what is left rather than starting over');
+  const after = r.slice(r.indexOf('private fun read()'), r.indexOf('private fun failed('));
+  /* Both present and in that order. indexOf alone is a trap here: a markHeard that has
+     gone missing scores -1, which is less than anything, so the ordering would pass by
+     the call not being there at all. */
+  const mh = after.indexOf('EditionStore.markHeard'), dn = after.indexOf('Reading.done()');
+  t.ok(mh >= 0 && dn >= 0 && mh < dn,
+    'and a finished part is recorded while it is still the one at the front');
+  t.ok(/just\.id\.startsWith\("edition:"\)/.test(after), 'only for the edition, not for an article');
+
+  /* Drawing a card must not change anything. nextUp answers the same question without
+     stashing a running order, which toPlay does. */
+  ['MainActivity.kt', 'Briefings.kt'].forEach((f) => {
+    const b = read(KT + f);
+    const fn = b.slice(b.indexOf('fun editionList(): String'), b.indexOf('fun playEdition()'));
+    t.ok(/EditionStore\.nextUp\(/.test(fn), f + ' draws the card from what is left');
+    t.not(/toPlay\(/.test(fn), f + ' does not stash a running order merely to draw one');
+  });
+  t.ok(/ed\.midway \? 'Carry on with this edition'/.test(page),
+    'and the card offers to carry on rather than to play, when that is what it would do');
   t.ok(/if \(!Reading\.has\(id\)\) Reading\.add/.test(act),
     'and pressing play twice does not queue the same bulletin behind itself');
 });
