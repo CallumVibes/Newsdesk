@@ -294,6 +294,30 @@ fun main() {
         if (on != 4) failures.add("$area\n      wanted 4 diary entries, got $on")
     }
 
+    suite("How long it runs")
+    run {
+        checks++
+        if (Edition.seconds(emptyList()) != 0) failures.add("$area\n      nothing should run for no time")
+        // 170 words a minute, so 170 words is a minute and 85 is half of one.
+        val one = listOf(Edition.Part("x", "x", (1..170).joinToString(" ") { "word" }))
+        checks++
+        val got = Edition.seconds(one)
+        if (got != 60) failures.add("$area\n      wanted 170 words to run 60s, got ${got}s")
+        val half = listOf(Edition.Part("x", "x", (1..85).joinToString(" ") { "word" }))
+        checks++
+        val h = Edition.seconds(half)
+        if (h != 30) failures.add("$area\n      wanted 85 words to run 30s, got ${h}s")
+        // Counted across every part, not just the first.
+        checks++
+        val both = Edition.seconds(one + half)
+        if (both != 90) failures.add("$area\n      wanted the parts added up to 90s, got ${both}s")
+        // Newlines are not words.
+        checks++
+        val lines = Edition.seconds(listOf(Edition.Part("x", "x", "one\n\ntwo\n   \nthree")))
+        val words = Edition.seconds(listOf(Edition.Part("x", "x", "one two three")))
+        if (lines != words) failures.add("$area\n      blank lines counted as words: ${lines}s vs ${words}s")
+    }
+
     suite("The edition goes to the voice through the same rules as everything else")
     run {
         /* Not a rule of its own: the parts are spoken through Speaker.split, so they get

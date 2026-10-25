@@ -1063,6 +1063,26 @@ suite('An edition can be read out with the app never opened', (t) => {
     'and only offers it when there is something to play');
   t.ok(/"Play the edition"/.test(notify), 'in those words');
 
+  /* The card that offers it. Kept off a television twice over, in the stylesheet and in
+     the guard, because either one alone is enough and neither is where you would look
+     for the other - the layout suite has to break both before the card appears. */
+  t.ok(/#edCard\{display:none\}/.test(page), 'the play card is off by default');
+  t.ok(/html\.touch #edCard\{display:flex/.test(page), 'and on for touch only');
+  const card = page.slice(page.indexOf('function renderEdCard()'), page.indexOf('function edCardTap()'));
+  t.ok(/TOUCH && TABS\[S\.tab\] && TABS\[S\.tab\]\.id === 'today'/.test(card),
+    'drawn only on Today, and only where there is a finger');
+  t.ok(/<button type="button" id="edCard" hidden>/.test(page),
+    'as a button, so it is tappable and reaches a screen reader as what it is');
+  t.ok(page.indexOf('id="edCard"') < page.indexOf('<ol id="list"'),
+    'inside the scroller and above the rows, so it scrolls away rather than taking a strip for ever');
+  t.ok(/Native\.editionList\(\)/.test(page) && /Native\.playEdition\(\)/.test(page),
+    'and both what it says and what it does come from the same assembly as the voice');
+  t.ok(/fun editionList\(\): String/.test(read(KT + 'MainActivity.kt'))
+    && /fun playEdition\(\): Boolean/.test(read(KT + 'MainActivity.kt')),
+    'which Kotlin answers');
+  t.ok(/fun seconds\(parts: List<Part>\): Int/.test(ed),
+    'how long it runs is worked out where it can be tested, not in the page');
+
   const act = r.slice(r.indexOf('ACTION_EDITION ->'), r.indexOf('ACTION_PAUSE ->'));
   t.ok(/EditionStore\.parts\(applicationContext\)/.test(act), 'the service assembles it on the spot');
   t.ok(/if \(!Reading\.has\(id\)\) Reading\.add/.test(act),
