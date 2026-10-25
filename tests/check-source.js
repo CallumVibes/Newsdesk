@@ -1070,6 +1070,55 @@ suite('An edition can be read out with the app never opened', (t) => {
 });
 
 /*
+ * Five new sources and a tab to put them in. The thing worth guarding is not that they
+ * work - only the running app can say that, and the sources panel is where it says it -
+ * but that the wiring agrees with itself: a source in no tab is fetched and never shown,
+ * a tab naming a source that does not exist draws nothing, and a loader missing from the
+ * table means a source that is simply never asked.
+ */
+suite('The gaming sources are wired to a tab and to a loader', (t) => {
+  const page = read(PAGE);
+  const srcs = ['px', 'xw', 'eg', 'vg', 'pg'];
+
+  t.ok(/var GAME_SRCS = \['px', 'xw', 'eg', 'vg', 'pg'\];/.test(page), 'the five are named in one place');
+  t.ok(/\{ id: 'gaming',\s+name: 'Gaming',.*srcs: GAME_SRCS/.test(page),
+    'and the tab takes that list rather than a second copy of it');
+
+  srcs.forEach((k) => {
+    t.ok(new RegExp('\\b' + k + ': \\{ name:').test(page), k + ' is in the source table');
+    t.ok(new RegExp("'" + k + "'").test(page.slice(page.indexOf('var ORDER ='), page.indexOf('var GAME_SRCS'))),
+      'and in ORDER, or it is never fetched at all');
+    t.ok(new RegExp('\\b' + k + ': feedSite\\(').test(page), 'and has a loader in the table');
+  });
+
+  /* Out of Today and All on purpose: five more sites in the main feed would drown the
+     nine already there, and this is a tab you go to rather than one you are shown. */
+  const feed = page.slice(page.indexOf('var FEED_SRCS ='), page.indexOf('/* Kagi files everything'));
+  srcs.forEach((k) => {
+    t.not(new RegExp("'" + k + "'").test(feed), k + ' is kept out of Today and All');
+  });
+
+  /* Several addresses each, because a feed that has moved is how a source dies quietly. */
+  ['PX_FEEDS', 'XW_FEEDS', 'EG_FEEDS', 'VG_FEEDS', 'PG_FEEDS'].forEach((v) => {
+    const m = page.match(new RegExp('var ' + v + ' = \\[([\\s\\S]*?)\\];'));
+    t.ok(!!m && (m[1].match(/https?:/g) || []).length >= 2, v + ' has more than one address to try');
+  });
+  t.ok(/function feedSite\(key, feeds, api\)/.test(page),
+    'and one loader serves all five rather than five near-copies of it');
+
+  /* The briefing sees them, and is told to leave them alone on an ordinary day. */
+  t.ok(/function briefGaming\(\)/.test(page), 'the briefing is given the gaming headlines');
+  t.ok(/SRC\[it\.src\]\.game/.test(page), 'picked out by the flag on the source, not a second list');
+  const rules = page.slice(page.indexOf('var BRIEF_SYSTEM = ['), page.indexOf('].join(\'\\n\');'));
+  t.ok(/A GAMING block, where there is one, is there to be ignored on most days/.test(rules),
+    'and told plainly that most days it says nothing about games');
+  t.ok(/never more than one of them/.test(rules), 'and at most one of them when it does');
+  // Not a section of Today: those are Today's list, and gaming is not in Today.
+  const today = page.slice(page.indexOf('function buildToday('), page.indexOf('/* Diary entries still to come'));
+  t.not(/\.game\b/.test(today), 'gaming is not a section of Today');
+});
+
+/*
  * A booked job is not a job that runs. A phone on a bedside table is in Doze by two in
  * the morning, and Doze defers jobs to maintenance windows that grow further apart the
  * longer it lasts - to whitelisted apps as well, which get network and alarms out of

@@ -1066,9 +1066,19 @@ async function stripFade(browser) {
         t.is(m.tabsFaded, false, k + ': with no mask on it at all');
       }
     });
-    // Ten tabs fit a television now that there are ten rather than eleven.
-    t.is(seen.tv720.tabsOverflowPx, 0, 'a television fits them all, even at 720p');
-    t.ok(seen.pixel.tabsOverflowPx > 100, 'a phone does not, by a long way ('
+    /* Eleven tabs, with Gaming, and they no longer fit a television at either size.
+       A bigger television is not a roomier one here: the type scales with the screen,
+       so the proportion is much the same and 1080p is over by more pixels than 720p,
+       not fewer. Shaving them small enough would be shaving them past what a
+       television is for, so the strip scrolls - which is what it was built to do.
+       The loop above is what makes that usable from a sofa: the end it can scroll to
+       is faded so a cut-off tab reads as more to come, and the tab in use is kept
+       whole and in view at every size, which is what the D-pad moves along. */
+    t.ok(seen.tv1080.tabsOverflowPx > 2, 'a 1080p television scrolls them ('
+      + seen.tv1080.tabsOverflowPx + 'px past it)');
+    t.ok(seen.tv720.tabsOverflowPx > 2, 'and so does a 720p one ('
+      + seen.tv720.tabsOverflowPx + 'px past it)');
+    t.ok(seen.pixel.tabsOverflowPx > 100, 'and a phone does not, by a long way ('
       + seen.pixel.tabsOverflowPx + 'px)');
   });
 
