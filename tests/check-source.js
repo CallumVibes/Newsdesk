@@ -1126,6 +1126,68 @@ suite('An edition can be read out with the app never opened', (t) => {
 });
 
 /*
+ * What the briefing is asked for. It was reporting what had happened and stopping there,
+ * in the same shape four times a day, out of fifty-word teasers - and no wording in a
+ * prompt gets consequence out of a teaser, so the depth of what goes in matters as much
+ * as what is asked of it.
+ */
+suite('The briefing is asked for consequence, not just for what happened', (t) => {
+  const page = read(PAGE);
+  const rules = page.slice(page.indexOf('var BRIEF_SYSTEM = ['), page.indexOf("].join('\\n');"));
+
+  /* A lead told properly, then a roundup - which is also what reads aloud best, bullets
+     out loud being a list of fragments with nothing joining them. */
+  t.ok(/SHAPE\. The first paragraph is the lead/.test(rules), 'the shape is stated, not implied');
+  t.ok(/four to six sentences/.test(rules), 'and the lead is given room to say something');
+  t.ok(/Choose the lead on consequence, not on category/.test(rules),
+    'chosen on what matters rather than by a fixed running order of topics');
+  t.ok(/nearer Hereford leads/.test(rules), 'with distance from here as the tie-break');
+  t.ok(/roundup is two to four short paragraphs/.test(rules), 'and the rest kept brisk');
+
+  t.ok(/WHY IT MATTERS\./.test(rules), 'significance is a rule of its own');
+  t.ok(/earns its place by what follows from the story, not by the story/.test(rules),
+    'and a story with nothing following from it is left out');
+  t.ok(/"This could have wider implications" says nothing/.test(rules),
+    'the empty version of significance is named and forbidden');
+  t.ok(/Do not invent consequence/.test(rules),
+    'and inventing it is worse than saying what is not yet known');
+  t.ok(/no bullet points, no markdown, no headings/.test(rules),
+    'said once at the top, because it is read aloud as well as read');
+
+  /* The four editions have to differ, which was the third complaint. Each angle says
+     what its lead is for: told only to mention what is new, a writer makes the same
+     shape four times with the nouns changed. */
+  const slots = page.slice(page.indexOf('var BRIEF_SLOTS = ['), page.indexOf('function slotMins'));
+  t.is((slots.match(/angle:/g) || []).length, 4, 'all four editions have an angle');
+  /* Each one named rather than counted, because what makes them differ is which story
+     leads - and these are the four answers. */
+  const leads = ['Lead with the most consequential', 'Lead with what has actually moved since the morning',
+    'Lead with the story the day turned on', 'Lead with what the day came to'];
+  const where = ['the morning leads on the night', 'the afternoon on what has moved',
+    'the evening on the day', 'and the night settles it'];
+  leads.forEach((l, i) => t.ok(slots.indexOf(l) >= 0, where[i]));
+  t.is(new Set(leads.map((l) => slots.indexOf(l))).size, 4, 'and no two of them are the same words');
+
+  /* The ceiling on how specific the writing can possibly be. */
+  t.ok(/var BRIEF_CUT = 340;/.test(page) && /var BRIEF_CUT_TOP = 1200;/.test(page),
+    'the top of each section is given room, the rest a line');
+  t.ok(/slice\(0, 1200\)/.test(page),
+    'and that long cut is the same length the parsers keep, so it trims nothing twice');
+  const inp = page.slice(page.indexOf('function briefInput('), page.indexOf('/* A story that has come in since'));
+  t.ok(/i < BRIEF_TOP_EACH \? BRIEF_CUT_TOP : BRIEF_CUT/.test(inp),
+    'spent on the items a lead is actually chosen from');
+
+  /* Now that the cut is large, this matters more than it did: the writer must not be
+     handed its own earlier editions as stories. They are in ALREADY SAID, in full,
+     which is where they belong. */
+  t.ok(/var t = buildToday\(all, true\);/.test(page),
+    'the tray it writes from leaves out the briefings already written');
+  t.ok(/ALREADY SAID EARLIER TODAY/.test(page), 'which it is given separately, and told not to repeat');
+  t.ok(/keep the lead and cut the roundup to one paragraph or none/.test(rules),
+    'and on a day with nothing new it writes less rather than padding');
+});
+
+/*
  * Five new sources and a tab to put them in. The thing worth guarding is not that they
  * work - only the running app can say that, and the sources panel is where it says it -
  * but that the wiring agrees with itself: a source in no tab is fetched and never shown,
