@@ -4271,7 +4271,15 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
     t.ok(/every edition you have written today/.test(brief.system),
       'the writer is told the block holds the whole day');
     t.ok(/\[NEW\]/.test(brief.system), 'and what the mark on a story means');
-    t.ok(/fewer paragraphs/.test(brief.system), 'and that a quiet day is a shorter briefing');
+    /* The wording this probes changed when the briefing was reworked into a lead and a
+       roundup, and the probe went stale while the rule it stands for did not. Pointed at
+       the new words rather than loosened: a prompt that stops asking for a short edition
+       on a quiet day should have to come past this. */
+    t.ok(/cut the roundup to one paragraph or none/.test(brief.system),
+      'and that a quiet day is a shorter briefing');
+    t.ok(/SHAPE\. The first paragraph is the lead/.test(brief.system),
+      'the writer is told the shape, a lead and then a roundup');
+    t.ok(/WHY IT MATTERS\./.test(brief.system), 'and asked for what follows, not just what happened');
 
     // Story by story, against the midday edition.
     t.same(brief.fresh, [['kg:k1', true], ['kg:k2', false], ['kg:k3', false],

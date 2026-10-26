@@ -294,6 +294,137 @@ fun main() {
         if (on != 4) failures.add("$area\n      wanted 4 diary entries, got $on")
     }
 
+    suite("Nothing is read out twice across a day")
+    run {
+        val heads = listOf(
+            Edition.Head("BBC", "Two arrests after Leominster fire"),
+            Edition.Head("Hereford Times", "A303 reopens after three days shut")
+        )
+        /* Read out this morning. Not in the briefing, so only the day's record can
+           keep it out of the afternoon. */
+        val said = listOf("Two arrests after Leominster fire")
+        val parts = Edition.build("Afternoon briefing", "Something else entirely",
+            listOf("A paragraph about something else."), heads, emptyList(), "", "", said)
+        lacks(parts, "heads", "Leominster fire")
+        holds(parts, "heads", "A303 reopens after three days shut.")
+
+        // Paraphrase too, not only the same words over again.
+        val para = Edition.build("Afternoon briefing", "Something else entirely",
+            listOf("A paragraph."), heads, emptyList(), "", "",
+            listOf("Leominster fire: two people arrested"))
+        lacks(para, "heads", "Leominster fire")
+
+        /* Compared one headline against one, never against all of them run together.
+           By evening that blob is enormous, and a forty per cent overlap against a wall
+           of text would start dropping genuinely new stories - which is the failure
+           nobody ever finds out about. This is that blob, and the new story survives it. */
+        val allDay = listOf(
+            "Storm Austen cuts power to 40,000 homes",
+            "Tibet quake death toll reaches 16",
+            "Lords vote down the water bill amendment",
+            "Miners move record hashrate to Paraguay",
+            "Oat milk duty cut survives the budget",
+            "Cathedral organ recital draws a record crowd",
+            "Farmers market moves to High Town for winter"
+        )
+        val late = Edition.build("Evening briefing", "A quiet day", listOf("Not much."),
+            listOf(Edition.Head("Hereford Times", "A303 reopens after three days shut")),
+            emptyList(), "", "", allDay)
+        holds(late, "heads", "A303 reopens after three days shut.")
+
+        /* The case that actually tells the two apart, and the reason this one is written
+           out so carefully: every content word of this headline appears somewhere in the
+           day's record, but spread across four different entries - power from the storm,
+           cut from the oat milk, cathedral from the recital, market from the farmers'.
+           Against any single headline it shares one word in four and survives. Run
+           together into one blob it scores four in four and is dropped, though nobody has
+           said it. A headline sharing no words at all with the blob cannot show this;
+           the first version of this test used one and passed either way. */
+        val spread = Edition.build("Evening briefing", "A quiet day", listOf("Not much."),
+            listOf(Edition.Head("Hereford Times", "Power cut at the cathedral market")),
+            emptyList(), "", "", allDay)
+        holds(spread, "heads", "Power cut at the cathedral market.")
+
+        // And what it did read is written down, or there is nothing to skip tomorrow.
+        checks++
+        val h = part(parts, "heads")
+        if (h == null || h.titles != listOf("A303 reopens after three days shut")) {
+            failures.add("$area\n      the headlines part should record what went into it" +
+                "\n      got    " + (h?.titles ?: "no part at all"))
+        }
+        // The other parts carry none, having no headlines in them.
+        val full = Edition.build("Morning briefing", "A headline", listOf("A paragraph."),
+            heads, listOf(Edition.Slot("Today, 10:00", "Market")), "Bitcoin 1 pound.", "9 degrees")
+        checks++
+        val stray = full.filter { it.key != "heads" && it.titles.isNotEmpty() }.map { it.key }
+        if (stray.isNotEmpty()) failures.add("$area\n      these carry headlines and should not: $stray")
+    }
+
+    suite("Stopping half way picks up where it stopped")
+    run {
+        val parts = Edition.build("Morning briefing", "A headline", listOf("A paragraph."),
+            listOf(Edition.Head("BBC", "Distinct enough headline about something")),
+            listOf(Edition.Slot("Today, 10:00", "Market")), "Bitcoin 1 pound.", "9 degrees")
+        keys(parts, "brief, heads, on, markets")
+
+        keys(Edition.remaining(parts, emptyList()), "brief, heads, on, markets")
+        keys(Edition.remaining(parts, listOf("brief")), "heads, on, markets")
+        keys(Edition.remaining(parts, listOf("brief", "heads")), "on, markets")
+        // Out of order, because a skip can finish a later part first.
+        keys(Edition.remaining(parts, listOf("on")), "brief, heads, markets")
+        // A key from an edition that no longer has that part is simply not there.
+        keys(Edition.remaining(parts, listOf("nothing")), "brief, heads, on, markets")
+
+        /* Heard the lot and pressed play: the only thing that can mean is again. A button
+           that does nothing would be worse than a repeat that was asked for. */
+        keys(Edition.remaining(parts, listOf("brief", "heads", "on", "markets")),
+            "brief, heads, on, markets")
+        checks++
+        if (Edition.remaining(emptyList(), listOf("brief")).isNotEmpty()) {
+            failures.add("$area\n      nothing to play should stay nothing")
+        }
+    }
+
+    suite("Nothing is offered aloud that cannot be read")
+    run {
+        val hour = 3600L * 1000L
+        val now = 1_761_000_000_000L
+        checks++
+        if (Edition.SHOW_HOURS != 36) failures.add("$area\n      the window should match the screen's 36 hours")
+        yes(Edition.stale(0L, now))                               // never written
+        yes(Edition.stale(now - 37 * hour, now))                  // past the window
+        no(Edition.stale(now - 35 * hour, now))                   // inside it
+        no(Edition.stale(now, now))                               // written this instant
+        // Exactly on the boundary is still shown, as the screen shows it.
+        no(Edition.stale(now - 36 * hour, now))
+        // A clock that has gone backwards is not a reason to withhold anything.
+        no(Edition.stale(now + hour, now))
+    }
+
+    suite("How long it runs")
+    run {
+        checks++
+        if (Edition.seconds(emptyList()) != 0) failures.add("$area\n      nothing should run for no time")
+        // 170 words a minute, so 170 words is a minute and 85 is half of one.
+        val one = listOf(Edition.Part("x", "x", (1..170).joinToString(" ") { "word" }))
+        checks++
+        val got = Edition.seconds(one)
+        if (got != 60) failures.add("$area\n      wanted 170 words to run 60s, got ${got}s")
+        val half = listOf(Edition.Part("x", "x", (1..85).joinToString(" ") { "word" }))
+        checks++
+        val h = Edition.seconds(half)
+        if (h != 30) failures.add("$area\n      wanted 85 words to run 30s, got ${h}s")
+        // Counted across every part, not just the first.
+        checks++
+        val both = Edition.seconds(one + half)
+        if (both != 90) failures.add("$area\n      wanted the parts added up to 90s, got ${both}s")
+        // Newlines are not words.
+        checks++
+        val lines = Edition.seconds(listOf(Edition.Part("x", "x", "one\n\ntwo\n   \nthree")))
+        val words = Edition.seconds(listOf(Edition.Part("x", "x", "one two three")))
+        if (lines != words) failures.add("$area\n      blank lines counted as words: ${lines}s vs ${words}s")
+    }
+
     suite("The edition goes to the voice through the same rules as everything else")
     run {
         /* Not a rule of its own: the parts are spoken through Speaker.split, so they get

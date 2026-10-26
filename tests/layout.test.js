@@ -179,6 +179,61 @@ async function open(browser, opts) {
 
 /** Everything a drawn page can be asked that a built one cannot. */
 function look() {
+  /* The play card, with an edition put in front of it.
+     
+     Drawn only where there is something to play, which in a browser with no app behind
+     it is nowhere - so measuring it needs a stand-in for the bridge. Without that the
+     card stays hidden and every measurement of it passes by never happening, which is
+     the kind of green that is worse than red.
+     
+     Nested in here rather than beside it because look() is stringified and run inside
+     the page: a sibling function is not there when it arrives. */
+  function edCard() {
+    const nd = window.ndApi, box = document.getElementById('edCard');
+    if (!nd || !box) return null;
+    const was = window.Native;
+    try {
+      window.Native = Object.assign({}, was, {
+        editionList: () => JSON.stringify({
+          secs: 260,
+          parts: [{ key: 'brief', title: 'Morning briefing' },
+                  { key: 'heads', title: 'The other headlines' },
+                  { key: 'on', title: "What's on today" },
+                  { key: 'markets', title: 'Markets and the weather' }]
+        })
+      });
+      nd.S.tab = nd.TABS.findIndex((x) => x.id === 'today');
+      nd.edCacheBust();
+      nd.renderEdCard();
+      const shown = !box.hidden && getComputedStyle(box).display !== 'none';
+      if (!shown) return { shown: false };
+      const r = box.getBoundingClientRect();
+      const wrap = document.getElementById('listWrap').getBoundingClientRect();
+      const t = box.querySelector('.ed-t'), sub = box.querySelector('.ed-s');
+      const go = box.querySelector('.ed-go');
+      return {
+        shown: true,
+        w: Math.round(r.width), h: Math.round(r.height),
+        // Inside the scroller and above the rows, so it scrolls away rather than staying.
+        insideList: document.getElementById('listWrap').contains(box),
+        beforeRows: box.compareDocumentPosition(document.getElementById('list'))
+          === Node.DOCUMENT_POSITION_FOLLOWING,
+        wider: Math.round(r.width - wrap.width),
+        title: t ? t.textContent : '',
+        sub: sub ? sub.textContent : '',
+        // Nothing cut off: a card whose words do not fit says less than no card.
+        cut: [t, sub].filter(Boolean).some((n) => n.scrollWidth > n.clientWidth + 1),
+        tapW: go ? Math.round(go.getBoundingClientRect().width) : 0,
+        tapH: Math.round(r.height),
+        labelled: !!box.getAttribute('aria-label'),
+        isButton: box.tagName === 'BUTTON'
+      };
+    } finally {
+      window.Native = was;
+      try { nd.edCacheBust(); nd.renderEdCard(); } catch (e) {}
+    }
+  }
+
   const box = document.getElementById('mkt');
   const cs = getComputedStyle(box);
   const kids = [...box.children].map((n) => {
@@ -221,7 +276,8 @@ function look() {
       return o.left < t.left - 1 || o.right > t.right + 1;
     })(),
     pageOverflow: doc.scrollWidth > doc.clientWidth + 1,
-    headerH: Math.round(document.querySelector('header').getBoundingClientRect().height)
+    headerH: Math.round(document.querySelector('header').getBoundingClientRect().height),
+    ed: edCard()
   };
 }
 
@@ -1043,6 +1099,29 @@ async function stripFade(browser) {
     });
     t.same(seen.pixelLight.clipped, [], 'nothing is clipped in the light either');
     t.is(seen.tvLight.tabOnCut, false, 'and the tab in use is still whole');
+  });
+
+  suite('The play card fits where it is drawn', (t) => {
+    /* A television never draws it: the edition is a pocket thing by design, and a card
+       the D-pad cannot land on would be a card that only looks like it works. */
+    ['tv1080', 'tv720'].forEach((k) => {
+      t.is(seen[k].ed && seen[k].ed.shown, false, k + ': a television does not draw it');
+    });
+    ['pixel', 'small'].forEach((k) => {
+      const e = seen[k].ed;
+      t.ok(!!e && e.shown, k + ': a phone does');
+      if (!e || !e.shown) return;
+      t.is(e.isButton, true, k + ': as a button, so it is tappable and reaches a reader');
+      t.is(e.labelled, true, k + ': and says what it does');
+      t.is(e.insideList, true, k + ': inside the scroller, so it scrolls away with the rows');
+      t.is(e.beforeRows, true, k + ': and above them');
+      t.ok(e.wider <= 0, k + ': no wider than the list it sits in (' + e.wider + 'px over)');
+      t.is(e.cut, false, k + ': with nothing cut off its words');
+      t.ok(e.tapH >= 44, k + ': and a target worth tapping (' + e.tapH + 'px tall)');
+      t.ok(/Play this edition/.test(e.title), k + ': offering to play it');
+      t.ok(/4 min 20/.test(e.sub), k + ': and saying how long it runs (' + e.sub + ')');
+    });
+    t.is(seen.pixel.pageOverflow, false, 'and the page still does not scroll sideways');
   });
 
   suite('The tab strip fades only where there is more', (t) => {

@@ -1063,10 +1063,160 @@ suite('An edition can be read out with the app never opened', (t) => {
     'and only offers it when there is something to play');
   t.ok(/"Play the edition"/.test(notify), 'in those words');
 
+  /* The fault that was reported: it could be listened to before it could be read.
+     Two stores hold a briefing, and only one of them was repairable. */
+  t.ok(/fun raw\(ctx: Context\): String/.test(w), 'what is stored can be handed back as it was');
+  ['MainActivity.kt', 'Briefings.kt'].forEach((f) => {
+    t.ok(/fun briefRead\(\): String = BriefStore\.raw\(/.test(read(KT + f)),
+      f + ' lets the page read the durable copy back');
+  });
+  t.ok(/function recoverBrief\(\)/.test(page), 'and the page takes back one it never kept');
+  const rec = page.slice(page.indexOf('function recoverBrief()'), page.indexOf('function rememberBrief(b)'));
+  t.ok(/Native\.briefRead\(\)/.test(rec), 'from the store that is written with commit');
+  t.ok(/if \(\(mine\[i\]\.at \|\| 0\) === b\.at\) return;/.test(rec),
+    'only where it has nothing with that timestamp already');
+  t.ok(/slotKey: briefSlot\(b\.at\)\.key/.test(rec),
+    'and keyed the way the writer keys it, so a rewrite merges rather than doubling up');
+  /* Called from loadBrief, which is where storage is read and therefore before
+     anything is drawn. Sliced to that function's own body: a call anywhere in the file
+     would satisfy a looser test and mean nothing. */
+  const lb = page.slice(page.indexOf('function loadBrief()'));
+  const body = lb.slice(0, lb.indexOf('\nfunction '));
+  t.ok(/\brecoverBrief\(\);/.test(body), 'called from loadBrief, before anything is drawn');
+
+  /* The same asymmetry the other way about: the edition had no age rule at all, so
+     there was a day and a half in which a briefing could be heard and not seen. */
+  /* Compared rather than both matched against 36, which would fail on a deliberate
+     change to both and pass on nothing useful. What matters is that they agree. */
+  const edH = (ed.match(/const val SHOW_HOURS = (\d+)/) || [])[1];
+  const pgH = (page.match(/var BRIEF_SHOW_H = (\d+);/) || [])[1];
+  t.ok(!!edH && !!pgH, 'both halves say how old a briefing may be');
+  t.is(edH, pgH, 'and they say the same number of hours (' + edH + ' aloud, ' + pgH + ' on screen)');
+  t.ok(/Edition\.stale\(stored\.at, System\.currentTimeMillis\(\)\)/.test(w),
+    'and the running order applies it rather than reading whatever is there');
+
+  /* The card that offers it. Kept off a television twice over, in the stylesheet and in
+     the guard, because either one alone is enough and neither is where you would look
+     for the other - the layout suite has to break both before the card appears. */
+  t.ok(/#edCard\{display:none\}/.test(page), 'the play card is off by default');
+  t.ok(/html\.touch #edCard\{display:flex/.test(page), 'and on for touch only');
+  const card = page.slice(page.indexOf('function renderEdCard()'), page.indexOf('function edCardTap()'));
+  t.ok(/TOUCH && TABS\[S\.tab\] && TABS\[S\.tab\]\.id === 'today'/.test(card),
+    'drawn only on Today, and only where there is a finger');
+  t.ok(/<button type="button" id="edCard" hidden>/.test(page),
+    'as a button, so it is tappable and reaches a screen reader as what it is');
+  t.ok(page.indexOf('id="edCard"') < page.indexOf('<ol id="list"'),
+    'inside the scroller and above the rows, so it scrolls away rather than taking a strip for ever');
+  t.ok(/Native\.editionList\(\)/.test(page) && /Native\.playEdition\(\)/.test(page),
+    'and both what it says and what it does come from the same assembly as the voice');
+  t.ok(/fun editionList\(\): String/.test(read(KT + 'MainActivity.kt'))
+    && /fun playEdition\(\): Boolean/.test(read(KT + 'MainActivity.kt')),
+    'which Kotlin answers');
+  t.ok(/fun seconds\(parts: List<Part>\): Int/.test(ed),
+    'how long it runs is worked out where it can be tested, not in the page');
+
+  /* Not said twice, and not started over. Both are the same bookkeeping - what has
+     been read today - and it lives in preferences because the case it exists for is the
+     service being killed with the phone in a pocket half way through four minutes. */
+  const st = w.slice(w.indexOf('object EditionStore'), w.indexOf('class BriefingWidget'));
+  ['fun heard(', 'fun begin(', 'fun markHeard(', 'fun toPlay(', 'fun nextUp(', 'fun midway(']
+    .forEach((f) => t.ok(st.indexOf(f) >= 0, 'the store offers ' + f.replace('fun ', '')));
+  t.ok(/if \(o\.optString\("day", ""\) != today\(\)\) return none/.test(st),
+    'the day\'s record is the day\'s, and goes when the day does');
+  t.ok(/if \(was == now\) list\(o\.optJSONArray\("done"\)\) else emptyList\(\)/.test(st),
+    'but what is done belongs to one edition: the afternoon brief is not the morning read twice');
+  t.ok(/while \(titles\.size > KEEP_TITLES\) titles\.removeAt\(0\)/.test(st),
+    'and the list of them is capped rather than kept for ever');
+  t.ok(/heard\(ctx\)\.titles/.test(st), 'what was read today is handed to the running order');
+  t.ok(/begin\(ctx, all\)/.test(st),
+    'all the parts are stashed, not only those left, or a finished part cannot be looked up');
+
   const act = r.slice(r.indexOf('ACTION_EDITION ->'), r.indexOf('ACTION_PAUSE ->'));
-  t.ok(/EditionStore\.parts\(applicationContext\)/.test(act), 'the service assembles it on the spot');
+  t.ok(/EditionStore\.toPlay\(applicationContext\)/.test(act),
+    'playing picks up what is left rather than starting over');
+  const after = r.slice(r.indexOf('private fun read()'), r.indexOf('private fun failed('));
+  /* Both present and in that order. indexOf alone is a trap here: a markHeard that has
+     gone missing scores -1, which is less than anything, so the ordering would pass by
+     the call not being there at all. */
+  const mh = after.indexOf('EditionStore.markHeard'), dn = after.indexOf('Reading.done()');
+  t.ok(mh >= 0 && dn >= 0 && mh < dn,
+    'and a finished part is recorded while it is still the one at the front');
+  t.ok(/just\.id\.startsWith\("edition:"\)/.test(after), 'only for the edition, not for an article');
+
+  /* Drawing a card must not change anything. nextUp answers the same question without
+     stashing a running order, which toPlay does. */
+  ['MainActivity.kt', 'Briefings.kt'].forEach((f) => {
+    const b = read(KT + f);
+    const fn = b.slice(b.indexOf('fun editionList(): String'), b.indexOf('fun playEdition()'));
+    t.ok(/EditionStore\.nextUp\(/.test(fn), f + ' draws the card from what is left');
+    t.not(/toPlay\(/.test(fn), f + ' does not stash a running order merely to draw one');
+  });
+  t.ok(/ed\.midway \? 'Carry on with this edition'/.test(page),
+    'and the card offers to carry on rather than to play, when that is what it would do');
   t.ok(/if \(!Reading\.has\(id\)\) Reading\.add/.test(act),
     'and pressing play twice does not queue the same bulletin behind itself');
+});
+
+/*
+ * What the briefing is asked for. It was reporting what had happened and stopping there,
+ * in the same shape four times a day, out of fifty-word teasers - and no wording in a
+ * prompt gets consequence out of a teaser, so the depth of what goes in matters as much
+ * as what is asked of it.
+ */
+suite('The briefing is asked for consequence, not just for what happened', (t) => {
+  const page = read(PAGE);
+  const rules = page.slice(page.indexOf('var BRIEF_SYSTEM = ['), page.indexOf("].join('\\n');"));
+
+  /* A lead told properly, then a roundup - which is also what reads aloud best, bullets
+     out loud being a list of fragments with nothing joining them. */
+  t.ok(/SHAPE\. The first paragraph is the lead/.test(rules), 'the shape is stated, not implied');
+  t.ok(/four to six sentences/.test(rules), 'and the lead is given room to say something');
+  t.ok(/Choose the lead on consequence, not on category/.test(rules),
+    'chosen on what matters rather than by a fixed running order of topics');
+  t.ok(/nearer Hereford leads/.test(rules), 'with distance from here as the tie-break');
+  t.ok(/roundup is two to four short paragraphs/.test(rules), 'and the rest kept brisk');
+
+  t.ok(/WHY IT MATTERS\./.test(rules), 'significance is a rule of its own');
+  t.ok(/earns its place by what follows from the story, not by the story/.test(rules),
+    'and a story with nothing following from it is left out');
+  t.ok(/"This could have wider implications" says nothing/.test(rules),
+    'the empty version of significance is named and forbidden');
+  t.ok(/Do not invent consequence/.test(rules),
+    'and inventing it is worse than saying what is not yet known');
+  t.ok(/no bullet points, no markdown, no headings/.test(rules),
+    'said once at the top, because it is read aloud as well as read');
+
+  /* The four editions have to differ, which was the third complaint. Each angle says
+     what its lead is for: told only to mention what is new, a writer makes the same
+     shape four times with the nouns changed. */
+  const slots = page.slice(page.indexOf('var BRIEF_SLOTS = ['), page.indexOf('function slotMins'));
+  t.is((slots.match(/angle:/g) || []).length, 4, 'all four editions have an angle');
+  /* Each one named rather than counted, because what makes them differ is which story
+     leads - and these are the four answers. */
+  const leads = ['Lead with the most consequential', 'Lead with what has actually moved since the morning',
+    'Lead with the story the day turned on', 'Lead with what the day came to'];
+  const where = ['the morning leads on the night', 'the afternoon on what has moved',
+    'the evening on the day', 'and the night settles it'];
+  leads.forEach((l, i) => t.ok(slots.indexOf(l) >= 0, where[i]));
+  t.is(new Set(leads.map((l) => slots.indexOf(l))).size, 4, 'and no two of them are the same words');
+
+  /* The ceiling on how specific the writing can possibly be. */
+  t.ok(/var BRIEF_CUT = 340;/.test(page) && /var BRIEF_CUT_TOP = 1200;/.test(page),
+    'the top of each section is given room, the rest a line');
+  t.ok(/slice\(0, 1200\)/.test(page),
+    'and that long cut is the same length the parsers keep, so it trims nothing twice');
+  const inp = page.slice(page.indexOf('function briefInput('), page.indexOf('/* A story that has come in since'));
+  t.ok(/i < BRIEF_TOP_EACH \? BRIEF_CUT_TOP : BRIEF_CUT/.test(inp),
+    'spent on the items a lead is actually chosen from');
+
+  /* Now that the cut is large, this matters more than it did: the writer must not be
+     handed its own earlier editions as stories. They are in ALREADY SAID, in full,
+     which is where they belong. */
+  t.ok(/var t = buildToday\(all, true\);/.test(page),
+    'the tray it writes from leaves out the briefings already written');
+  t.ok(/ALREADY SAID EARLIER TODAY/.test(page), 'which it is given separately, and told not to repeat');
+  t.ok(/keep the lead and cut the roundup to one paragraph or none/.test(rules),
+    'and on a day with nothing new it writes less rather than padding');
 });
 
 /*
