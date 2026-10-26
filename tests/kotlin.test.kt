@@ -385,6 +385,22 @@ fun main() {
         }
     }
 
+    suite("Nothing is offered aloud that cannot be read")
+    run {
+        val hour = 3600L * 1000L
+        val now = 1_761_000_000_000L
+        checks++
+        if (Edition.SHOW_HOURS != 36) failures.add("$area\n      the window should match the screen's 36 hours")
+        yes(Edition.stale(0L, now))                               // never written
+        yes(Edition.stale(now - 37 * hour, now))                  // past the window
+        no(Edition.stale(now - 35 * hour, now))                   // inside it
+        no(Edition.stale(now, now))                               // written this instant
+        // Exactly on the boundary is still shown, as the screen shows it.
+        no(Edition.stale(now - 36 * hour, now))
+        // A clock that has gone backwards is not a reason to withhold anything.
+        no(Edition.stale(now + hour, now))
+    }
+
     suite("How long it runs")
     run {
         checks++

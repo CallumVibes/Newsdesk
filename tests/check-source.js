@@ -1063,6 +1063,38 @@ suite('An edition can be read out with the app never opened', (t) => {
     'and only offers it when there is something to play');
   t.ok(/"Play the edition"/.test(notify), 'in those words');
 
+  /* The fault that was reported: it could be listened to before it could be read.
+     Two stores hold a briefing, and only one of them was repairable. */
+  t.ok(/fun raw\(ctx: Context\): String/.test(w), 'what is stored can be handed back as it was');
+  ['MainActivity.kt', 'Briefings.kt'].forEach((f) => {
+    t.ok(/fun briefRead\(\): String = BriefStore\.raw\(/.test(read(KT + f)),
+      f + ' lets the page read the durable copy back');
+  });
+  t.ok(/function recoverBrief\(\)/.test(page), 'and the page takes back one it never kept');
+  const rec = page.slice(page.indexOf('function recoverBrief()'), page.indexOf('function rememberBrief(b)'));
+  t.ok(/Native\.briefRead\(\)/.test(rec), 'from the store that is written with commit');
+  t.ok(/if \(\(mine\[i\]\.at \|\| 0\) === b\.at\) return;/.test(rec),
+    'only where it has nothing with that timestamp already');
+  t.ok(/slotKey: briefSlot\(b\.at\)\.key/.test(rec),
+    'and keyed the way the writer keys it, so a rewrite merges rather than doubling up');
+  /* Called from loadBrief, which is where storage is read and therefore before
+     anything is drawn. Sliced to that function's own body: a call anywhere in the file
+     would satisfy a looser test and mean nothing. */
+  const lb = page.slice(page.indexOf('function loadBrief()'));
+  const body = lb.slice(0, lb.indexOf('\nfunction '));
+  t.ok(/\brecoverBrief\(\);/.test(body), 'called from loadBrief, before anything is drawn');
+
+  /* The same asymmetry the other way about: the edition had no age rule at all, so
+     there was a day and a half in which a briefing could be heard and not seen. */
+  /* Compared rather than both matched against 36, which would fail on a deliberate
+     change to both and pass on nothing useful. What matters is that they agree. */
+  const edH = (ed.match(/const val SHOW_HOURS = (\d+)/) || [])[1];
+  const pgH = (page.match(/var BRIEF_SHOW_H = (\d+);/) || [])[1];
+  t.ok(!!edH && !!pgH, 'both halves say how old a briefing may be');
+  t.is(edH, pgH, 'and they say the same number of hours (' + edH + ' aloud, ' + pgH + ' on screen)');
+  t.ok(/Edition\.stale\(stored\.at, System\.currentTimeMillis\(\)\)/.test(w),
+    'and the running order applies it rather than reading whatever is there');
+
   /* The card that offers it. Kept off a television twice over, in the stylesheet and in
      the guard, because either one alone is enough and neither is where you would look
      for the other - the layout suite has to break both before the card appears. */
