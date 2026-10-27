@@ -932,6 +932,67 @@ suite('One story or two is decided on what is rare, not on what is shared', (t) 
 });
 
 /*
+ * Where everything kept is kept. Kotlin's and not the page's, which is the lesson of the
+ * briefing that could be heard and not read: the page's storage is flushed when the
+ * WebView sees fit and a background run is torn down a tick after it reports done, and a
+ * WebView's quota is a few megabytes, which a year of headlines is not.
+ */
+suite('Everything seen is kept, and kept where it survives', (t) => {
+  const a = read(KT + 'Archive.kt');
+  const page = read(PAGE);
+  /* Comments out of the way for the rules that forbid something: the comment explaining
+     why upsert is not used says ON CONFLICT, and a regex looking for it finds the
+     explanation. Same trap as before, so the same answer. */
+  const code = a.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+
+  t.ok(/SQLiteOpenHelper/.test(a), 'a real indexed store, which Android ships');
+  ['CREATE TABLE story', 'CREATE TABLE word', 'CREATE TABLE thread'].forEach((c) => {
+    t.ok(a.indexOf(c) >= 0, c.toLowerCase().replace('create table ', 'there is a table for the ') + 's');
+  });
+  t.ok(/CREATE INDEX story_thread/.test(a), 'and the thread a story is in is indexed');
+  t.not(/DROP TABLE/.test(code), 'nothing drops it: this is the counts the threading leans on, not a cache');
+
+  /* The compatibility trap, guarded because it would have failed on the television and
+     nowhere else. ON CONFLICT ... DO UPDATE wants SQLite 3.24, so Android 11, and
+     minSdk here is 22 - a Fire TV Stick on Fire OS 7 is Android 9. */
+  t.not(/ON CONFLICT/.test(code), 'no upsert, which the oldest device this runs on cannot do');
+  t.ok(/INSERT OR IGNORE INTO word/.test(a) && /UPDATE word SET n = n \+ 1/.test(a),
+    'the word counts go up in two statements inside one transaction instead');
+
+  /* Rarity decides, so a story must not be allowed to make its own words look commoner
+     before it is placed. Both present and in that order - indexOf alone would pass on a
+     call that had gone missing, which is how this went wrong yesterday. */
+  const one = a.slice(a.indexOf('private fun one('), a.indexOf('private class Live'));
+  const place = one.indexOf('Threads.place('), bump = one.indexOf('UPDATE word SET n');
+  t.ok(place >= 0 && bump >= 0 && place < bump,
+    'a story is placed in a thread before its own words are counted');
+
+  t.ok(/private const val THREAD_WORDS = 30/.test(a), 'a thread is identified by a bounded set of words');
+  t.ok(/if \(kept\.size >= THREAD_WORDS\) break/.test(a),
+    'and the cap is applied as it grows, or a thread running for weeks matches half the county');
+  t.ok(/private const val THREAD_DAYS = 14/.test(a), 'a thread lying still for a fortnight is over');
+  t.ok(/if \(n < 2\) return "\{\}"/.test(a), 'and a thread of one is not a thread, so it is not drawn');
+
+  /* Both bridges, as ever: the page is one file and a method missing from the background
+     one is a crash on whichever path reaches it. */
+  ['MainActivity.kt', 'Briefings.kt'].forEach((f) => {
+    const b = read(KT + f);
+    ['archiveAdd', 'archiveThread', 'archiveStats'].forEach((m) => {
+      t.ok(new RegExp('fun ' + m + '\\(').test(b), f + ' answers Native.' + m);
+    });
+  });
+
+  /* News only. A diary entry is something coming up, a recipe does not go stale, and a
+     row from 1743 is not developing: none of the three has a thread to belong to. */
+  t.ok(/function archivePush\(\)/.test(page), 'the page hands over what a refresh found');
+  const push = page.slice(page.indexOf('function archivePush()'), page.indexOf('function widgetFeed()'));
+  t.ok(/s\.diary \|\| s\.hist \|\| s\.kitchen \|\| s\.library/.test(push),
+    'and leaves out the four kinds of source that have no thread to be part of');
+  const wp = page.slice(page.indexOf('function widgetPush()'), page.indexOf('function archivePush()'));
+  t.ok(/archivePush\(\);/.test(wp), 'called when a refresh settles, with the widgets');
+});
+
+/*
  * News prose is written for the eye. "£3.011tn", "A303", "05:04" and "A&E" all read
  * perfectly on a screen and all come out of a speech engine as gibberish or silence. The
  * rules that fix that are the kind of code that is wrong quietly - one daft sentence, out
