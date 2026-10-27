@@ -32,7 +32,7 @@ suite('Everything the build needs is there', (t) => {
     'app/src/main/assets/icon-192.png', 'app/src/main/assets/icon-512.png',
     KT + 'MainActivity.kt', KT + 'Net.kt', KT + 'Briefings.kt',
     KT + 'Widget.kt', KT + 'WidgetFeed.kt', KT + 'WidgetHistory.kt', KT + 'Reading.kt',
-    KT + 'Spoken.kt',
+    KT + 'Spoken.kt', KT + 'Threads.kt',
     'app/src/main/res/drawable/icon.png', 'app/src/main/res/drawable/banner.png',
     'app/src/main/res/drawable/notify.png', 'app/src/main/res/drawable/widget_bg.xml',
     'app/src/main/res/drawable/widget_refresh.png',
@@ -151,8 +151,14 @@ const KOTLIN_FREE = new Set([
 ]);
 
 suite('Every Kotlin name is one the compiler will find', (t) => {
-  const files = ['MainActivity.kt', 'Net.kt', 'Briefings.kt', 'Widget.kt',
-    'WidgetFeed.kt', 'WidgetHistory.kt', 'Reading.kt', 'Spoken.kt', 'Edition.kt'];
+  /* Read off the directory rather than written out. A list kept by hand is a list a
+     new file is quietly missing from, and this check passing while saying nothing about
+     the newest file in the package is worse than it failing. */
+  const files = fs.readdirSync(path.join(dir, KT)).filter((f) => f.endsWith('.kt')).sort();
+  t.ok(files.length >= 9, 'every Kotlin file in the package is checked, found ' + files.length);
+  ['MainActivity.kt', 'Spoken.kt', 'Threads.kt'].forEach((f) => {
+    t.ok(files.indexOf(f) >= 0, 'including ' + f);
+  });
   // Anything declared anywhere in the package is reachable from anywhere else in it.
   const inPackage = new Set(['R']);
   const bodies = {};
@@ -890,6 +896,39 @@ suite('A story read out loud outlives the screen', (t) => {
   t.not(/S\.speaking/.test(page), 'and there is no second flag to disagree with the queue');
   t.ok(/function readingNow\(it\)/.test(page) && /function readingNext\(it\)/.test(page),
     'the button asks about the story in front of you, not about speech in general');
+});
+
+/*
+ * Whether two stories are the same story still going on - which nothing in this app has
+ * ever known. The trap is that the obvious method fails in a way that looks like
+ * success: half the stories here say Hereford, so counting shared words welds the whole
+ * local feed into one thread and presents it as a feature.
+ */
+suite('One story or two is decided on what is rare, not on what is shared', (t) => {
+  const th = read(KT + 'Threads.kt');
+
+  t.ok(/^import /m.test(th) === false,
+    'the rules import nothing, so they can be run against written-out answers');
+  t.ok(/fun weight\(seen: Int\): Int/.test(th), 'a word is worth something by how rare it has been');
+  t.ok(/else -> 0 /.test(th),
+    'and a word seen past the top band is worth nothing at all, which is the whole design');
+  t.ok(/seen <= 2 -> 4/.test(th), 'while one all but unique is worth the most');
+
+  /* The two bars, and the relationship between them that makes a single coincidence
+     impossible. A test in the off-device suite asserts that relationship too. */
+  const shared = (th.match(/const val SHARED_MIN = (\d+)/) || [])[1];
+  const score = (th.match(/const val SCORE_MIN = (\d+)/) || [])[1];
+  t.ok(!!shared && !!score, 'both bars are named rather than buried in the comparison');
+  t.ok(Number(score) > 4, 'and one word, worth four at the most, cannot clear the score on its own ('
+    + score + ')');
+
+  t.ok(/fun words\(title: String\): List<String>/.test(th), 'a headline is reduced to what is worth comparing');
+  t.ok(/if \(w\.length < 3\) continue/.test(th),
+    'three letters and up, which keeps a road number and drops the wreckage');
+  t.ok(/fun joins\(/.test(th) && /fun place\(/.test(th),
+    'and it can answer both whether, and which of several');
+  t.ok(/if \(worth == 0\) continue/.test(th),
+    'a shared word worth nothing is not counted as shared');
 });
 
 /*

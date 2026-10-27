@@ -16,6 +16,7 @@ ad7538e360655da6fbd07f6e6e07bb1fc963c2b1f223e9a1a86c36548692c7c0  app/src/main/j
 3797290fd4ce2cf7d91fc5bba250cd55e9cc273cd6b921f6c0e497efeddc9675  app/src/main/java/com/callum/newsdesk/Net.kt
 2488d5632b2cb1eb516691148bd392ca29f16107831b80f350ed9f7e59a82c37  app/src/main/java/com/callum/newsdesk/Reading.kt
 ba88017ecaf1a6d5121f3783c93563948081a97472bb178ae97fc432241dc0b9  app/src/main/java/com/callum/newsdesk/Spoken.kt
+d7fe7b6bf17f2c84f488c8218d1f16879e04a4ff6acc2b93ee21c6135ecb191d  app/src/main/java/com/callum/newsdesk/Threads.kt
 dc5f35b145e189025b34c96d5d343e139725f09d7f7761fdb327249dbd089ba4  app/src/main/java/com/callum/newsdesk/Widget.kt
 863715f650f4669401b0863a3e3a97907128432adde45d36060cf56862ce43b6  app/src/main/java/com/callum/newsdesk/WidgetFeed.kt
 18f5311d41e06d0126d0961d585ac821ab759f176f6a399396242f75c38ae15d  app/src/main/java/com/callum/newsdesk/WidgetHistory.kt

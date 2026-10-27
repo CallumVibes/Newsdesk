@@ -47,7 +47,7 @@ fi
 # Named out loud, so a file quietly dropping out of the set is visible rather than
 # silently untested - which would look exactly like everything passing.
 echo "Checking:$(echo "$pure" | tr ' ' '\n' | sed 's|.*/||' | tr '\n' ' ')"
-for want in Spoken.kt Edition.kt; do
+for want in Spoken.kt Edition.kt Threads.kt; do
   case "$pure" in
     *"/$want"*) ;;
     *) echo "$want has grown an import, so it can no longer be checked off a device." >&2
