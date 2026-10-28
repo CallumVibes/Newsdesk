@@ -16,6 +16,7 @@
 
 import com.callum.newsdesk.Edition
 import com.callum.newsdesk.Spoken
+import com.callum.newsdesk.Threads
 import kotlin.system.exitProcess
 
 private var checks = 0
@@ -76,6 +77,34 @@ private fun lacks(parts: List<Edition.Part>, key: String, want: String) {
 
 private fun yes(b: Boolean) { checks++; if (!b) failures.add("$area\n      wanted it treated as already said") }
 private fun no(b: Boolean) { checks++; if (b) failures.add("$area\n      wanted it kept, not treated as already said") }
+
+
+/* ---------- One story or two ---------- */
+
+/* A plausible archive. These are counts of how many stories have ever contained each
+   word, which is the only thing that lets "hereford" be known to be worthless and
+   "austen" to be decisive. A word absent from here has never been seen at all, which
+   makes it the best evidence there is. */
+private val SEEN = mapOf(
+    "hereford" to 400, "council" to 300, "police" to 250, "road" to 120,
+    "leominster" to 90, "fire" to 70, "homes" to 60, "bill" to 55,
+    "power" to 40, "arrests" to 30, "storm" to 25, "closure" to 20,
+    "extended" to 18, "western" to 15, "reopens" to 12, "water" to 45,
+    "quake" to 5, "dinmore" to 4, "a303" to 3, "a49" to 8,
+    "austen" to 2, "tibet" to 2
+)
+
+private fun joins(title: String, thread: String, want: Boolean, why: String) {
+    checks++
+    val got = Threads.joins(Threads.words(title), Threads.words(thread), SEEN)
+    if (got != want) {
+        val (total, shared) = Threads.score(Threads.words(title), Threads.words(thread), SEEN)
+        failures.add("$area\n      " + why +
+            "\n      " + show(title) + "\n      against " + show(thread) +
+            "\n      wanted " + (if (want) "one thread" else "two") +
+            ", scored $total on $shared words")
+    }
+}
 
 fun main() {
 
@@ -436,6 +465,129 @@ fun main() {
              "Today, 10 am. Farmers' market, High Town.")
         says("Hereford Times. A303 reopens after three days shut.",
              "Hereford Times. A three oh three reopens after three days shut.")
+    }
+
+    /* ---------- Threads ---------- */
+
+    suite("A word is worth what it is rare")
+    run {
+        val bands = listOf(0 to 4, 2 to 4, 3 to 3, 10 to 3, 11 to 2, 50 to 2,
+                           51 to 1, 200 to 1, 201 to 0, 5000 to 0)
+        bands.forEach { (seen, want) ->
+            checks++
+            val got = Threads.weight(seen)
+            if (got != want) failures.add("$area\n      a word in $seen stories is worth $got, wanted $want")
+        }
+        // Never seen before is the strongest evidence there is, not the weakest.
+        checks++
+        if (Threads.weight(0) != 4) failures.add("$area\n      a word never seen should carry the most")
+    }
+
+    suite("The words of a headline worth comparing")
+    run {
+        checks++
+        val w = Threads.words("The A49 at Dinmore reopens after 3 days shut")
+        val want = listOf("a49", "dinmore", "reopens", "days", "shut")
+        if (w != want) failures.add("$area\n      wanted $want\n      got    $w")
+        // Road numbers kept: they are most of the local news and the most distinctive
+        // thing in it. Two-letter wreckage from splitting on punctuation dropped.
+        checks++
+        if (!Threads.words("Crash on the B4361").contains("b4361")) {
+            failures.add("$area\n      a road number is not optional")
+        }
+        checks++
+        if (Threads.words("Power cut, power restored") != listOf("power", "cut", "restored")) {
+            failures.add("$area\n      a word twice over is still one word")
+        }
+        checks++
+        if (Threads.words("").isNotEmpty()) failures.add("$area\n      nothing has no words in it")
+    }
+
+    suite("Two stories are one story")
+    run {
+        joins("Storm Austen cuts power to 40,000 homes",
+            "Storm Austen hits: Western Power says 40,000 homes are off", true,
+            "the same storm, two papers")
+        joins("A49 closure at Dinmore extended into next week",
+            "A49 shut at Dinmore after lorry crash", true,
+            "the same closure, four days on")
+        // A word never seen before is decisive, which is the point of counting them.
+        joins("Whitney-on-Wye flood defences fail",
+            "Flood warning for Whitney-on-Wye as the Wye rises", true,
+            "three words none of which the archive has ever seen")
+    }
+
+    suite("Two stories are not one story")
+    run {
+        /* The case this whole design exists for, written so that it actually depends on
+           it. Six words in common - hereford, council, police, road, leominster, fire -
+           and two entirely different stories. Were common words worth even one point
+           each, six of them would clear the threshold exactly and these two would be
+           welded together, which is how overlap alone turns the whole local feed into
+           one thread while looking like the feature working.
+           
+           The first version of this case shared two common words, scored two, and was
+           saved by the threshold rather than by the weighting - so it passed with the
+           zero band removed and proved nothing about the thing it was named after. */
+        joins("Hereford council and police warn of road closures near Leominster fire station",
+            "Council and police in Hereford close a road at Leominster after fire", false,
+            "six words of furniture in common, and nothing in common")
+
+        /* One rare word in common is a coincidence, not a thread - and this is the
+           coincidence that would actually happen. */
+        joins("Austen Williams signs for Hereford FC",
+            "Storm Austen hits: Western Power says 40,000 homes are off", false,
+            "a man called Austen and a storm called Austen")
+
+        /* And the invariant that case really rests on, asserted rather than assumed.
+           SHARED_MIN is two, but with the best a word can be worth set at four and the
+           threshold at six, one word could never clear it however rare - so SHARED_MIN
+           is currently implied and the one-word case above would pass without it. This
+           is the check that fails the moment that stops being true, which is the moment
+           SHARED_MIN starts doing work. */
+        checks++
+        if (Threads.weight(0) >= Threads.SCORE_MIN) {
+            failures.add("$area\n      one word, however rare, can now reach the threshold on its own" +
+                " (" + Threads.weight(0) + " against " + Threads.SCORE_MIN + ")" +
+                "\n      SHARED_MIN is what stops that, and the case above now needs it")
+        }
+
+        // Weak words only. A deliberate miss: a thread one instalment short is a fault
+        // you would have to know the story well to see, while a thread that swallows an
+        // unrelated story says out loud that two things are connected when they are not.
+        joins("Road closure near Leominster fire station",
+            "Leominster fire: road shut as crews attend", false,
+            "three middling words is not evidence enough")
+
+        joins("Power cut", "Storm Austen hits: Western Power says homes are off", false,
+            "too little said to place it anywhere")
+        joins("", "Storm Austen hits", false, "and nothing is not a thread")
+    }
+
+    suite("Which thread it belongs to")
+    run {
+        val storm = Threads.words("Storm Austen hits: Western Power says 40,000 homes are off")
+        val road = Threads.words("A49 shut at Dinmore after lorry crash")
+        val quake = Threads.words("Tibet quake: rescue continues")
+        val all = listOf(storm, road, quake)
+
+        checks++
+        val a = Threads.place(Threads.words("Storm Austen: power back for most homes"), all, SEEN)
+        if (a != 0) failures.add("$area\n      the storm story went to thread $a, wanted 0")
+        checks++
+        val b = Threads.place(Threads.words("A49 at Dinmore reopens"), all, SEEN)
+        if (b != 1) failures.add("$area\n      the road story went to thread $b, wanted 1")
+        checks++
+        val c = Threads.place(Threads.words("Tibet quake death toll reaches 16"), all, SEEN)
+        if (c != 2) failures.add("$area\n      the quake story went to thread $c, wanted 2")
+        // A story of its own starts its own.
+        checks++
+        val d = Threads.place(Threads.words("Oat milk duty cut survives the budget"), all, SEEN)
+        if (d != -1) failures.add("$area\n      an unrelated story joined thread $d, wanted none")
+        checks++
+        if (Threads.place(Threads.words("Storm Austen: power back"), emptyList(), SEEN) != -1) {
+            failures.add("$area\n      with no threads to join, nothing is joined")
+        }
     }
 
     val plural = if (checks == 1) "check" else "checks"

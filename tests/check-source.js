@@ -32,7 +32,7 @@ suite('Everything the build needs is there', (t) => {
     'app/src/main/assets/icon-192.png', 'app/src/main/assets/icon-512.png',
     KT + 'MainActivity.kt', KT + 'Net.kt', KT + 'Briefings.kt',
     KT + 'Widget.kt', KT + 'WidgetFeed.kt', KT + 'WidgetHistory.kt', KT + 'Reading.kt',
-    KT + 'Spoken.kt',
+    KT + 'Spoken.kt', KT + 'Threads.kt',
     'app/src/main/res/drawable/icon.png', 'app/src/main/res/drawable/banner.png',
     'app/src/main/res/drawable/notify.png', 'app/src/main/res/drawable/widget_bg.xml',
     'app/src/main/res/drawable/widget_refresh.png',
@@ -151,8 +151,14 @@ const KOTLIN_FREE = new Set([
 ]);
 
 suite('Every Kotlin name is one the compiler will find', (t) => {
-  const files = ['MainActivity.kt', 'Net.kt', 'Briefings.kt', 'Widget.kt',
-    'WidgetFeed.kt', 'WidgetHistory.kt', 'Reading.kt', 'Spoken.kt', 'Edition.kt'];
+  /* Read off the directory rather than written out. A list kept by hand is a list a
+     new file is quietly missing from, and this check passing while saying nothing about
+     the newest file in the package is worse than it failing. */
+  const files = fs.readdirSync(path.join(dir, KT)).filter((f) => f.endsWith('.kt')).sort();
+  t.ok(files.length >= 9, 'every Kotlin file in the package is checked, found ' + files.length);
+  ['MainActivity.kt', 'Spoken.kt', 'Threads.kt'].forEach((f) => {
+    t.ok(files.indexOf(f) >= 0, 'including ' + f);
+  });
   // Anything declared anywhere in the package is reachable from anywhere else in it.
   const inPackage = new Set(['R']);
   const bodies = {};
@@ -890,6 +896,100 @@ suite('A story read out loud outlives the screen', (t) => {
   t.not(/S\.speaking/.test(page), 'and there is no second flag to disagree with the queue');
   t.ok(/function readingNow\(it\)/.test(page) && /function readingNext\(it\)/.test(page),
     'the button asks about the story in front of you, not about speech in general');
+});
+
+/*
+ * Whether two stories are the same story still going on - which nothing in this app has
+ * ever known. The trap is that the obvious method fails in a way that looks like
+ * success: half the stories here say Hereford, so counting shared words welds the whole
+ * local feed into one thread and presents it as a feature.
+ */
+suite('One story or two is decided on what is rare, not on what is shared', (t) => {
+  const th = read(KT + 'Threads.kt');
+
+  t.ok(/^import /m.test(th) === false,
+    'the rules import nothing, so they can be run against written-out answers');
+  t.ok(/fun weight\(seen: Int\): Int/.test(th), 'a word is worth something by how rare it has been');
+  t.ok(/else -> 0 /.test(th),
+    'and a word seen past the top band is worth nothing at all, which is the whole design');
+  t.ok(/seen <= 2 -> 4/.test(th), 'while one all but unique is worth the most');
+
+  /* The two bars, and the relationship between them that makes a single coincidence
+     impossible. A test in the off-device suite asserts that relationship too. */
+  const shared = (th.match(/const val SHARED_MIN = (\d+)/) || [])[1];
+  const score = (th.match(/const val SCORE_MIN = (\d+)/) || [])[1];
+  t.ok(!!shared && !!score, 'both bars are named rather than buried in the comparison');
+  t.ok(Number(score) > 4, 'and one word, worth four at the most, cannot clear the score on its own ('
+    + score + ')');
+
+  t.ok(/fun words\(title: String\): List<String>/.test(th), 'a headline is reduced to what is worth comparing');
+  t.ok(/if \(w\.length < 3\) continue/.test(th),
+    'three letters and up, which keeps a road number and drops the wreckage');
+  t.ok(/fun joins\(/.test(th) && /fun place\(/.test(th),
+    'and it can answer both whether, and which of several');
+  t.ok(/if \(worth == 0\) continue/.test(th),
+    'a shared word worth nothing is not counted as shared');
+});
+
+/*
+ * Where everything kept is kept. Kotlin's and not the page's, which is the lesson of the
+ * briefing that could be heard and not read: the page's storage is flushed when the
+ * WebView sees fit and a background run is torn down a tick after it reports done, and a
+ * WebView's quota is a few megabytes, which a year of headlines is not.
+ */
+suite('Everything seen is kept, and kept where it survives', (t) => {
+  const a = read(KT + 'Archive.kt');
+  const page = read(PAGE);
+  /* Comments out of the way for the rules that forbid something: the comment explaining
+     why upsert is not used says ON CONFLICT, and a regex looking for it finds the
+     explanation. Same trap as before, so the same answer. */
+  const code = a.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+
+  t.ok(/SQLiteOpenHelper/.test(a), 'a real indexed store, which Android ships');
+  ['CREATE TABLE story', 'CREATE TABLE word', 'CREATE TABLE thread'].forEach((c) => {
+    t.ok(a.indexOf(c) >= 0, c.toLowerCase().replace('create table ', 'there is a table for the ') + 's');
+  });
+  t.ok(/CREATE INDEX story_thread/.test(a), 'and the thread a story is in is indexed');
+  t.not(/DROP TABLE/.test(code), 'nothing drops it: this is the counts the threading leans on, not a cache');
+
+  /* The compatibility trap, guarded because it would have failed on the television and
+     nowhere else. ON CONFLICT ... DO UPDATE wants SQLite 3.24, so Android 11, and
+     minSdk here is 22 - a Fire TV Stick on Fire OS 7 is Android 9. */
+  t.not(/ON CONFLICT/.test(code), 'no upsert, which the oldest device this runs on cannot do');
+  t.ok(/INSERT OR IGNORE INTO word/.test(a) && /UPDATE word SET n = n \+ 1/.test(a),
+    'the word counts go up in two statements inside one transaction instead');
+
+  /* Rarity decides, so a story must not be allowed to make its own words look commoner
+     before it is placed. Both present and in that order - indexOf alone would pass on a
+     call that had gone missing, which is how this went wrong yesterday. */
+  const one = a.slice(a.indexOf('private fun one('), a.indexOf('private class Live'));
+  const place = one.indexOf('Threads.place('), bump = one.indexOf('UPDATE word SET n');
+  t.ok(place >= 0 && bump >= 0 && place < bump,
+    'a story is placed in a thread before its own words are counted');
+
+  t.ok(/private const val THREAD_WORDS = 30/.test(a), 'a thread is identified by a bounded set of words');
+  t.ok(/if \(kept\.size >= THREAD_WORDS\) break/.test(a),
+    'and the cap is applied as it grows, or a thread running for weeks matches half the county');
+  t.ok(/private const val THREAD_DAYS = 14/.test(a), 'a thread lying still for a fortnight is over');
+  t.ok(/if \(n < 2\) return "\{\}"/.test(a), 'and a thread of one is not a thread, so it is not drawn');
+
+  /* Both bridges, as ever: the page is one file and a method missing from the background
+     one is a crash on whichever path reaches it. */
+  ['MainActivity.kt', 'Briefings.kt'].forEach((f) => {
+    const b = read(KT + f);
+    ['archiveAdd', 'archiveThread', 'archiveStats'].forEach((m) => {
+      t.ok(new RegExp('fun ' + m + '\\(').test(b), f + ' answers Native.' + m);
+    });
+  });
+
+  /* News only. A diary entry is something coming up, a recipe does not go stale, and a
+     row from 1743 is not developing: none of the three has a thread to belong to. */
+  t.ok(/function archivePush\(\)/.test(page), 'the page hands over what a refresh found');
+  const push = page.slice(page.indexOf('function archivePush()'), page.indexOf('function widgetFeed()'));
+  t.ok(/s\.diary \|\| s\.hist \|\| s\.kitchen \|\| s\.library/.test(push),
+    'and leaves out the four kinds of source that have no thread to be part of');
+  const wp = page.slice(page.indexOf('function widgetPush()'), page.indexOf('function archivePush()'));
+  t.ok(/archivePush\(\);/.test(wp), 'called when a refresh settles, with the widgets');
 });
 
 /*
