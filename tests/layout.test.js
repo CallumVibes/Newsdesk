@@ -949,6 +949,45 @@ async function tabDrag(browser, box) {
 
     const r = { tv: document.documentElement.classList.contains('tv'),
       atRest: wrap.className, restPeek: peek.children.length };
+
+    /* Today carries the play card above its list, and the card is a sibling of the
+       list rather than part of it - so it has to be told to travel too. Left behind it
+       sat still while the page slid out underneath it and the tab arriving was drawn
+       over the top of it. Measured on Today for that reason. */
+    const wasNative = window.Native;
+    window.Native = Object.assign({}, wasNative, {
+      editionList: () => JSON.stringify({ secs: 200, midway: false,
+        parts: [{ key: 'brief', title: 'Morning briefing' }, { key: 'heads', title: 'The other headlines' }] })
+    });
+    S.tab = nd.TABS.findIndex((x) => x.id === 'today');
+    nd.edCacheBust();
+    nd.rebuild(null);
+    await wait(60);
+    const card = document.getElementById('edCard');
+    r.cardShown = !card.hidden && getComputedStyle(card).display !== 'none';
+    const txC = (el) => {
+      const m = getComputedStyle(el).transform;
+      if (!m || m === 'none') return 0;
+      const n = m.replace(/^matrix\(|\)$/g, '').split(',').map(Number);
+      return Math.round(n.length === 6 ? n[4] : 0);
+    };
+    const wC = wrap.clientWidth;
+    await across(-Math.round(wC * 0.4), 8, 6);
+    await wait(30);
+    r.cardMoved = txC(card);
+    r.listMovedThen = txC(list);
+    r.cardOverlapsPeek = (() => {
+      const a = card.getBoundingClientRect(), b = peek.getBoundingClientRect();
+      return a.right > b.left + 2 && b.right > a.left + 2 && a.bottom > b.top + 2 && b.bottom > a.top + 2;
+    })();
+    letGo(-Math.round(wC * 0.4));
+    await wait(420);
+    r.cardAfter = txC(card);
+    window.Native = wasNative;
+    nd.edCacheBust();
+    S.tab = nd.TABS.findIndex((x) => x.id === 'local');
+    nd.rebuild(null);
+    await wait(60);
     const was = S.tab, to = nd.tabAfter(1);
     r.from = was; r.to = to;
 
@@ -1279,6 +1318,15 @@ async function stripFade(browser) {
 
       // Down the page belongs to the scroller and the pull, not to this.
       t.not(/swipe/.test(d.downClass), who + ': a finger going down the page is not taken');
+
+      /* The play card sits above the list rather than inside it, so it has to be told
+         to travel with it. It used to stay put while the page slid out underneath, and
+         the tab arriving was drawn straight over it. */
+      t.is(d.cardShown, true, who + ': Today carries its play card');
+      t.ok(d.cardMoved < -20, who + ': which travels with the page (' + d.cardMoved + 'px)');
+      t.is(d.cardMoved, d.listMovedThen, who + ': exactly as far as the list, not nearly');
+      t.is(d.cardOverlapsPeek, false, who + ': so the tab arriving is never drawn over it');
+      t.is(d.cardAfter, 0, who + ': and it is square again once the drag is over');
     });
 
     /* A television has no finger, and the remote has always moved between tabs by

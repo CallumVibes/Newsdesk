@@ -936,6 +936,10 @@ suite('A tab is dragged into view rather than swapped in afterwards', (t) => {
   t.ok(/SWIPE_KEEP/.test(end) && /SWIPE_FLICK/.test(end),
     'and letting go goes by how far and how fast, so a flick counts and a nudge does not');
 
+  const take = page.slice(page.indexOf('function take(d) {'), page.indexOf("wrap.addEventListener('touchstart'"));
+  t.ok(take.indexOf('drawPeek(peek, to)') < take.indexOf('paintThumbs()'),
+    'and its pictures are painted once it is drawn, or it arrives as a page of grey boxes');
+
   t.ok(/if \(!dragged\) tabSlide\(dir\)/.test(page),
     'a tab arrived at by dragging does not then play the slide it has just finished');
   t.ok(/\.tab:after\{[^}]*opacity:var\(--bar,0\)\}/.test(page.replace(/\n\s+/g, ''))
