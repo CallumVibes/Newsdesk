@@ -938,7 +938,8 @@ suite('A tab is dragged into view rather than swapped in afterwards', (t) => {
 
   t.ok(/if \(!dragged\) tabSlide\(dir\)/.test(page),
     'a tab arrived at by dragging does not then play the slide it has just finished');
-  t.ok(/\.tab\[style\*="--bar"\]:after\{opacity:var\(--bar\)\}/.test(page),
+  t.ok(/\.tab:after\{[^}]*opacity:var\(--bar,0\)\}/.test(page.replace(/\n\s+/g, ''))
+    && /\.tab\.on:after\{opacity:var\(--bar,1\)\}/.test(page),
     'the mark under a tab can be driven part way, so it crosses rather than jumps');
 });
 
