@@ -3799,8 +3799,12 @@ jobs:
           # live on a host that is not always reachable, and a failure nobody can
           # read is a failure that has to be guessed at.
           if [ "$code" -ne 0 ]; then
-            grep -E '^  [0-9]+\.' rules-report.txt | head -30 | while IFS= read -r line; do
-              echo "::error title=Page suite::${line}"
+            # The numbered failures when it failed checks, and the tail when it threw
+            # instead - which looks the same from here and is not the same thing.
+            said=$(grep -E '^  [0-9]+\.' rules-report.txt | head -10)
+            [ -n "$said" ] || said=$(tail -12 rules-report.txt)
+            printf '%s\n' "$said" | while IFS= read -r line; do
+              [ -n "$line" ] && echo "::error title=Page suite::${line}"
             done
           fi
           exit "$code"
