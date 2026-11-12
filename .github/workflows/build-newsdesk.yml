@@ -3792,8 +3792,13 @@ jobs:
         shell: bash
         run: |
           npm i --no-save --silent jsdom
+          # Steps run under -e and -o pipefail, so a failing pipeline ends the step
+          # where it stands - which is why everything written after one here has never
+          # run, including the line that was meant to report what went wrong.
+          set +e
           node tests/logic.test.js newsdesk 2>&1 | tee rules-report.txt
           code="${PIPESTATUS[0]}"
+          set -e
           # Said again as annotations, which can be read back through the API from
           # places where the job log and the uploaded report cannot: both of those
           # live on a host that is not always reachable, and a failure nobody can
