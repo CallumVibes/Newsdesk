@@ -857,11 +857,6 @@ boot({ settle: 500 }).then(async ({ nd, window, errors, close, calls }) => {
       oil: { gbp: 63.42, usd: 79, chg: 0.3, at: now, from: 'x' },
       debt: { gbp: 2.94e12, rate: 4435, at: now }, rate: 0.79 };
     nd.renderMkt();
-    console.log('BAND gap=' + JSON.stringify(window.getComputedStyle(box).columnGap)
-      + ' clientWidth=' + box.clientWidth + ' kids=' + box.children.length
-      + ' fits=' + nd.tickerFits(box) + ' cls=' + JSON.stringify(box.className)
-      + ' sheets=' + doc.styleSheets.length
-      + ' rules=' + (doc.styleSheets[0] ? doc.styleSheets[0].cssRules.length : -1));
     t.is(box.children.length, 5, 'the weather and four figures');
     // A move is two pieces so one can go without the other.
     const b = box.querySelector('.mk b');
