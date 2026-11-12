@@ -3793,7 +3793,17 @@ jobs:
         run: |
           npm i --no-save --silent jsdom
           node tests/logic.test.js newsdesk 2>&1 | tee rules-report.txt
-          exit "${PIPESTATUS[0]}"
+          code="${PIPESTATUS[0]}"
+          # Said again as annotations, which can be read back through the API from
+          # places where the job log and the uploaded report cannot: both of those
+          # live on a host that is not always reachable, and a failure nobody can
+          # read is a failure that has to be guessed at.
+          if [ "$code" -ne 0 ]; then
+            grep -E '^  [0-9]+\.' rules-report.txt | head -30 | while IFS= read -r line; do
+              echo "::error title=Page suite::${line}"
+            done
+          fi
+          exit "$code"
 
       - name: Keep what the rules said
         if: failure()
