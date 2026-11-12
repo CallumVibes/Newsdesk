@@ -99,10 +99,20 @@ class Page {
 }
 
 class Browser {
-  constructor(conn, proc, dir) { this.conn = conn; this.proc = proc; this.dir = dir; }
+  constructor(conn, proc, dir) { this.conn = conn; this.proc = proc; this.dir = dir; this.contexts = []; }
   async newPage(opts) {
     opts = opts || {};
-    const { targetId } = await this.conn.send('Target.createTarget', { url: 'about:blank' });
+    /* Its own browser context, which is what playwright's browser.newPage() gives you
+       and what this stood in for without giving. A bare createTarget is another tab in
+       the default context, and tabs share localStorage - which this app writes its
+       source cache into. So one measurement's stories arrived in the next one's page,
+       and a suite could pass or fail on what ran before it. Nothing here was wrong
+       often enough to notice; it was wrong enough to make a local pass worth less than
+       it looked. */
+    const { browserContextId } = await this.conn.send('Target.createBrowserContext', {});
+    this.contexts.push(browserContextId);
+    const { targetId } = await this.conn.send('Target.createTarget',
+      { url: 'about:blank', browserContextId });
     const { sessionId } = await this.conn.send('Target.attachToTarget', { targetId, flatten: true });
     const page = new Page(this.conn, sessionId, targetId);
     await this.conn.send('Page.enable', {}, sessionId);

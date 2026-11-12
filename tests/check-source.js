@@ -899,6 +899,50 @@ suite('A story read out loud outlives the screen', (t) => {
 });
 
 /*
+ * Dragging from one tab to the next. The tab used to change when the finger left the
+ * glass and a slide played afterwards, which told you what had happened once it had.
+ */
+suite('A tab is dragged into view rather than swapped in afterwards', (t) => {
+  const page = read(PAGE);
+
+  t.ok(/<ol id="peek" aria-hidden="true"><\/ol>/.test(page), 'there is a list for the tab next door');
+  t.ok(page.indexOf('<ol id="list"') < page.indexOf('<ol id="peek"'),
+    'after this one, so the one being read comes first in the order a reader walks');
+
+  /* The television is kept out by never wiring it, which is sturdier than a guard
+     inside the handler: there is nothing there to get past. */
+  const wire = page.slice(page.indexOf('function setUpTouch()'), page.indexOf('/* ---------- Pull down'));
+  t.ok(/setUpPager\(\$\('listWrap'\)\)/.test(wire), 'the drag is wired up for a finger');
+  t.is((page.match(/setUpPager\(/g) || []).length, 2,
+    'and nowhere else: once where it is defined, once where a touch device wires it');
+
+  /* Peeking at a tab must not have the consequences of arriving at it. */
+  const peek = page.slice(page.indexOf('function drawPeek('), page.indexOf('/* The strip, part way'));
+  t.ok(/viewFor\(which\)/.test(peek), 'the next tab is worked out with viewFor, which marks nothing read');
+  t.not(/rebuild\(/.test(peek), 'and never by rebuilding, which would mark it read and move the cursor');
+  t.ok(/finally \{/.test(peek) && /S\.view = v0; S\.sections = s0; S\.tab = t0;/.test(peek),
+    'the three globals it borrows are put back whatever happens');
+
+  const move = page.slice(page.indexOf("wrap.addEventListener('touchmove'"),
+    page.indexOf("wrap.addEventListener('touchend'"));
+  t.ok(/Math\.abs\(my\) > Math\.abs\(mx\)/.test(move),
+    'a finger going down the page belongs to the scroller and the pull, not to this');
+  t.ok(/tabsAt\(from, to,/.test(move), 'and the strip moves with the drag rather than at the end of it');
+
+  const end = page.slice(page.indexOf("wrap.addEventListener('touchend'"),
+    page.indexOf("wrap.addEventListener('touchcancel'"));
+  t.ok(/Math\.max\(16, Date\.now\(\) - t0\)/.test(end),
+    'speed is measured over a frame at least, or any travel at all is infinitely fast');
+  t.ok(/SWIPE_KEEP/.test(end) && /SWIPE_FLICK/.test(end),
+    'and letting go goes by how far and how fast, so a flick counts and a nudge does not');
+
+  t.ok(/if \(!dragged\) tabSlide\(dir\)/.test(page),
+    'a tab arrived at by dragging does not then play the slide it has just finished');
+  t.ok(/\.tab\[style\*="--bar"\]:after\{opacity:var\(--bar\)\}/.test(page),
+    'the mark under a tab can be driven part way, so it crosses rather than jumps');
+});
+
+/*
  * Whether two stories are the same story still going on - which nothing in this app has
  * ever known. The trap is that the obvious method fails in a way that looks like
  * success: half the stories here say Hereford, so counting shared words welds the whole

@@ -894,6 +894,117 @@ async function lens(browser) {
 
 /* Whether a tab change looks like a change is a question about animation, which only
    a browser that runs animations can answer. */
+/* Dragging from one tab to the next.
+   
+   Nothing that already existed touches this: it only happens under a finger, and the
+   finger has to be mid-gesture to see any of it. Measured without letting go, which is
+   the whole of the difference from what was here before - the tab used to change when
+   the finger left the glass, so there was nothing to look at until it was over. */
+async function tabDrag(browser, box) {
+  const page = await open(browser, box);
+  const out = await page.evaluate(async () => {
+    const nd = window.ndApi, S = nd.S;
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const wrap = document.getElementById('listWrap');
+    const peek = document.getElementById('peek');
+    const list = document.getElementById('list');
+    const feed = (src, n) => ({ items: Array.from({ length: n }, (_, i) => ({
+      id: src + ':' + i, src, kicker: 'UK', title: src + ' headline ' + i, summary: 'S.',
+      link: 'https://example.com/' + src + '/' + i, image: '', html: '',
+      date: Date.now() - i * 60000, when: 0, order: i, fetched: Date.now() })) });
+    ['ht', 'kg', 'vf', 'cw', 'yh', 'bb', 'lm'].forEach((k) => { S.by[k] = feed(k, 12); });
+    S.mode = 'home';
+    S.tab = nd.TABS.findIndex((x) => x.id === 'local');
+    nd.rebuild(null);
+    await wait(60);
+
+    const tx = (el) => {
+      const m = getComputedStyle(el).transform;
+      if (!m || m === 'none') return 0;
+      const n = m.replace(/^matrix\(|\)$/g, '').split(',').map(Number);
+      return Math.round(n.length === 6 ? n[4] : 0);
+    };
+    const tabNode = (i) => document.querySelector('#tabs .tab[data-i="' + i + '"]');
+    const finger = { t: null };
+    const mk = (type, x, y) => {
+      const t = new Touch({ identifier: 7, target: wrap, clientX: x, clientY: y,
+                            pageX: x, pageY: y, screenX: x, screenY: y });
+      const live = type === 'touchend' ? [] : [t];
+      return new TouchEvent(type, { touches: live, targetTouches: live, changedTouches: [t],
+                                    bubbles: true, cancelable: true });
+    };
+    /* Takes real time, because speed is half of what decides it. Dispatched in a loop
+       with no waiting, every drag however short reads as infinitely fast - which is a
+       flick, and a flick is meant to commit. The slow one below has to actually be slow
+       to mean what it is there to mean. */
+    const across = async (dx, steps, ms) => {
+      const x0 = 320, y = 420;
+      wrap.dispatchEvent(mk('touchstart', x0, y));
+      for (let i = 1; i <= steps; i++) {
+        if (ms) await wait(ms);
+        wrap.dispatchEvent(mk('touchmove', x0 + dx * i / steps, y));
+      }
+    };
+    const letGo = (dx) => wrap.dispatchEvent(mk('touchend', 320 + dx, 420));
+
+    const r = { tv: document.documentElement.classList.contains('tv'),
+      atRest: wrap.className, restPeek: peek.children.length };
+    const was = S.tab, to = nd.tabAfter(1);
+    r.from = was; r.to = to;
+
+    /* Half way across and still holding. */
+    const w = wrap.clientWidth;
+    await across(-Math.round(w * 0.45), 8, 6);
+    await wait(30);
+    r.midClass = wrap.className;
+    r.midPeekRows = peek.children.length;
+    r.midPeekShown = getComputedStyle(peek).display !== 'none';
+    r.midList = tx(list);
+    r.midPeek = tx(peek);
+    r.midGap = r.midPeek - r.midList;
+    r.midWidth = w;
+    const a = tabNode(was), b = tabNode(to);
+    r.midFromColour = a ? a.style.color : '';
+    r.midToColour = b ? b.style.color : '';
+    r.midFromBar = a ? +a.style.getPropertyValue('--bar') : -1;
+    r.midToBar = b ? +b.style.getPropertyValue('--bar') : -1;
+    r.midOverflow = document.documentElement.scrollWidth > document.documentElement.clientWidth + 1;
+    r.midTabStill = S.tab === was;
+
+    letGo(-Math.round(w * 0.45));
+    await wait(420);
+    r.landed = S.tab;
+    r.afterClass = wrap.className;
+    r.afterPeek = peek.children.length;
+    r.afterList = tx(list);
+    const a2 = tabNode(was);
+    r.afterColourCleared = !a2 || a2.style.color === '';
+
+    /* A short drag is somebody changing their mind, and must put everything back. */
+    const before = S.tab;
+    // Slowly, which is somebody changing their mind rather than flicking.
+    await across(-Math.round(w * 0.08), 6, 22);
+    await wait(30);
+    r.shortClass = wrap.className;
+    letGo(-Math.round(w * 0.08));
+    await wait(420);
+    r.shortStayed = S.tab === before;
+    r.shortPeek = peek.children.length;
+    r.shortList = tx(list);
+
+    /* And down the page is somebody scrolling, which it must not take. */
+    const y0 = 420;
+    wrap.dispatchEvent(mk('touchstart', 320, y0));
+    for (let i = 1; i <= 6; i++) wrap.dispatchEvent(mk('touchmove', 324, y0 + i * 20));
+    await wait(30);
+    r.downClass = wrap.className;
+    wrap.dispatchEvent(mk('touchend', 324, y0 + 120));
+    return r;
+  });
+  await page.close();
+  return out;
+}
+
 async function tabMotion(browser) {
   const page = await open(browser, { w: 412, h: 915 });
   const out = await page.evaluate(async () => {
@@ -1024,6 +1135,9 @@ async function stripFade(browser) {
   const ph = await photoSizes(browser);
   const lz = await lens(browser);
   const tm = await tabMotion(browser);
+  const tdPhone = await tabDrag(browser, { w: 412, h: 915 });
+  const tdSmall = await tabDrag(browser, { w: 360, h: 640 });
+  const tdTv = await tabDrag(browser, { w: 1920, h: 1080, tv: true });
   const sf = await stripFade(browser);
   const ru = await reuse(browser);
   const rcPhone = await recipeCard(browser, { w: 412, h: 915 });
@@ -1122,6 +1236,57 @@ async function stripFade(browser) {
       t.ok(/4 min 20/.test(e.sub), k + ': and saying how long it runs (' + e.sub + ')');
     });
     t.is(seen.pixel.pageOverflow, false, 'and the page still does not scroll sideways');
+  });
+
+  suite('A tab is dragged into view, not swapped in after the fact', (t) => {
+    [['a phone', tdPhone], ['a small phone', tdSmall]].forEach(([who, d]) => {
+      t.ok(d.to >= 0 && d.to !== d.from, who + ': there is a tab next door to drag to');
+      t.not(/swipe/.test(d.atRest), who + ': nothing is going on until a finger says so');
+
+      /* Half way across, still holding. None of this existed before: the tab changed
+         when the finger left the glass, so there was nothing to see until it was over. */
+      t.ok(/swipe/.test(d.midClass), who + ': the drag is live while the finger is down');
+      t.ok(d.midPeekRows > 0, who + ': the next tab is drawn (' + d.midPeekRows + ' rows)');
+      t.is(d.midPeekShown, true, who + ': and on screen');
+      t.is(d.midTabStill, true, who + ': but the tab has not changed yet, so it can be called off');
+
+      // Both lists moved, by the drag, together, with a gutter between them.
+      t.ok(d.midList < -20, who + ': this list has moved with the finger (' + d.midList + 'px)');
+      t.ok(Math.abs(d.midList + Math.round(d.midWidth * 0.45)) < 24,
+        who + ': by about as far as the finger went');
+      t.ok(d.midGap > d.midWidth && d.midGap < d.midWidth + 40,
+        who + ': and the next one sits a page away, with a gutter (' + d.midGap + 'px)');
+      t.is(d.midOverflow, false, who + ': and the page itself still does not scroll sideways');
+
+      // The strip moves with it rather than snapping at the end.
+      t.ok(/^rgb\(/.test(d.midFromColour), who + ': the tab being left is part way to dim');
+      t.ok(/^rgb\(/.test(d.midToColour), who + ': and the one arriving part way to lit');
+      t.ok(d.midFromColour !== d.midToColour, who + ': in opposite directions');
+      t.ok(d.midFromBar > 0.3 && d.midFromBar < 0.9, who + ': its mark is fading out (' + d.midFromBar + ')');
+      t.ok(d.midToBar > 0.1 && d.midToBar < 0.7, who + ': and the new one fading in (' + d.midToBar + ')');
+
+      // Let go past the threshold and it lands, with nothing left behind.
+      t.is(d.landed, d.to, who + ': letting go past the threshold arrives at it');
+      t.not(/swipe/.test(d.afterClass), who + ': with the drag over');
+      t.is(d.afterPeek, 0, who + ': the stand-in thrown away');
+      t.is(d.afterList, 0, who + ': the real list square again');
+      t.is(d.afterColourCleared, true, who + ': and the strip back to being styled by its class');
+
+      // Changed your mind half way: everything goes back.
+      t.is(d.shortStayed, true, who + ': a short drag changes nothing');
+      t.is(d.shortPeek, 0, who + ': and leaves nothing behind');
+      t.is(d.shortList, 0, who + ': with the list square');
+
+      // Down the page belongs to the scroller and the pull, not to this.
+      t.not(/swipe/.test(d.downClass), who + ': a finger going down the page is not taken');
+    });
+
+    /* A television has no finger, and the remote has always moved between tabs by
+       changing them outright. Nothing here runs there. */
+    t.is(tdTv.tv, true, 'the television case really is the television');
+    t.not(/swipe/.test(tdTv.midClass), 'a television does not drag between tabs');
+    t.is(tdTv.midPeekRows, 0, 'and draws no stand-in');
+    t.is(tdTv.midTabStill, true, 'and is not moved by a touch it never gets');
   });
 
   suite('The tab strip fades only where there is more', (t) => {
